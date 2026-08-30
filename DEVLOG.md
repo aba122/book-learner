@@ -25,3 +25,7 @@
 - 端到端集成测试 lifecycle.rs 一次通过:Day0 建书→学块→评估(围栏 JSON)→SQLite 落库+md 镜像+git commit→Day1 队列 [weak_retest, review, new, new]→薄弱点两连过 fixed→复习推进 3 天档。
 - 测试总计:31 通过(30 单测 + 1 集成),1 ignored(真实 codex 冒烟,已单独跑过并通过);clippy --all-targets 零警告。
 - 遗留边界(交 Mac 阶段):EPUB 抽取/CFI、React 前端、Tauri 壳、whisper、Obsidian 导出、_methodology.md 流、AI 重试编排。
+
+## 2026-08-30 · 远程仓库与 PR
+- 远程:https://github.com/aba122/book-learner(私有);main 与 feat/l1-core 已推送。
+- 注:本机 SSH 密钥属另一账号(2019ChenGong),对本仓无权限;推送走 HTTPS+PAT。Mac 端克隆请用自己账号的认证;用完的 PAT 应及时 revoke。
