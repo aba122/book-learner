@@ -1,4 +1,5 @@
 pub mod db;
+pub mod eval;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CoreError {
