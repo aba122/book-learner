@@ -187,6 +187,55 @@ pub fn list_weakpoints(conn: &Connection, book_id: i64)
     Ok((open, fixed))
 }
 
+
+#[derive(Debug, PartialEq)]
+pub enum Replan {
+    OnTrack,
+    AutoAdjusted { new_daily: i64 },
+    NeedsDecision { required_daily: i64, cap: i64 },
+}
+
+/// 落后检测与重排(PRODUCT_SPEC §6):最近 2 个有 new 任务的日期其 new 任务均未完成 → 落后;
+/// required = ceil(剩余未学块 / 剩余天数);≤cap 自动改 daily_new_blocks,>cap 交上层确认(截止日不动)。
+pub fn check_behind(conn: &Connection, book_id: i64, today: &str) -> Result<Replan> {
+    let days: Vec<String> = {
+        let mut st = conn.prepare(
+            "SELECT DISTINCT date FROM daily_task \
+             WHERE book_id=?1 AND kind='new' AND date<?2 ORDER BY date DESC LIMIT 2")?;
+        let rows = st.query_map(rusqlite::params![book_id, today], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    if days.len() < 2 { return Ok(Replan::OnTrack); }
+    for d in &days {
+        let undone: i64 = conn.query_row(
+            "SELECT count(*) FROM daily_task \
+             WHERE book_id=?1 AND kind='new' AND date=?2 AND status!='done'",
+            rusqlite::params![book_id, d], |r| r.get(0))?;
+        if undone == 0 { return Ok(Replan::OnTrack); }
+    }
+
+    let remaining: i64 = conn.query_row(
+        "SELECT count(*) FROM knowledge_block \
+         WHERE book_id=?1 AND status='unlearned' AND skipped=0", [book_id], |r| r.get(0))?;
+    let (deadline, cap): (String, i64) = conn.query_row(
+        "SELECT deadline, daily_cap FROM study_plan WHERE book_id=?1 AND active=1",
+        [book_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    use chrono::NaiveDate;
+    let d_today = NaiveDate::parse_from_str(today, "%Y-%m-%d")
+        .map_err(|e| crate::CoreError::Other(e.to_string()))?;
+    let d_end = NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
+        .map_err(|e| crate::CoreError::Other(e.to_string()))?;
+    let days_left = ((d_end - d_today).num_days() + 1).max(1); // 含今天
+    let required = (remaining + days_left - 1) / days_left;
+    if required > cap {
+        Ok(Replan::NeedsDecision { required_daily: required, cap })
+    } else {
+        conn.execute("UPDATE study_plan SET daily_new_blocks=?2 WHERE book_id=?1 AND active=1",
+            rusqlite::params![book_id, required.max(1)])?;
+        Ok(Replan::AutoAdjusted { new_daily: required.max(1) })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     fn setup() -> (rusqlite::Connection, i64) {
@@ -317,5 +366,39 @@ mod tests {
             "SELECT status,pass_streak FROM weak_point WHERE id=1", [],
             |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!((st.as_str(), streak), ("open", 0));
+    }
+    #[test]
+    fn behind_two_days_triggers_replan() {
+        let (conn, b) = setup();
+        for d in ["2026-08-28", "2026-08-29"] {
+            conn.execute("INSERT INTO daily_task(date,book_id,block_id,kind,seq) VALUES(?1,?2,1,'new',1)",
+                rusqlite::params![d, b]).unwrap();
+        }
+        match super::check_behind(&conn, b, "2026-08-30").unwrap() {
+            super::Replan::AutoAdjusted { new_daily } => assert!(new_daily >= 1),
+            other => panic!("expect AutoAdjusted, got {other:?}"),
+        }
+        let updated: i64 = conn.query_row("SELECT daily_new_blocks FROM study_plan WHERE book_id=?1",
+            [b], |r| r.get(0)).unwrap();
+        assert!(updated >= 1);
+    }
+    #[test]
+    fn replan_over_cap_needs_decision() {
+        let (conn, b) = setup();
+        conn.execute("UPDATE study_plan SET deadline='2026-08-30'", []).unwrap(); // 截止=今天:剩1天6块
+        for d in ["2026-08-28", "2026-08-29"] {
+            conn.execute("INSERT INTO daily_task(date,book_id,block_id,kind,seq) VALUES(?1,?2,1,'new',1)",
+                rusqlite::params![d, b]).unwrap();
+        }
+        assert!(matches!(super::check_behind(&conn, b, "2026-08-30").unwrap(),
+            super::Replan::NeedsDecision { required_daily: 6, cap: 4 }));
+        let deadline: String = conn.query_row("SELECT deadline FROM study_plan WHERE book_id=?1",
+            [b], |r| r.get(0)).unwrap();
+        assert_eq!(deadline, "2026-08-30"); // 截止日不被静默修改
+    }
+    #[test]
+    fn on_track_returns_ok() {
+        let (conn, b) = setup();
+        assert!(matches!(super::check_behind(&conn, b, "2026-08-30").unwrap(), super::Replan::OnTrack));
     }
 }
