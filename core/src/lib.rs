@@ -1,6 +1,7 @@
 pub mod db;
 pub mod eval;
 pub mod models;
+pub mod memory;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CoreError {
