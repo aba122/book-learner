@@ -12,7 +12,7 @@ impl BookType {
             Self::Humanities => "humanities",
         }
     }
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_db_str(s: &str) -> Self {
         match s {
             "methodology" => Self::Methodology,
             "humanities" => Self::Humanities,
@@ -80,7 +80,7 @@ pub fn get_book_slug_type(conn: &Connection, book_id: i64) -> Result<(String, Bo
     let (slug, ty): (String, String) = conn.query_row(
         "SELECT slug,type FROM book WHERE id=?1", [book_id],
         |r| Ok((r.get(0)?, r.get(1)?)))?;
-    Ok((slug, BookType::from_str(&ty)))
+    Ok((slug, BookType::from_db_str(&ty)))
 }
 
 #[cfg(test)]

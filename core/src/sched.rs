@@ -77,7 +77,6 @@ pub fn generate_daily(conn: &Connection, date: &str) -> Result<Vec<DailyTask>> {
             }
         }
     }
-    drop(insert);
     tx.commit()?;
     list_daily(conn, date)
 }
