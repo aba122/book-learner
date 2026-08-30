@@ -117,6 +117,22 @@ impl MemoryStore {
         Ok(())
     }
 
+
+    /// 学习会话结束后的自动提交;无变更时容忍空提交。
+    pub fn commit(&self, msg: &str) -> Result<()> {
+        self.git(&["add", "-A"])?;
+        let out = self.git(&["commit", "-m", msg])?;
+        if !out.status.success() {
+            let text = format!("{}{}",
+                String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            if text.contains("nothing to commit") || text.contains("nothing added") {
+                return Ok(());
+            }
+            return Err(CoreError::Other(format!("git commit failed: {text}")));
+        }
+        Ok(())
+    }
+
     fn git(&self, args: &[&str]) -> Result<std::process::Output> {
         let out = std::process::Command::new("git")
             .arg("-C").arg(&self.root)
@@ -207,5 +223,17 @@ mod tests {
             &[("供需弹性".into(), "passed".into()), ("消费者剩余".into(), "unlearned".into())]).unwrap();
         let f = std::fs::read_to_string(dir.path().join("books/microecon/_map.md")).unwrap();
         assert!(f.contains("供需弹性") && f.contains("passed") && f.contains("消费者剩余"));
+    }
+    #[test]
+    fn commit_creates_git_commit_and_tolerates_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("microecon", "微观经济学").unwrap();
+        m.commit("study: 微观经济学/供需弹性 2026-08-30").unwrap();
+        m.commit("study: 空提交容忍").unwrap();
+        let log = std::process::Command::new("git")
+            .arg("-C").arg(dir.path())
+            .args(["log", "--oneline"]).output().unwrap();
+        assert!(String::from_utf8_lossy(&log.stdout).contains("供需弹性"));
     }
 }
