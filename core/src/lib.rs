@@ -4,6 +4,7 @@ pub mod models;
 pub mod memory;
 pub mod ai;
 pub mod prompts;
+pub mod sched;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CoreError {
