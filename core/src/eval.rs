@@ -50,6 +50,20 @@ fn strict_extract<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
     serde_json::from_str(&raw[start..=end]).map_err(|e| CoreError::EvalParse(e.to_string()))
 }
 
+
+#[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct QuizResult {
+    pub passed: bool,
+    pub comment: String,
+    #[serde(default)] pub new_weak_point: Option<WeakPointItem>,
+}
+
+/// 间隔复习快问结果解析(提取/严格规则同 parse_eval)。
+pub fn parse_quiz(raw: &str) -> Result<QuizResult> {
+    strict_extract(raw)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
