@@ -2,6 +2,11 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-08-31 · Mac Foundation T2 完成
+- Codex CLI:0.144.1 在临时/记忆库目录运行时要求显式 `--skip-git-repo-check`;先由真实冒烟复现,再以参数契约回归测试驱动 provider 修复。两次真实只读调用均返回“二”,分别耗时 13.5s 与 50.99s;`-C`、`--sandbox read-only`、`--output-last-message` 与新参数共同通过,不依据单次延迟调整产品 prompt。
+- EPUB CFI:Playwright 1.62.1 / Chromium 151 使用真实 `sample.epub` 完成 heading range 往返;元素子节点偏移会被 epub.js 解释成字符偏移,因此范围必须锚定文本节点。结果为 `epubcfi(/6/2!/4/2,/1:0,/1:9)`,恢复文本“第一章 供给与需求”。
+- 边界:本节点只验证单一文本节点 range;跨节点/跨段范围与用户手工校正留给后续 EPUB 生产接入节点。
+
 ## 2026-08-31 · Mac Foundation T1 完成
 - 工具链:Xcode 26.3 / Apple clang 17.0.0 / rustc+cargo 1.98.0 / Node 25.3.0 / pnpm 10.29.3 / codex-cli 0.144.1。
 - 完成:新增 Tauri 2 最小原生 crate、固定 Vite 开发端口、macOS CI、调试构建脚本及可替换 SVG 图标源;本节点仅建立可编译原生壳,产品命令由后续 typed IPC 节点接入。
