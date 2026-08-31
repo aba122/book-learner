@@ -55,3 +55,15 @@
 - T5 书架页(首字色块封面/主攻置顶/Confirm 切换)+ 导入向导(文件→类型→进度→跳地图);测试用 deferred generateMap 使进度文案可确定性断言。
 - T6 知识地图页(模块分组/状态徽标/星级/编辑模式跳过与移动/改模块名/合并拆分禁用留位)+ 目标设定面板(期限→每日块数向上取整换算,含今天与截止日,与 L1 语义一致);日期敏感测试用 vi.useFakeTimers({toFake:['Date']}) 钉住今天,不影响 userEvent。
 - 并行会话说明:23:07 headless 续跑会话发现本会话存活后已主动退出,未产生代码冲突。
+
+## 2026-08-30 · L2 并行会话检测(第二次,headless 续跑会话再次主动退出)
+- 23:15 启动的 headless 续跑会话(本条作者)开工检查时发现:pts/0 的交互式会话(`claude -r`,23:05 启动,PID 1999606)仍存活且正在实施 L2-T7——工作区有其未提交的 T7 半成品(scripts/make-fixture-epub.mjs、public/fixtures/sample.epub、reader.test.tsx、EpubView.tsx、ReaderPage.tsx、config/tokens 增量),且 ReaderPage.tsx 在 23:18:43(headless 会话运行期间)仍被持续改写、进程 CPU 时间持续增长。
+- 为避免重复实现与 commit/push 竞态(同 23:07 那次先例),headless 会话未触碰任何代码与计划复选框,记录本条后正常退出;T7 及余下任务由交互式会话继续。
+- headless 会话已独立核验的部分(仅只读检查,供交互式会话参考):fixture EPUB 结构合法(mimetype 首条目、STORE 不压缩、3 章 spine);reader.test.tsx 覆盖计划 Step 7.2 全部断言点;工作区半成品与计划 Step 7.1–7.3 相符,属"完整推进中"而非残缺。
+- 注意:本机 /p 为网络卷,属性缓存有延迟——headless 会话最初两次 `git status`/`ls` 看到的是过时快照(误报"干净"),数十秒后才逐步显现真实改动;判断工作区状态请以重复采样为准。
+
+## 2026-08-30 · L2 并行会话检测(第三次,headless 续跑会话再次主动退出)
+- 23:20 启动的 headless 续跑会话(本条作者)开工检查时发现:pts/0 交互式会话(PID 1999606)仍存活,T7 已由其提交并推送(ca9dc19,23:19:14),且正在实施 L2-T8——本会话运行期间(23:21)`features/feynman/feynman.test.tsx`(4.3KB)被创建,`config.ts` 出现未提交的 `TYPEWRITER_CHAR_MS` 增量,60 秒窗口内进程 CPU 时间持续增长。红测试先行,符合 Step 8.1 的 TDD 节奏,属正常推进而非中断残留。
+- 按前两次先例(23:07、23:15),本会话未触碰任何代码与计划复选框,记录本条后正常退出;T8 及余下任务(T9/T10、tag、PR#2)由交互式会话继续。
+- 本会话只读核验(供参考):T7 提交完整(fixture EPUB 3620B + EpubView/ReaderPage + reader.test.tsx 101 行 + 计划复选框已勾);工作区此刻仅 DEVLOG(第二次检测记录,仍未提交,收尾请一并入库)+ config.ts + feynman.test.tsx 三处改动,均可归属 T8 进行中。
+- 给启动方的建议:交互式会话存活期间无需再启 headless 续跑;如需确认其死活,`ps -p 1999606` + 隔 ≥60s 两次采样 CPU 时间即可(/p 卷缓存延迟,单次快照不可信)。

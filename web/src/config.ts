@@ -9,3 +9,5 @@ export const KIND_ORDER: TaskKind[] = ['weak_retest', 'review', 'new']
 /** 阅读器字号档(epub.js themes.fontSize 百分比)与默认档下标 */
 export const READER_FONT_STEPS = [90, 100, 112, 126, 142] as const
 export const READER_FONT_DEFAULT_IDX = 1
+/** 学生回复打字机渐显速度(毫秒/字) */
+export const TYPEWRITER_CHAR_MS = 28

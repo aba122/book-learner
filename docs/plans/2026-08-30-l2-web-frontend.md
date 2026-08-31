@@ -271,9 +271,9 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/features/feynman/{FeynmanPage,EvalCard}.tsx`;Test: `feynman.test.tsx`(fake timers 快进打字机;**必须** `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`,否则 user-event 与 fake timers 互等死锁)
 
-- [ ] **Step 8.1 失败测试**:进入 FeynmanPage(路由带 taskId)→ 输入复述并发送 → 学生剧本第 1 条渐显完成后完整出现;连续 4 轮 → "结束讲授"按钮变主强调态;点击 → EvalCard:三维星级、薄弱点列表("已当场修复"打勾标记)、AI 建议文案;点"确认通过" → 断言 `confirmVerdict(sessionId, true)` 被调且路由回 `/`;"回读原文"跳 `/reader/:blockId?back=<taskId>`;"放弃本次"弹 Confirm 且确认后不调 confirmVerdict 直接返回。
-- [ ] **Step 8.2 实现** PRODUCT_SPEC §3.5:左侧可折叠原文参考(blockSource)、中部对话流(用户右/学生左、打字机动画、自动滚底)、底部输入区(textarea,Cmd/Ctrl+Enter 发送;语音按钮禁用态 tooltip"Mac 版可用");工具条(回读原文/结束讲授/放弃本次)。测试绿 + 浏览器完整学一个块目检。
-- [ ] **Step 8.3 commit + push**:`feat(web): 费曼对话页与评估卡 (L2-T8)`
+- [x] **Step 8.1 失败测试**:进入 FeynmanPage(路由带 taskId)→ 输入复述并发送 → 学生剧本第 1 条渐显完成后完整出现;连续 4 轮 → "结束讲授"按钮变主强调态;点击 → EvalCard:三维星级、薄弱点列表("已当场修复"打勾标记)、AI 建议文案;点"确认通过" → 断言 `confirmVerdict(sessionId, true)` 被调且路由回 `/`;"回读原文"跳 `/reader/:blockId?back=<taskId>`;"放弃本次"弹 Confirm 且确认后不调 confirmVerdict 直接返回。
+- [x] **Step 8.2 实现** PRODUCT_SPEC §3.5:左侧可折叠原文参考(blockSource)、中部对话流(用户右/学生左、打字机动画、自动滚底)、底部输入区(textarea,Cmd/Ctrl+Enter 发送;语音按钮禁用态 tooltip"Mac 版可用");工具条(回读原文/结束讲授/放弃本次)。测试绿 + 浏览器完整学一个块目检。
+- [x] **Step 8.3 commit + push**:`feat(web): 费曼对话页与评估卡 (L2-T8)`
 
 ### Task 9: 统计页 + 设置页
 
