@@ -33,3 +33,11 @@
 ## 2026-08-30 · L2 启动前:磁盘配额事件
 - /p/fzv6enresearch 群组卷 100% 满;cargo clean 释放 679MB 救急。
 - 本机存储策略(不入库,机器相关):pnpm store 与 web/node_modules(符号链接)、cargo target(CARGO_TARGET_DIR)全部放 /bigtemp/fzv6en/book-learner/;/p 卷只放源码。core 重新构建需 CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target cargo test。
+
+## 2026-08-30 · L2-T0 完成(web 脚手架/CI/推送链路)
+- feat/l2-web 分支自 feat/l1-core 建立并推送成功(HTTPS+PAT credential store 复用 L1 配置)。
+- 脚手架:Vite 7 + React 18 + TS(create-vite 默认给 React 19/Vite 8,按计划技术栈手动钉回)+ vitest/jsdom/RTL + Tailwind v4 + zustand/epubjs/react-router-dom/jszip;`packageManager: pnpm@11.24.0`。
+- 磁盘偏差(重要,机器相关):计划的"先建 node_modules 符号链接再 install"在 pnpm 11 下不可行——pnpm 链接阶段按 realpath 删除重建 node_modules,符号链接目标被删。实际方案:正常 install 后整体 mv 到 /bigtemp/fzv6en/book-learner/web-node_modules 再建符号链接(/p 上 web/ 仅 ~200K)。后续如需 pnpm add/remove,须带 env `npm_config_virtual_store_dir=/bigtemp/fzv6en/book-learner/web-node_modules/.pnpm`,否则报 UNEXPECTED_VIRTUAL_STORE;日常 install/test/build 不受影响。
+- pnpm 11 行为:未审批 build script 的全新安装 exit 1(实测),故 `pnpm-workspace.yaml`(allowBuilds: esbuild/core-js/es5-ext = false)必须入库,CI 才能过;这些 postinstall 均非必需(esbuild 二进制走 optional deps)。
+- CI:.github/workflows/ci.yml(core: cargo test;web: corepack + install --frozen-lockfile + vitest --run + build)。
+- 本地验证:vitest 0 测试 exit 0(passWithNoTests)、build 通过。

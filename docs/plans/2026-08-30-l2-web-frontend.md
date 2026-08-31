@@ -63,11 +63,11 @@ book-learner/
 
 **Files:** Create: `web/`(脚手架)、`web/ARCHITECTURE.md`、`.github/workflows/ci.yml`;Modify: `DEVLOG.md`、根 `.gitignore`
 
-- [ ] **Step 0.1** `git checkout -b feat/l2-web feat/l1-core`
-- [ ] **Step 0.2 免交互推送**:`git remote set-url origin https://github.com/aba122/book-learner.git`;`git config --local credential.helper "store --file /u/fzv6en/.book-learner-cred"`;写 `/u/fzv6en/.book-learner-cred`(chmod 600,仓库外):`https://aba122:<PAT>@github.com`。**PAT 来源**:用当前会话中用户提供且已验证有效(API 200)的 token;若已失效,**暂停并向用户索取新 token**,期间各 Task 照常本地 commit,token 到位后一次性补 push(commit 历史仍逐 Task 可追溯)。验证 `git push -u origin feat/l2-web` 成功。
-- [ ] **Step 0.3 脚手架(注意磁盘策略)**:`pnpm create vite web --template react-ts`;删除生成的 demo 文件;**先建符号链接** `ln -s /bigtemp/fzv6en/book-learner/web-node_modules web/node_modules`;再 `pnpm -C web add zustand epubjs react-router-dom` 与 `pnpm -C web add -D tailwindcss @tailwindcss/vite vitest jsdom @testing-library/react @testing-library/user-event @testing-library/jest-dom @types/node jszip`(jszip 必须显式加:pnpm 隔离布局下不能 import 传递依赖)。`web/package.json` 写入 `"packageManager": "pnpm@11.24.0"`(CI corepack 确定性)。根 `.gitignore` 增加 `web/node_modules`。
-- [ ] **Step 0.4** `vite.config.ts`:接入 `@tailwindcss/vite` 插件与 vitest 配置(`test: { environment: 'jsdom', setupFiles: './src/test-setup.ts', passWithNoTests: true }`(零测试时 vitest --run 默认退出码 1,会打红 T0 的 CI),需 `/// <reference types="vitest/config" />`);`src/test-setup.ts` 引入 `@testing-library/jest-dom/vitest`。**`web/tsconfig.app.json` 增加 `"exclude": ["src/**/*.test.*", "src/test-setup.ts"]`**(create-vite 的 build 是 `tsc -b && vite build`,不排除的话 T1 的红测试 import 不存在的 mock.ts 会把 build 也打红;vitest 仍正常跑测试)。
-- [ ] **Step 0.5** 写 `web/ARCHITECTURE.md`:
+- [x] **Step 0.1** `git checkout -b feat/l2-web feat/l1-core`
+- [x] **Step 0.2 免交互推送**:`git remote set-url origin https://github.com/aba122/book-learner.git`;`git config --local credential.helper "store --file /u/fzv6en/.book-learner-cred"`;写 `/u/fzv6en/.book-learner-cred`(chmod 600,仓库外):`https://aba122:<PAT>@github.com`。**PAT 来源**:用当前会话中用户提供且已验证有效(API 200)的 token;若已失效,**暂停并向用户索取新 token**,期间各 Task 照常本地 commit,token 到位后一次性补 push(commit 历史仍逐 Task 可追溯)。验证 `git push -u origin feat/l2-web` 成功。
+- [x] **Step 0.3 脚手架(注意磁盘策略)**:`pnpm create vite web --template react-ts`;删除生成的 demo 文件;**先建符号链接** `ln -s /bigtemp/fzv6en/book-learner/web-node_modules web/node_modules`;再 `pnpm -C web add zustand epubjs react-router-dom` 与 `pnpm -C web add -D tailwindcss @tailwindcss/vite vitest jsdom @testing-library/react @testing-library/user-event @testing-library/jest-dom @types/node jszip`(jszip 必须显式加:pnpm 隔离布局下不能 import 传递依赖)。`web/package.json` 写入 `"packageManager": "pnpm@11.24.0"`(CI corepack 确定性)。根 `.gitignore` 增加 `web/node_modules`。
+- [x] **Step 0.4** `vite.config.ts`:接入 `@tailwindcss/vite` 插件与 vitest 配置(`test: { environment: 'jsdom', setupFiles: './src/test-setup.ts', passWithNoTests: true }`(零测试时 vitest --run 默认退出码 1,会打红 T0 的 CI),需 `/// <reference types="vitest/config" />`);`src/test-setup.ts` 引入 `@testing-library/jest-dom/vitest`。**`web/tsconfig.app.json` 增加 `"exclude": ["src/**/*.test.*", "src/test-setup.ts"]`**(create-vite 的 build 是 `tsc -b && vite build`,不排除的话 T1 的红测试 import 不存在的 mock.ts 会把 build 也打红;vitest 仍正常跑测试)。
+- [x] **Step 0.5** 写 `web/ARCHITECTURE.md`:
 
 ```markdown
 # web/ 架构守则(变更局部化)
@@ -81,8 +81,8 @@ book-learner/
    组件内禁止魔法数字。改规则不触页面。
 ```
 
-- [ ] **Step 0.6** `.github/workflows/ci.yml`:push/PR 触发,两 job——`core`(dtolnay/rust-toolchain@stable → `cargo test --manifest-path core/Cargo.toml`)与 `web`(actions/setup-node@v4 node 22 → `corepack enable` → `pnpm -C web install --frozen-lockfile` → `pnpm -C web test -- --run` → `pnpm -C web build`)。
-- [ ] **Step 0.7** `pnpm -C web test -- --run`(0 测试通过)与 `pnpm -C web build` 通过;DEVLOG 记 L2 启动;**commit + push**:`chore(web): L2 脚手架/CI/推送链路 (L2-T0)`
+- [x] **Step 0.6** `.github/workflows/ci.yml`:push/PR 触发,两 job——`core`(dtolnay/rust-toolchain@stable → `cargo test --manifest-path core/Cargo.toml`)与 `web`(actions/setup-node@v4 node 22 → `corepack enable` → `pnpm -C web install --frozen-lockfile` → `pnpm -C web test -- --run` → `pnpm -C web build`)。
+- [x] **Step 0.7** `pnpm -C web test -- --run`(0 测试通过)与 `pnpm -C web build` 通过;DEVLOG 记 L2 启动;**commit + push**:`chore(web): L2 脚手架/CI/推送链路 (L2-T0)`
 
 ### Task 1: 领域类型 + Backend 契约(灵活性的锚点)
 

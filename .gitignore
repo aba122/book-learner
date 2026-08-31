@@ -2,3 +2,4 @@ core/target/
 node_modules/
 *.db
 .DS_Store
+web/node_modules
