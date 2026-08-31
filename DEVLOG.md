@@ -2,6 +2,15 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-08-31 · Mac-M1 设计启动
+- 范围:首个 Mac 垂直切片完成 Tauri 2 原生壳、typed IPC、受支持 SQLite 用例与 `TauriBackend`;真实 EPUB/Codex 仅按既定顺序做风险冒烟,生产接入及记忆库/tray/语音/导出留给后续独立节点,不改变既有产品规则。
+- 架构:采用契约优先分层(`Backend → TauriBackend → commands → application services → core/repositories`),浏览器继续使用 MockBackend;DTO、持久化模型与 UI 类型隔离。
+- 安全边界:原生端未实现的导入/地图编辑/任务完成/阅读/会话/统计能力必须返回 typed `not_implemented` 并显示中文不可用态,不得回退 Mock;复习/重考不可由通用 completeTask 绕过。
+- 计划关系:`mac-m1` 是产品 M1 的技术前置门禁,只交付原生 contract/SQLite 基座,不替代 `IMPLEMENTATION_PLAN.md` 的 M1 验收或 `m1` tag。
+- 流程:开发分支 `feat/mac-m1`;节点级原子 commit 后立即 push,里程碑经 CI/PR 合并 main 并打 `mac-m1` tag。
+- 设计文档:`docs/superpowers/specs/2026-08-31-mac-foundation-design.md`。
+- 基线验证:`pnpm exec vitest --run` 27/27 通过;`pnpm build` 通过(现有 bundle >500kB 警告保留)。本机尚无 Rust toolchain,在实施脚手架节点补齐。
+
 ## 2026-08-30 · 项目启动(Linux 阶段)
 - 完成:SPEC 套件定稿(四文档);L1 计划(docs/plans/2026-08-30-core-crate-linux.md),经独立评审两轮(1 阻断已修 + 9 条建议已并入)。
 - 决策:Linux 先实现平台无关 core crate;前端/Tauri 壳为后续独立计划。实现工作在 feat/l1-core 分支进行(偏差:计划 T0 未提分支,规范起见补充),完成后合回 main。
