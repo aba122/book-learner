@@ -29,3 +29,7 @@
 ## 2026-08-30 · 远程仓库与 PR
 - 远程:https://github.com/aba122/book-learner(私有);main 与 feat/l1-core 已推送。
 - 注:本机 SSH 密钥属另一账号(2019ChenGong),对本仓无权限;推送走 HTTPS+PAT。Mac 端克隆请用自己账号的认证;用完的 PAT 应及时 revoke。
+
+## 2026-08-30 · L2 启动前:磁盘配额事件
+- /p/fzv6enresearch 群组卷 100% 满;cargo clean 释放 679MB 救急。
+- 本机存储策略(不入库,机器相关):pnpm store 与 web/node_modules(符号链接)、cargo target(CARGO_TARGET_DIR)全部放 /bigtemp/fzv6en/book-learner/;/p 卷只放源码。core 重新构建需 CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target cargo test。
