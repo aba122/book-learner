@@ -279,9 +279,9 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/features/stats/StatsPage.tsx`, `web/src/features/settings/SettingsPage.tsx`;Test: `stats.test.tsx`, `settings.test.tsx`
 
-- [ ] **Step 9.1 失败测试**:统计页渲染 `stats()` 全部指标(进度、streak、今日分钟、薄弱点 open/fixed);设置页表单显示 `getSettings` 值,修改番茄钟分钟 + 保存 → `saveSettings` 收到新值并显示已保存提示。
-- [ ] **Step 9.2 实现** §3.6/3.7 的 Linux 子集(图表用纯 CSS 条形/环形,不引图表库;codex 路径/whisper 模型/git 远程设置项渲染禁用态留位,tooltip 注明 Mac 阶段)。测试绿。
-- [ ] **Step 9.3 commit + push**:`feat(web): 统计页与设置页 (L2-T9)`
+- [x] **Step 9.1 失败测试**:统计页渲染 `stats()` 全部指标(进度、streak、今日分钟、薄弱点 open/fixed);设置页表单显示 `getSettings` 值,修改番茄钟分钟 + 保存 → `saveSettings` 收到新值并显示已保存提示。
+- [x] **Step 9.2 实现** §3.6/3.7 的 Linux 子集(图表用纯 CSS 条形/环形,不引图表库;codex 路径/whisper 模型/git 远程设置项渲染禁用态留位,tooltip 注明 Mac 阶段)。测试绿。
+- [x] **Step 9.3 commit + push**:`feat(web): 统计页与设置页 (L2-T9)`
 
 ### Task 10: 收尾——全量验证、文档回写、PR #2
 
