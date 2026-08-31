@@ -67,3 +67,11 @@
 - 按前两次先例(23:07、23:15),本会话未触碰任何代码与计划复选框,记录本条后正常退出;T8 及余下任务(T9/T10、tag、PR#2)由交互式会话继续。
 - 本会话只读核验(供参考):T7 提交完整(fixture EPUB 3620B + EpubView/ReaderPage + reader.test.tsx 101 行 + 计划复选框已勾);工作区此刻仅 DEVLOG(第二次检测记录,仍未提交,收尾请一并入库)+ config.ts + feynman.test.tsx 三处改动,均可归属 T8 进行中。
 - 给启动方的建议:交互式会话存活期间无需再启 headless 续跑;如需确认其死活,`ps -p 1999606` + 隔 ≥60s 两次采样 CPU 时间即可(/p 卷缓存延迟,单次快照不可信)。
+
+## 2026-08-31 · L2-T7~T10 完成,L2 收官
+- T7 阅读器:jszip 生成合法 EPUB3 fixture(mimetype 首条目 STORE);EpubView 封装 epub.js 生命周期,三阅读主题读 tokens(--reader-*)注入 iframe;浏览器实读逐项目检(翻页/目录跳章/字号档/夜读主题/进度条)通过。目检抓到真 bug:学习模式浮层遮住翻页按钮,已改为分栏布局。
+- T8 费曼对话页:原文参考折叠栏/对话流/打字机渐显(interval+函数式 setState,批量推进可整段渐显)/思考中状态/评估卡(三维星级/薄弱点已修复标记/AI 建议)/确认通过回今日;放弃走 Confirm 不落评估。偏差:vitest 4 fake timers 下 user-event 连纯点击都死锁,feature 测试统一 fireEvent + act(计划的 advanceTimers 约定不可行,DEVLOG 即此记录)。
+- T9 统计页(纯 CSS 环形/条形)+ 设置页(番茄钟/休息/提醒/Obsidian 路径可存;codex/whisper/git 远程禁用留位)。
+- T10 全量验证:vitest 27/27 绿、build 通过、core 回归 30+1 绿(CARGO_TARGET_DIR=/bigtemp)。Playwright 全流程冒烟:今日→开始新块→阅读器→费曼 4 轮→评估→确认通过→回今日(块变已完成、进度 3/12、今日 30 分钟),截图留档 /bigtemp/fzv6en/book-learner/l2-smoke-shots/。
+- 偏差清单(延后项):地图合并/拆分(需原文选区,Mac);语音输入/书封面(留位);阅读器书签与行距/段首缩进设置(延后);今日页"明日预告"(契约缺失,Mac 阶段补 tomorrowPreview);菜单栏番茄倒计时(tray,Mac);epub CFI 精确锚定(前端只消费 blockSource.href)。
+- 回写:TECH_DESIGN §1.1(web/ 结构与 Backend 契约位置)、CLAUDE.md 状态区(L2 完成,Mac 阶段入口=backend/tauri.ts+Tauri 壳)。

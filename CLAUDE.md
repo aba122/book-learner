@@ -11,9 +11,10 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 ## 当前状态
 
 - [x] 产品与技术设计定稿(2026-08-30,与用户四轮问答确认)
-- [ ] M1 核心闭环 ← **从这里开始**
-- [ ] M2 学习系统
-- [ ] M3 体验完善
+- [x] L1 core crate(Linux,feat/l1-core):db/models/eval/memory/ai/sched,31 测试绿
+- [x] L2 React 前端(Linux,feat/l2-web):七页面 + MockBackend,浏览器闭环可跑,27 测试绿
+- [ ] Mac 阶段 ← **从这里开始**:实现 `web/src/backend/tauri.ts` + Tauri 壳接线(core 暴露 command),再接 EPUB 抽取/CFI、whisper、tray
+- [ ] M2 学习系统 / M3 体验完善(见 IMPLEMENTATION_PLAN)
 
 ## 开发环境要求
 
