@@ -4,31 +4,32 @@ import { describe, expect, it } from 'vitest'
 import { localCalendarDate } from './localDate'
 
 describe('localCalendarDate', () => {
-  it('formats the local calendar day when it differs from the UTC day', () => {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    const expectedByTimeZone: Record<string, string[]> = {
-      'Asia/Shanghai': ['2026-03-08', '2026-03-09'],
-      'America/Los_Angeles': ['2026-03-07', '2026-03-08'],
-    }
-    const expected = expectedByTimeZone[timeZone]
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-    expect(expected).toBeDefined()
-    expect([
-      localCalendarDate(new Date('2026-03-08T00:30:00.000Z')),
-      localCalendarDate(new Date('2026-03-08T16:30:00.000Z')),
-    ]).toEqual(expected)
+  it('formats a date from its local calendar fields in any host time zone', () => {
+    const localDate = new Date(2026, 0, 2, 12)
+
+    expect(localCalendarDate(localDate)).toBe(
+      `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`,
+    )
   })
 
-  it('uses the local day on a daylight-saving transition date', () => {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    const expectedByTimeZone: Record<string, string> = {
-      'Asia/Shanghai': '2026-03-08',
-      'America/Los_Angeles': '2026-03-08',
-    }
+  it.runIf(timeZone === 'Asia/Shanghai')('uses Shanghai day when UTC is still the previous day', () => {
+    const instant = new Date('2026-03-08T16:30:00.000Z')
 
-    expect(localCalendarDate(new Date('2026-03-08T09:30:00.000Z')))
-      .toBe(expectedByTimeZone[timeZone])
+    expect(instant.toISOString().slice(0, 10)).toBe('2026-03-08')
+    expect(localCalendarDate(instant)).toBe('2026-03-09')
   })
+
+  it.runIf(timeZone === 'America/Los_Angeles')(
+    'uses the Los Angeles DST transition day after UTC crosses midnight',
+    () => {
+      const instant = new Date('2026-03-09T06:30:00.000Z')
+
+      expect(instant.toISOString().slice(0, 10)).toBe('2026-03-09')
+      expect(localCalendarDate(instant)).toBe('2026-03-08')
+    },
+  )
 })
 
 describe('calendar-day consumers', () => {

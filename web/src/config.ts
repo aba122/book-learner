@@ -1,7 +1,7 @@
 import appDefaults from '../../shared/app-defaults.json'
 import type { AppSettings, TaskKind } from './types'
 
-export const APP_DEFAULTS: AppSettings = appDefaults
+export const APP_DEFAULTS: Readonly<AppSettings> = Object.freeze({ ...appDefaults })
 export const REVIEW_STAGES = [1, 3, 7, 14] as const
 export const WEAK_RETEST_DAILY_LIMIT = 3
 export const POMODORO_DEFAULT = {

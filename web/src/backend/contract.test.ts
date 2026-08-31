@@ -38,4 +38,10 @@ describe('MockBackend 契约行为', () => {
 
     expect(await b.getSettings()).toEqual(APP_DEFAULTS)
   })
+  it('共享默认值不可变且 Mock 使用独立副本', async () => {
+    expect(Object.isFrozen(APP_DEFAULTS)).toBe(true)
+    expect(Reflect.set(APP_DEFAULTS, 'pomodoroMinutes', 99)).toBe(false)
+
+    expect((await new MockBackend().getSettings()).pomodoroMinutes).toBe(25)
+  })
 })
