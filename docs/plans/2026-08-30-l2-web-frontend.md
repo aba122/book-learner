@@ -227,10 +227,10 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/theme/tokens.css`, `web/src/components/{Button,Card,Tag,ProgressRing,PageHeader,Confirm}.tsx`, `web/src/App.tsx`, `web/src/store.ts`;Modify: `web/src/main.tsx`, `web/src/index.css`;Test: `web/src/App.test.tsx`
 
-- [ ] **Step 3.1** `tokens.css`:CSS 变量,`:root`(纸感亮色)与 `[data-theme='dark']` 两套——文字墨色阶 `--ink-1..4`、背景纸感阶 `--paper-1..3`、三任务色(`--c-weak` 赤 / `--c-review` 琥珀 / `--c-new` 靛)、语义色(成功/警示)、字体栈(`--font-serif`:Songti SC/Noto Serif CJK SC 标题用;`--font-sans`:PingFang SC/Noto Sans CJK SC 正文)、阅读排版(`--reading-max-width: 38em; --reading-line-height: 1.9`)、间距/圆角/阴影阶。`index.css` 里 `@import './theme/tokens.css'` + `@import 'tailwindcss'` + **`@theme inline`** 把代币映射为 Tailwind 色名(inline 保留 var() 间接,`[data-theme='dark']` 覆盖才生效);`data-theme` 属性打在 `<html>` 上(store 切换时同步)。
-- [ ] **Step 3.2 失败测试** `App.test.tsx`:`render(<App />)`(App 内部用 createMemoryRouter 或包 MemoryRouter)→ 断言侧栏五项导航文本(今日学习/书架/知识地图/统计/设置);`userEvent.click` "书架" → 出现书架页 PageHeader 标题。Run:FAIL。
-- [ ] **Step 3.3 实现**:`App.tsx` 侧栏 + `<Routes>` 七路由(`/`、`/library`、`/map/:bookId`、`/reader/:blockId`、`/feynman/:taskId`、`/stats`、`/settings`),页面组件先建最小占位(PageHeader + 空态);`store.ts` zustand 存 `activeBookId`/`currentTaskId`(App 挂载时从 listBooks 解析 active 书回填,侧栏"知识地图"链接用它拼 `/map/:bookId`,无主攻书时该项跳书架);共享组件全部只用代币变量。
-- [ ] **Step 3.4** 测试绿;`pnpm -C web dev` 浏览器目检外壳与两主题。**commit + push**:`feat(web): 设计代币/共享组件/应用外壳 (L2-T3)`
+- [x] **Step 3.1** `tokens.css`:CSS 变量,`:root`(纸感亮色)与 `[data-theme='dark']` 两套——文字墨色阶 `--ink-1..4`、背景纸感阶 `--paper-1..3`、三任务色(`--c-weak` 赤 / `--c-review` 琥珀 / `--c-new` 靛)、语义色(成功/警示)、字体栈(`--font-serif`:Songti SC/Noto Serif CJK SC 标题用;`--font-sans`:PingFang SC/Noto Sans CJK SC 正文)、阅读排版(`--reading-max-width: 38em; --reading-line-height: 1.9`)、间距/圆角/阴影阶。`index.css` 里 `@import './theme/tokens.css'` + `@import 'tailwindcss'` + **`@theme inline`** 把代币映射为 Tailwind 色名(inline 保留 var() 间接,`[data-theme='dark']` 覆盖才生效);`data-theme` 属性打在 `<html>` 上(store 切换时同步)。
+- [x] **Step 3.2 失败测试** `App.test.tsx`:`render(<App />)`(App 内部用 createMemoryRouter 或包 MemoryRouter)→ 断言侧栏五项导航文本(今日学习/书架/知识地图/统计/设置);`userEvent.click` "书架" → 出现书架页 PageHeader 标题。Run:FAIL。
+- [x] **Step 3.3 实现**:`App.tsx` 侧栏 + `<Routes>` 七路由(`/`、`/library`、`/map/:bookId`、`/reader/:blockId`、`/feynman/:taskId`、`/stats`、`/settings`),页面组件先建最小占位(PageHeader + 空态);`store.ts` zustand 存 `activeBookId`/`currentTaskId`(App 挂载时从 listBooks 解析 active 书回填,侧栏"知识地图"链接用它拼 `/map/:bookId`,无主攻书时该项跳书架);共享组件全部只用代币变量。
+- [x] **Step 3.4** 测试绿;`pnpm -C web dev` 浏览器目检外壳与两主题。**commit + push**:`feat(web): 设计代币/共享组件/应用外壳 (L2-T3)`
 
 ### Task 4: 今日学习页
 
