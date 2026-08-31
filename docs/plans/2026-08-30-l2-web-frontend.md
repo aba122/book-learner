@@ -216,10 +216,10 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/backend/mock.ts`, `web/src/backend/index.ts`
 
-- [ ] **Step 2.0** `backend/index.ts`:`const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window`;`export const backend: Backend = new MockBackend()`(isTauri 分支留 TODO 注释指向 Mac 阶段 tauri.ts)。
-- [ ] **Step 2.1 实现**:`export class MockBackend implements Backend`。内存种子(构造时 `seed()`,实例间独立):一本《微观经济学》(textbook,3 模块 12 块:2 passed/1 weak/9 unlearned)+ 今日队列(1 weak_retest + 1 review + 2 new,按 `KIND_ORDER` 与 `TASK_EST_MINUTES`)+ 学生剧本(4 条:3 追问 + 1 条 `readyToEnd: true`,内容贴"供需弹性"语境)+ 固定 EvalResult(pass 建议、**2 个薄弱点:1 个 `fixedInSession: true` + 1 个未修复**——T8 的"已当场修复"标记断言与 stats.fixedWeakPoints 都依赖此、observationNote 非空)。**2 个 passed 种子块必须带 `scores`**(T6 星级断言依赖)。写操作真实变更内存(confirmMap 重排/跳过、completeTask 置 done、confirmVerdict(true) 置块 passed、saveSettings 覆盖)。`generateMap` 以 3 次 `onProgress` 回调模拟进度后返回块列表。`epubUrl` 返回 `/fixtures/sample.epub`。`blockSource` 返回该块所在章 href 与 200 字左右中文原文样例。
-- [ ] **Step 2.2** `pnpm -C web test -- --run` → contract.test.ts 全绿。
-- [ ] **Step 2.3 commit + push**:`feat(web): MockBackend 内存实现 (L2-T2)`
+- [x] **Step 2.0** `backend/index.ts`:`const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window`;`export const backend: Backend = new MockBackend()`(isTauri 分支留 TODO 注释指向 Mac 阶段 tauri.ts)。
+- [x] **Step 2.1 实现**:`export class MockBackend implements Backend`。内存种子(构造时 `seed()`,实例间独立):一本《微观经济学》(textbook,3 模块 12 块:2 passed/1 weak/9 unlearned)+ 今日队列(1 weak_retest + 1 review + 2 new,按 `KIND_ORDER` 与 `TASK_EST_MINUTES`)+ 学生剧本(4 条:3 追问 + 1 条 `readyToEnd: true`,内容贴"供需弹性"语境)+ 固定 EvalResult(pass 建议、**2 个薄弱点:1 个 `fixedInSession: true` + 1 个未修复**——T8 的"已当场修复"标记断言与 stats.fixedWeakPoints 都依赖此、observationNote 非空)。**2 个 passed 种子块必须带 `scores`**(T6 星级断言依赖)。写操作真实变更内存(confirmMap 重排/跳过、completeTask 置 done、confirmVerdict(true) 置块 passed、saveSettings 覆盖)。`generateMap` 以 3 次 `onProgress` 回调模拟进度后返回块列表。`epubUrl` 返回 `/fixtures/sample.epub`。`blockSource` 返回该块所在章 href 与 200 字左右中文原文样例。
+- [x] **Step 2.2** `pnpm -C web test -- --run` → contract.test.ts 全绿。
+- [x] **Step 2.3 commit + push**:`feat(web): MockBackend 内存实现 (L2-T2)`
 
 ### Task 3: 设计代币 + 共享组件 + App 外壳
 
