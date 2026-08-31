@@ -1,1 +1,5 @@
-virtualStoreDir: /bigtemp/fzv6en/book-learner/web-node_modules/.pnpm
+verifyDepsBeforeRun: false
+allowBuilds:
+  esbuild: false
+  core-js: false
+  es5-ext: false
