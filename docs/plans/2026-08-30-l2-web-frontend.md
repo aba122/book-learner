@@ -288,8 +288,8 @@ describe('MockBackend 契约行为', () => {
 - [x] **Step 10.1** `pnpm -C web test -- --run` 全绿;`pnpm -C web build` 通过;`CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target cargo test --manifest-path core/Cargo.toml` 回归绿。
 - [x] **Step 10.2** 浏览器全流程冒烟:优先 @webapp-testing(Playwright:今日→开始任务→阅读器→费曼 4 轮→评估→确认通过→回今日,截图留档 scratchpad);Playwright 不可用则 `pnpm dev` 手动目检,DEVLOG 记录方式与结果。
 - [x] **Step 10.3** 回写:`TECH_DESIGN.md` §1 增补 web/ 结构与 Backend 契约位置;`CLAUDE.md` 状态区标记 L2 完成、Mac 阶段入口改为"实现 backend/tauri.ts + Tauri 壳接线";DEVLOG 收尾(测试计数/偏差清单:地图合并拆分延后、语音/封面留位、阅读器书签与行距/段首缩进设置延后、今日页"明日预告"契约缺失延后、菜单栏番茄倒计时归 Mac)。
-- [ ] **Step 10.4** 确认 GitHub Actions 最新 run 绿(API:`/repos/aba122/book-learner/actions/runs?per_page=1`);红则修至绿。
-- [ ] **Step 10.5** commit + push + `git tag l2-web && git push origin l2-web`;创建 **PR #2**:`feat/l2-web` → base `feat/l1-core`(堆叠,PR#1 合并后 GitHub 自动重定向),body 含 Summary/Test Plan/ARCHITECTURE.md 链接与逐 Task push 说明。
+- [x] **Step 10.4** 确认 GitHub Actions 最新 run 绿(API:`/repos/aba122/book-learner/actions/runs?per_page=1`);红则修至绿。
+- [x] **Step 10.5** commit + push + `git tag l2-web && git push origin l2-web`;创建 **PR #2**:`feat/l2-web` → base `feat/l1-core`(堆叠,PR#1 合并后 GitHub 自动重定向),body 含 Summary/Test Plan/ARCHITECTURE.md 链接与逐 Task push 说明。
 
 ## 完成定义(DoD)
 
