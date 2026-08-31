@@ -1,4 +1,4 @@
-use rusqlite::{ffi, Connection, Error};
+use rusqlite::{ffi, Connection, Error, Transaction, TransactionBehavior};
 
 pub fn open(path: &std::path::Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
@@ -27,21 +27,17 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
-    let mut v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let v: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if v < 1 {
-        let tx = conn.unchecked_transaction()?;
         tx.execute_batch(SCHEMA_V1)?;
         tx.pragma_update(None, "user_version", 1)?;
-        tx.commit()?;
-        v = 1;
     }
     if v < 2 {
-        let tx = conn.unchecked_transaction()?;
         tx.execute_batch(SCHEMA_V2)?;
         tx.pragma_update(None, "user_version", 2)?;
-        tx.commit()?;
     }
-    Ok(())
+    tx.commit()
 }
 
 const SCHEMA_V1: &str = r#"
@@ -105,7 +101,19 @@ CREATE UNIQUE INDEX study_plan_single_active ON study_plan(active) WHERE active=
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{ffi, Connection, Error, ErrorCode};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::sync_channel;
+    use std::time::{Duration, Instant};
+
+    use rusqlite::{ffi, Connection, Error, ErrorCode, TransactionBehavior};
+
+    static MIGRATION_WAITING_ON_LOCK: AtomicBool = AtomicBool::new(false);
+
+    fn mark_migration_waiting_on_lock(_: i32) -> bool {
+        MIGRATION_WAITING_ON_LOCK.store(true, Ordering::SeqCst);
+        std::thread::yield_now();
+        true
+    }
 
     fn foreign_keys(conn: &Connection) -> i64 {
         conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap()
@@ -148,6 +156,43 @@ mod tests {
         let p = dir.path().join("a.db");
         super::open(&p).unwrap();
         super::open(&p).unwrap();
+    }
+
+    #[test]
+    fn concurrent_open_waits_before_reading_migration_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("concurrent-migration.db");
+        let legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch(super::SCHEMA_V1).unwrap();
+        legacy.pragma_update(None, "user_version", 1).unwrap();
+        drop(legacy);
+
+        let mut first = Connection::open(&path).unwrap();
+        let first_migration = first
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        first_migration.execute_batch(super::SCHEMA_V2).unwrap();
+        first_migration.pragma_update(None, "user_version", 2).unwrap();
+
+        MIGRATION_WAITING_ON_LOCK.store(false, Ordering::SeqCst);
+        let second_path = path.clone();
+        let (started_tx, started_rx) = sync_channel(0);
+        let second = std::thread::spawn(move || -> rusqlite::Result<()> {
+            let conn = Connection::open(second_path)?;
+            conn.busy_handler(Some(mark_migration_waiting_on_lock))?;
+            started_tx.send(()).unwrap();
+            super::configure(&conn)
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !MIGRATION_WAITING_ON_LOCK.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "second migration never waited on SQLite's write lock");
+            std::thread::yield_now();
+        }
+
+        first_migration.commit().unwrap();
+        second.join().unwrap().unwrap();
     }
 
     #[test]

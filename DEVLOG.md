@@ -6,7 +6,8 @@
 - SQLite 连接完整性:`open` 与 `open_in_memory` 统一经私有 `configure`,每次连接显式开启并回读验证 `foreign_keys=1`,再执行迁移;孤儿 `knowledge_block.book_id` 由 SQLite FK 约束拒绝。bundled SQLite 本机编译默认已开启 FK,所以公开路径 FK 测试在基线即通过;另以原始连接显式关闭 FK 后验证 `configure` 恢复为 1,取得缺少配置入口的编译 RED 后转 GREEN。
 - schema v2:仅新增 `study_plan_one_per_book` 与 partial unique `study_plan_single_active`,分别约束每书单计划与全库单 active 计划;两个索引和 `user_version=2` 同一事务提交。legacy v1 若有冲突计划则迁移显式失败,事务回滚确保不删行、不残留半套索引且版本保持 1,交由用户修复数据。
 - TDD:首轮 focused DB tests 因版本仍为 1、两个唯一约束缺失、legacy 冲突未阻止迁移而 4 项 RED;配置入口测试另以 `configure` 不存在产生编译 RED;事务内无法启用 FK 的测试先复现模糊嵌套事务错误 RED,再由回读检查转为明确错误。最小实现后 focused DB 10/10 GREEN。
-- 验证:`cargo test --manifest-path core/Cargo.toml db::tests` 10/10;`cargo test --manifest-path core/Cargo.toml --all-targets` 39 通过/1 ignored + lifecycle 1/1;`cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings` 零警告。
+- 并发审查修复:受控双连接测试先让 A 在未提交的 immediate 事务中完成 v2,再通过 busy handler 信号确认 B 已等待写锁;旧实现因事务外读取 v1,待 A 提交后重复建索引而 RED。迁移入口改为先取得 `BEGIN IMMEDIATE`,再于同一事务读取版本、按需执行 v1/v2 并提交,并发打开会在锁后读取最新版本。
+- 验证:`cargo test --manifest-path core/Cargo.toml db::tests` 11/11;并发定向测试连续 20 次通过;`cargo test --manifest-path core/Cargo.toml --all-targets` 40 通过/1 ignored + lifecycle 1/1;`cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings` 零警告。
 
 ## 2026-08-31 · Mac Foundation T3 完成
 - 共享默认值:仓库级 `shared/app-defaults.json` 成为 Web 设置的唯一默认值来源;`APP_DEFAULTS` 以 `Readonly<AppSettings>` 冻结副本导出,番茄钟常量与 `MockBackend` 设置均由其派生;Vite 仅额外放行 `shared/`,TypeScript 将该 JSON 纳入应用图。
