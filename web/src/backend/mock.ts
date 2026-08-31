@@ -1,4 +1,4 @@
-import { KIND_ORDER, POMODORO_DEFAULT, TASK_EST_MINUTES } from '../config'
+import { APP_DEFAULTS, KIND_ORDER, TASK_EST_MINUTES } from '../config'
 import type {
   AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult,
   KnowledgeBlock, Stats, StudyPlan, TaskKind,
@@ -43,12 +43,7 @@ export class MockBackend implements Backend {
   private nextSessionId = 1
   private nextBookId = 2
   private nextBlockId = 13
-  private settings: AppSettings = {
-    obsidianVault: '~/Obsidian/book-learner',
-    pomodoroMinutes: POMODORO_DEFAULT.work,
-    breakMinutes: POMODORO_DEFAULT.break,
-    remindTime: '21:00',
-  }
+  private settings: AppSettings = { ...APP_DEFAULTS }
 
   constructor() {
     this.seed()

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { APP_DEFAULTS } from '../config'
 import { MockBackend } from './mock'
 
 describe('MockBackend 契约行为', () => {
@@ -31,5 +32,10 @@ describe('MockBackend 契约行为', () => {
     for (const s of Object.values(ev.scores)) { expect(s).toBeGreaterThanOrEqual(1); expect(s).toBeLessThanOrEqual(5) }
     await b.confirmVerdict(sessionId, true)
     expect((await b.getBlock(4)).status).toBe('passed')
+  })
+  it('设置默认值来自共享配置', async () => {
+    const b = new MockBackend()
+
+    expect(await b.getSettings()).toEqual(APP_DEFAULTS)
   })
 })

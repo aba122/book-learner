@@ -4,12 +4,11 @@ import { backend } from '../../backend'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
+import { localCalendarDate } from '../../lib/localDate'
 import { useSession } from '../../store'
 import type { DailyTask, KnowledgeBlock, Stats } from '../../types'
 import Pomodoro from './Pomodoro'
 import TaskCard from './TaskCard'
-
-const todayStr = () => new Date().toISOString().slice(0, 10)
 
 export default function TodayPage() {
   const navigate = useNavigate()
@@ -20,7 +19,7 @@ export default function TodayPage() {
   const [focusTask, setFocusTask] = useState<DailyTask | null>(null)
 
   const reload = useCallback(async () => {
-    const queue = await backend.todayQueue(todayStr())
+    const queue = await backend.todayQueue(localCalendarDate())
     setTasks(queue)
     const map = new Map<number, KnowledgeBlock>()
     for (const bookId of new Set(queue.map(t => t.bookId))) {
@@ -52,7 +51,7 @@ export default function TodayPage() {
     <div className="mx-auto max-w-4xl px-10 py-12">
       <PageHeader
         title="今日学习"
-        subtitle={`${todayStr()} · 薄弱重考 → 间隔复习 → 新块攻克`}
+        subtitle={`${localCalendarDate()} · 薄弱重考 → 间隔复习 → 新块攻克`}
         actions={
           stats && (
             <div className="flex items-center gap-5">

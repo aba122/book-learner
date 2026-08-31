@@ -2,6 +2,13 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-08-31 · Mac Foundation T3 完成
+- 共享默认值:仓库级 `shared/app-defaults.json` 成为 Web 设置的唯一默认值来源;`APP_DEFAULTS` 强类型导出,番茄钟常量与 `MockBackend` 设置均由其派生;Vite 仅额外放行 `shared/`,TypeScript 将该 JSON 纳入应用图。
+- 本地日期:新增 `localCalendarDate`,统一 Today/Map/Feynman 的日历日计算;测试覆盖上海/洛杉矶的 UTC 跨日 instant、洛杉矶 DST 切换日,并锁定三页不得恢复 `toISOString().slice(0, 10)`。
+- typed errors:新增 `BackendError`、`normalizeBackendError`、`isBackendError`,覆盖 Tauri 风格结构化拒绝、字符串、原生 `Error` 与未知值。
+- TDD:三个循环均先观察 RED——日期/错误模块缺失、`APP_DEFAULTS` 缺失——再以最小实现转 GREEN;默认值契约 5/5,错误 5/5,双时区日期各 5/5。
+- 验证:受影响聚焦测试 27/27,全量 Vitest 38/38;lint 退出 0(仅既有 6 个 warning,无新增);production build 与 `git diff --check` 通过(build 保留既有 >500kB chunk warning)。
+
 ## 2026-08-31 · Mac Foundation T2 完成
 - Codex CLI:0.144.1 在临时/记忆库目录运行时要求显式 `--skip-git-repo-check`;先由真实冒烟复现,再以参数契约回归测试驱动 provider 修复。两次真实只读调用均返回“二”,分别耗时 13.5s 与 50.99s;`-C`、`--sandbox read-only`、`--output-last-message` 与新参数共同通过,不依据单次延迟调整产品 prompt。
 - EPUB CFI:Playwright 1.62.1 / Chromium 151 使用真实 `sample.epub` 完成 heading range 往返;元素子节点偏移会被 epub.js 解释成字符偏移,因此范围必须锚定文本节点。结果为 `epubcfi(/6/2!/4/2,/1:0,/1:9)`,恢复文本“第一章 供给与需求”。

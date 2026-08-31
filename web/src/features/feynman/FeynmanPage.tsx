@@ -5,10 +5,9 @@ import Button from '../../components/Button'
 import Confirm from '../../components/Confirm'
 import Tag from '../../components/Tag'
 import { KIND_LABEL, TYPEWRITER_CHAR_MS } from '../../config'
+import { localCalendarDate } from '../../lib/localDate'
 import type { ChatMessage, DailyTask, EvalResult, KnowledgeBlock } from '../../types'
 import EvalCard from './EvalCard'
-
-const todayStr = () => new Date().toISOString().slice(0, 10)
 
 export default function FeynmanPage() {
   const { taskId: taskIdParam } = useParams()
@@ -34,7 +33,7 @@ export default function FeynmanPage() {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const queue = await backend.todayQueue(todayStr())
+      const queue = await backend.todayQueue(localCalendarDate())
       const t = queue.find(x => x.id === taskId)
       if (!t || !alive) return
       setTask(t)
