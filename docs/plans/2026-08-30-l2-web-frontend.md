@@ -246,9 +246,9 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/features/library/{LibraryPage,ImportWizard}.tsx`;Test: `library.test.tsx`
 
-- [ ] **Step 5.1 失败测试**:书架渲染种子书与状态徽标(主攻中);点"导入书籍"→ 向导逐步:`upload` 一个 File → 三类型卡片选"教材" → 出现 generateMap 进度文案 → 完成跳 `/map/:bookId`。
-- [ ] **Step 5.2 实现** PRODUCT_SPEC §3.2:封面网格(书名首字色块封面)、主攻书置顶、切换主攻书用 Confirm 组件确认后调 `setActiveBook`。测试绿。
-- [ ] **Step 5.3 commit + push**:`feat(web): 书架页与导入向导 (L2-T5)`
+- [x] **Step 5.1 失败测试**:书架渲染种子书与状态徽标(主攻中);点"导入书籍"→ 向导逐步:`upload` 一个 File → 三类型卡片选"教材" → 出现 generateMap 进度文案 → 完成跳 `/map/:bookId`。
+- [x] **Step 5.2 实现** PRODUCT_SPEC §3.2:封面网格(书名首字色块封面)、主攻书置顶、切换主攻书用 Confirm 组件确认后调 `setActiveBook`。测试绿。
+- [x] **Step 5.3 commit + push**:`feat(web): 书架页与导入向导 (L2-T5)`
 
 ### Task 6: 知识地图页
 
