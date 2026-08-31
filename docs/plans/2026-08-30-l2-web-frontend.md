@@ -254,9 +254,9 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/features/map/MapPage.tsx`;Test: `map.test.tsx`
 
-- [ ] **Step 6.1 失败测试**:按模块分组渲染 12 块(状态徽标 + 已通过块的星级);进入编辑模式 → 对某块点"跳过"、对另一块点"上移" → 点"确认定稿" → 断言 `confirmMap` 收到的 `MapEditBlock[]` 中该块 `skipped=true` 且顺序已变;**定稿后出现"目标设定"面板**(PRODUCT_SPEC §2 步骤3,西蒙法核心):输入完成期限 → 自动换算显示每日块数(或反向),设提醒时间 → 点"开始学习" → 断言 `setPlan` 收到 StudyPlan 且路由跳 `/`(该书成为主攻书:`setActiveBook` 被调)。
-- [ ] **Step 6.2 实现** PRODUCT_SPEC §3.3 + 目标设定:编辑操作 = 跳过/恢复、上移/下移、改模块名;"合并/拆分"按钮渲染为禁用态(tooltip:需读原文选区,Mac 阶段实现;DEVLOG 记偏差);目标设定面板换算逻辑 = 未跳过块数 ÷ 天数(向上取整);`dailyCap` 用 config 的 `DAILY_CAP_DEFAULT`,不写魔法数。测试绿。
-- [ ] **Step 6.3 commit + push**:`feat(web): 知识地图页 (L2-T6)`
+- [x] **Step 6.1 失败测试**:按模块分组渲染 12 块(状态徽标 + 已通过块的星级);进入编辑模式 → 对某块点"跳过"、对另一块点"上移" → 点"确认定稿" → 断言 `confirmMap` 收到的 `MapEditBlock[]` 中该块 `skipped=true` 且顺序已变;**定稿后出现"目标设定"面板**(PRODUCT_SPEC §2 步骤3,西蒙法核心):输入完成期限 → 自动换算显示每日块数(或反向),设提醒时间 → 点"开始学习" → 断言 `setPlan` 收到 StudyPlan 且路由跳 `/`(该书成为主攻书:`setActiveBook` 被调)。
+- [x] **Step 6.2 实现** PRODUCT_SPEC §3.3 + 目标设定:编辑操作 = 跳过/恢复、上移/下移、改模块名;"合并/拆分"按钮渲染为禁用态(tooltip:需读原文选区,Mac 阶段实现;DEVLOG 记偏差);目标设定面板换算逻辑 = 未跳过块数 ÷ 天数(向上取整);`dailyCap` 用 config 的 `DAILY_CAP_DEFAULT`,不写魔法数。测试绿。
+- [x] **Step 6.3 commit + push**:`feat(web): 知识地图页 (L2-T6)`
 
 ### Task 7: 阅读器(epub.js)
 

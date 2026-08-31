@@ -41,3 +41,17 @@
 - pnpm 11 双配置(机器相关,勿破坏):`web/pnpm-workspace.yaml` 入库版只含 allowBuilds(esbuild/core-js/es5-ext=false,未审批 build 的全新安装 exit 1 实测,CI 必需;这些 postinstall 均非必需)+ verifyDepsBeforeRun=false;本地盘上同文件经 `git update-index --skip-worktree web/pnpm-workspace.yaml` 隐藏修改,多一行 `virtualStoreDir: /bigtemp/fzv6en/book-learner/web-node_modules/.pnpm`(缺它任何 install/add 报 UNSAFE_MODULES_DIR/UNEXPECTED_VIRTUAL_STORE)。若需还原:`git update-index --no-skip-worktree`。Mac 阶段克隆后无此问题(无 /bigtemp 约束)。
 - CI:.github/workflows/ci.yml(core: cargo test;web: corepack + install --frozen-lockfile + vitest --run + build)。
 - 本地验证:vitest 0 测试 exit 0(passWithNoTests)、build 通过。
+
+## 2026-08-30 · L2 并行会话检测(headless 续跑会话主动退出)
+- 23:07 启动的 headless 续跑会话(本条作者)开工检查时发现:上次"被中断"的会话实为存活——23:05 已被 `claude -r` 恢复(pts/0),并于 23:08:48 提交并推送 L2-T4(70f39bb),随即开始创建 T5/T6 文件(features/library/、features/map/)。
+- 同一工作区双代理并行会产生提交/推送竞态与重复实现;headless 会话未触碰任何代码,记录本条后正常退出,L2 余下任务由交互式会话继续。
+- headless 会话独立验证过 T4 快照:vitest 11/11 绿、build 通过。
+- 提醒:截至本条,DEVLOG 缺 L2-T1~T4 的逐任务记录(仅有 T0),请交互式会话收尾时补齐。
+
+## 2026-08-30 · L2-T1~T6 完成(契约/Mock/外壳/今日/书架/地图)
+- T1 领域类型 + Backend 契约 + 4 条红契约测试;T2 MockBackend(微观经济学 12 块种子、供需弹性学生剧本、固定评估卡)转绿。
+- T3 设计代币(纸感亮色/夜读暗色双主题,宋体标题+黑体正文,赤/琥珀/靛三任务色)+ 6 共享组件 + 侧栏外壳;Playwright 截图目检双主题通过。测试基建修正:vitest 未开 globals 时 RTL 不自动 cleanup,test-setup 显式 afterEach(cleanup)。
+- T4 今日学习页(队列排序卡/进度环/streak/番茄钟浮窗)。偏差:计划约定的 userEvent advanceTimers 模式在"点击后启动计时器"场景仍死锁,番茄钟测试改用同步 fireEvent 触发点击(userEvent 高保真语义此处非必需)。
+- T5 书架页(首字色块封面/主攻置顶/Confirm 切换)+ 导入向导(文件→类型→进度→跳地图);测试用 deferred generateMap 使进度文案可确定性断言。
+- T6 知识地图页(模块分组/状态徽标/星级/编辑模式跳过与移动/改模块名/合并拆分禁用留位)+ 目标设定面板(期限→每日块数向上取整换算,含今天与截止日,与 L1 语义一致);日期敏感测试用 vi.useFakeTimers({toFake:['Date']}) 钉住今天,不影响 userEvent。
+- 并行会话说明:23:07 headless 续跑会话发现本会话存活后已主动退出,未产生代码冲突。
