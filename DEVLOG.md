@@ -75,3 +75,7 @@
 - T10 全量验证:vitest 27/27 绿、build 通过、core 回归 30+1 绿(CARGO_TARGET_DIR=/bigtemp)。Playwright 全流程冒烟:今日→开始新块→阅读器→费曼 4 轮→评估→确认通过→回今日(块变已完成、进度 3/12、今日 30 分钟),截图留档 /bigtemp/fzv6en/book-learner/l2-smoke-shots/。
 - 偏差清单(延后项):地图合并/拆分(需原文选区,Mac);语音输入/书封面(留位);阅读器书签与行距/段首缩进设置(延后);今日页"明日预告"(契约缺失,Mac 阶段补 tomorrowPreview);菜单栏番茄倒计时(tray,Mac);epub CFI 精确锚定(前端只消费 blockSource.href)。
 - 回写:TECH_DESIGN §1.1(web/ 结构与 Backend 契约位置)、CLAUDE.md 状态区(L2 完成,Mac 阶段入口=backend/tauri.ts+Tauri 壳)。
+
+## 2026-08-31 · L2 PR 与 tag
+- tag `l2-web` 已推送;PR #2 已创建:https://github.com/aba122/book-learner/pull/2(feat/l2-web → feat/l1-core,堆叠,PR#1 合并后自动重定向)。
+- 最终 CI(5c103b8):core + web 双 job 绿。
