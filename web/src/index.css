@@ -1,0 +1,57 @@
+@import './theme/tokens.css';
+@import 'tailwindcss';
+
+/* 代币 → Tailwind 色名/字体/圆角/阴影(inline 保留 var() 间接,
+   使 [data-theme='dark'] 的代币覆盖生效)。 */
+@theme inline {
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-paper-1: var(--paper-1);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-line: var(--line);
+  --color-weak: var(--c-weak);
+  --color-review: var(--c-review);
+  --color-new: var(--c-new);
+  --color-weak-soft: var(--c-weak-soft);
+  --color-review-soft: var(--c-review-soft);
+  --color-new-soft: var(--c-new-soft);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --font-serif: var(--font-serif);
+  --font-sans: var(--font-sans);
+  --spacing: var(--sp-unit);
+  --radius-s: var(--r-s);
+  --radius-m: var(--r-m);
+  --radius-l: var(--r-l);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink-1);
+  background-color: var(--paper-1);
+  background-image: var(--paper-grain);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--c-new);
+  color: var(--paper-2);
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-new);
+  outline-offset: 2px;
+}

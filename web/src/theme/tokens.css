@@ -1,0 +1,91 @@
+/* ============================================================
+   tokens.css — 全部设计代币(唯一视觉参数源,见 ARCHITECTURE.md 规则3)
+   亮色 = 纸感书斋;暗色 = 夜读墨色。组件禁止硬编码任何色值。
+   ============================================================ */
+
+:root {
+  /* 文字墨色阶(由深至浅) */
+  --ink-1: #221c14;
+  --ink-2: #4d4437;
+  --ink-3: #857a68;
+  --ink-4: #b6ab95;
+
+  /* 背景纸感阶 */
+  --paper-1: #f6f1e6; /* 页面底 */
+  --paper-2: #fdfaf2; /* 卡面 */
+  --paper-3: #ece4d2; /* 内嵌/悬停 */
+  --line: #e2d8c3;    /* 分隔线 */
+
+  /* 三任务色:薄弱=赤,复习=琥珀,新学=靛 */
+  --c-weak: #b0432a;
+  --c-review: #a8741f;
+  --c-new: #40538a;
+  /* 任务色淡底(左色条卡面/徽标底) */
+  --c-weak-soft: #f3e0da;
+  --c-review-soft: #f1e6cd;
+  --c-new-soft: #dfe3ef;
+
+  /* 语义色 */
+  --c-ok: #48764d;
+  --c-warn: #b3542f;
+
+  /* 字体栈:宋体标题,黑体正文 */
+  --font-serif: 'Songti SC', 'Noto Serif CJK SC', 'Noto Serif SC', 'Source Han Serif SC', serif;
+  --font-sans: 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Helvetica Neue', sans-serif;
+
+  /* 阅读排版 */
+  --reading-max-width: 38em;
+  --reading-line-height: 1.9;
+
+  /* 阅读器三主题(注入 epub iframe,需具体值) */
+  --reader-paper-bg: #fdfaf2;
+  --reader-paper-ink: #221c14;
+  --reader-sepia-bg: #f2e5c9;
+  --reader-sepia-ink: #463922;
+  --reader-night-bg: #171512;
+  --reader-night-ink: #cfc6b3;
+
+  /* 间距基元(Tailwind spacing 统一倍率) */
+  --sp-unit: 0.25rem;
+
+  /* 圆角阶 */
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 16px;
+
+  /* 阴影阶(暖墨投影) */
+  --shadow-card: 0 1px 2px rgb(60 48 30 / 0.06), 0 2px 8px rgb(60 48 30 / 0.05);
+  --shadow-pop: 0 4px 12px rgb(60 48 30 / 0.12), 0 12px 32px rgb(60 48 30 / 0.14);
+
+  /* 页面氛围:纸纹肌理(极淡斜纹) */
+  --paper-grain:
+    repeating-linear-gradient(-45deg, rgb(120 96 60 / 0.016) 0 2px, transparent 2px 6px);
+}
+
+[data-theme='dark'] {
+  --ink-1: #e9e1cf;
+  --ink-2: #c3b8a1;
+  --ink-3: #90866f;
+  --ink-4: #635a48;
+
+  --paper-1: #16130e;
+  --paper-2: #201c15;
+  --paper-3: #2b2619;
+  --line: #362f21;
+
+  --c-weak: #d4735a;
+  --c-review: #cf9f43;
+  --c-new: #8b9fd4;
+  --c-weak-soft: #3a251f;
+  --c-review-soft: #362c18;
+  --c-new-soft: #222839;
+
+  --c-ok: #7fae84;
+  --c-warn: #cf7d55;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.55);
+
+  --paper-grain:
+    repeating-linear-gradient(-45deg, rgb(255 240 200 / 0.008) 0 2px, transparent 2px 6px);
+}
