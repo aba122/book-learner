@@ -3,3 +3,5 @@ node_modules/
 *.db
 .DS_Store
 web/node_modules
+web/src-tauri/gen/
+web/src-tauri/target/

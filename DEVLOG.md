@@ -2,6 +2,12 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-08-31 · Mac Foundation T1 完成
+- 工具链:Xcode 26.3 / Apple clang 17.0.0 / rustc+cargo 1.98.0 / Node 25.3.0 / pnpm 10.29.3 / codex-cli 0.144.1。
+- 完成:新增 Tauri 2 最小原生 crate、固定 Vite 开发端口、macOS CI、调试构建脚本及可替换 SVG 图标源;本节点仅建立可编译原生壳,产品命令由后续 typed IPC 节点接入。
+- 配置:bundle id `com.aba122.booklearner`;窗口标题“攻书”,默认 1280×800,最小 960×640;Foundation 阶段关闭 bundle。
+- 验证:core 30 单测 + 1 集成通过(1 ignored);web 27/27 通过;web production build 通过(保留既有 bundle >500kB 警告);`cargo check` 与 `tauri build --debug --no-bundle` 通过,原生可执行文件产于 `web/src-tauri/target/debug/book-learner`。
+
 ## 2026-08-31 · Mac-M1 设计启动
 - 范围:首个 Mac 垂直切片完成 Tauri 2 原生壳、typed IPC、受支持 SQLite 用例与 `TauriBackend`;真实 EPUB/Codex 仅按既定顺序做风险冒烟,生产接入及记忆库/tray/语音/导出留给后续独立节点,不改变既有产品规则。
 - 架构:采用契约优先分层(`Backend → TauriBackend → commands → application services → core/repositories`),浏览器继续使用 MockBackend;DTO、持久化模型与 UI 类型隔离。
