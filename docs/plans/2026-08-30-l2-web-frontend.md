@@ -262,10 +262,10 @@ describe('MockBackend 契约行为', () => {
 
 **Files:** Create: `web/src/features/reader/{ReaderPage,EpubView}.tsx`, `web/scripts/make-fixture-epub.mjs`, `web/public/fixtures/sample.epub`;Test: `reader.test.tsx`(`vi.mock('epubjs')`)
 
-- [ ] **Step 7.1** `make-fixture-epub.mjs`:用 jszip(Step 0.3 已作为显式 devDependency 安装)构造合法微型 EPUB——`mimetype`(STORE 不压缩)+ `META-INF/container.xml` + `OEBPS/content.opf`(3 个 spine 项)+ 3 章中文 xhtml(每章 ≥3 段,含 `<h1>`)。`node web/scripts/make-fixture-epub.mjs` 生成 `web/public/fixtures/sample.epub` 并提交产物。
-- [ ] **Step 7.2 失败测试**:mock epubjs 默认导出(返回 `{ renderTo: vi.fn(() => rendition), loaded: { navigation: Promise.resolve({ toc: [...] }) }, destroy: vi.fn() }`,rendition 含 `display/themes.fontSize/themes.select/on` 的 spy)。断言:渲染 ReaderPage → `ePub` 以 mock 的 epubUrl 调用、`renderTo` 被调;点字号 +/- → `themes.fontSize` 收到变化值;切主题 → `themes.select` 被调;带 `?task=<id>` 进入 → 右侧出现块信息栏与"开始费曼讲授"按钮,点击跳 `/feynman/:taskId`。
-- [ ] **Step 7.3 实现** PRODUCT_SPEC §3.4:`EpubView` 封装 epubjs 生命周期(初始化/销毁/resize),注册三主题(读 tokens 变量)与字号档;`ReaderPage` 组装目录抽屉、进度条、设置浮层、学习模式浮层(blockSource 的块信息 + 按钮)。测试绿 + `pnpm dev` 浏览器实读 fixture(翻页/目录/主题/字号逐项目检)。
-- [ ] **Step 7.4 commit + push**:`feat(web): EPUB 阅读器与学习模式 (L2-T7)`
+- [x] **Step 7.1** `make-fixture-epub.mjs`:用 jszip(Step 0.3 已作为显式 devDependency 安装)构造合法微型 EPUB——`mimetype`(STORE 不压缩)+ `META-INF/container.xml` + `OEBPS/content.opf`(3 个 spine 项)+ 3 章中文 xhtml(每章 ≥3 段,含 `<h1>`)。`node web/scripts/make-fixture-epub.mjs` 生成 `web/public/fixtures/sample.epub` 并提交产物。
+- [x] **Step 7.2 失败测试**:mock epubjs 默认导出(返回 `{ renderTo: vi.fn(() => rendition), loaded: { navigation: Promise.resolve({ toc: [...] }) }, destroy: vi.fn() }`,rendition 含 `display/themes.fontSize/themes.select/on` 的 spy)。断言:渲染 ReaderPage → `ePub` 以 mock 的 epubUrl 调用、`renderTo` 被调;点字号 +/- → `themes.fontSize` 收到变化值;切主题 → `themes.select` 被调;带 `?task=<id>` 进入 → 右侧出现块信息栏与"开始费曼讲授"按钮,点击跳 `/feynman/:taskId`。
+- [x] **Step 7.3 实现** PRODUCT_SPEC §3.4:`EpubView` 封装 epubjs 生命周期(初始化/销毁/resize),注册三主题(读 tokens 变量)与字号档;`ReaderPage` 组装目录抽屉、进度条、设置浮层、学习模式浮层(blockSource 的块信息 + 按钮)。测试绿 + `pnpm dev` 浏览器实读 fixture(翻页/目录/主题/字号逐项目检)。
+- [x] **Step 7.4 commit + push**:`feat(web): EPUB 阅读器与学习模式 (L2-T7)`
 
 ### Task 8: 费曼对话页(灵魂页面)
 

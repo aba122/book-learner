@@ -37,6 +37,14 @@
   --reading-max-width: 38em;
   --reading-line-height: 1.9;
 
+  /* 阅读器三主题(注入 epub iframe,需具体值) */
+  --reader-paper-bg: #fdfaf2;
+  --reader-paper-ink: #221c14;
+  --reader-sepia-bg: #f2e5c9;
+  --reader-sepia-ink: #463922;
+  --reader-night-bg: #171512;
+  --reader-night-ink: #cfc6b3;
+
   /* 间距基元(Tailwind spacing 统一倍率) */
   --sp-unit: 0.25rem;
 
