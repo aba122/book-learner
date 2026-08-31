@@ -127,7 +127,7 @@ study_plan(id, book_id, deadline, daily_new_blocks, daily_cap,
      remind_time, evening_remind_time, active)
 daily_task(id, date, book_id, block_id,
      kind/*new|weak_retest|review*/, seq, status/*pending|done|skipped*/,
-     est_minutes, done_at)
+     est_minutes, done_at, ref_id/*指向 weak_point.id 或 review_schedule.id*/)
 feynman_session(id, block_id, kind/*learn|retest|review|final_exam*/,
      transcript_json/*完整对话原文,供回看*/,
      eval_json, started_at, ended_at, pomodoro_count)

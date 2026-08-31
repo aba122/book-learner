@@ -44,8 +44,8 @@ book-learner/
 
 **Files:** Create: `.gitignore`, `DEVLOG.md`, `core/Cargo.toml`, `core/src/lib.rs`
 
-- [ ] **Step 0.1** `cd /p/fzv6enresearch/xwl/book-learner && git init -b main`
-- [ ] **Step 0.2** 写 `.gitignore`:
+- [x] **Step 0.1** `cd /p/fzv6enresearch/xwl/book-learner && git init -b main`
+- [x] **Step 0.2** 写 `.gitignore`:
 
 ```
 core/target/
@@ -54,7 +54,7 @@ node_modules/
 .DS_Store
 ```
 
-- [ ] **Step 0.3** 写 `DEVLOG.md`:
+- [x] **Step 0.3** 写 `DEVLOG.md`:
 
 ```markdown
 # DEVLOG — book-learner 开发日志
@@ -67,8 +67,8 @@ node_modules/
 - 环境:node22 / cargo1.80 / codex-cli 0.144.4(本机可用,AI 层可真冒烟)。
 ```
 
-- [ ] **Step 0.4** commit 规范文件:`git add PRODUCT_SPEC.md TECH_DESIGN.md IMPLEMENTATION_PLAN.md CLAUDE.md docs/ DEVLOG.md .gitignore && git commit -m "docs: SPEC 套件定稿 + L1 实施计划 (L1-T0)"`
-- [ ] **Step 0.5** `cargo init --lib core --name book_learner_core`;写 `core/Cargo.toml`:
+- [x] **Step 0.4** commit 规范文件:`git add PRODUCT_SPEC.md TECH_DESIGN.md IMPLEMENTATION_PLAN.md CLAUDE.md docs/ DEVLOG.md .gitignore && git commit -m "docs: SPEC 套件定稿 + L1 实施计划 (L1-T0)"`
+- [x] **Step 0.5** `cargo init --lib core --name book_learner_core`;写 `core/Cargo.toml`:
 
 ```toml
 [package]
@@ -87,7 +87,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
 ```
 
-- [ ] **Step 0.6** `core/src/lib.rs` 骨架(模块随后续 Task 逐个解注释):
+- [x] **Step 0.6** `core/src/lib.rs` 骨架(模块随后续 Task 逐个解注释):
 
 ```rust
 pub mod db;
@@ -109,13 +109,13 @@ pub enum CoreError {
 pub type Result<T> = std::result::Result<T, CoreError>;
 ```
 
-- [ ] **Step 0.7** `cd core && cargo build` 通过(先建空的 `src/db.rs`,内容 `// L1-T1`);`git add core && git commit -m "chore(core): crate 脚手架 (L1-T0)"`
+- [x] **Step 0.7** `cd core && cargo build` 通过(先建空的 `src/db.rs`,内容 `// L1-T1`);`git add core && git commit -m "chore(core): crate 脚手架 (L1-T0)"`
 
 ### Task 1: db — schema v1 与 migration
 
 **Files:** Modify: `core/src/db.rs`, `core/src/lib.rs`(启用 mod)
 
-- [ ] **Step 1.1 失败测试**(置于 `db.rs` 底部 `#[cfg(test)] mod tests`):
+- [x] **Step 1.1 失败测试**(置于 `db.rs` 底部 `#[cfg(test)] mod tests`):
 
 ```rust
 #[test]
@@ -140,8 +140,8 @@ fn open_is_idempotent() {
 }
 ```
 
-- [ ] **Step 1.2** `cargo test` → FAIL(open 未定义)
-- [ ] **Step 1.3 实现**:
+- [x] **Step 1.2** `cargo test` → FAIL(open 未定义)
+- [x] **Step 1.3 实现**:
 
 ```rust
 use rusqlite::Connection;
@@ -213,15 +213,15 @@ CREATE TABLE setting(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 "#;
 ```
 
-- [ ] **Step 1.4** `cargo test` → PASS
-- [ ] **Step 1.5** 回写 `TECH_DESIGN.md` §4:daily_task 增加 `ref_id`(指向 weak_point.id 或 review_schedule.id);DEVLOG 记一条。
-- [ ] **Step 1.6** `git add -A && git commit -m "feat(core): SQLite schema v1 与 migration (L1-T1)"`
+- [x] **Step 1.4** `cargo test` → PASS
+- [x] **Step 1.5** 回写 `TECH_DESIGN.md` §4:daily_task 增加 `ref_id`(指向 weak_point.id 或 review_schedule.id);DEVLOG 记一条。
+- [x] **Step 1.6** `git add -A && git commit -m "feat(core): SQLite schema v1 与 migration (L1-T1)"`
 
 ### Task 2: eval — 评估 JSON 严格解析
 
 **Files:** Create: `core/src/eval.rs`;Modify: `lib.rs`
 
-- [ ] **Step 2.1 失败测试**:
+- [x] **Step 2.1 失败测试**:
 
 ```rust
 #[test]
@@ -252,7 +252,7 @@ fn reject_unknown_field() {
 }
 ```
 
-- [ ] **Step 2.2** FAIL 确认 → **Step 2.3 实现**:
+- [x] **Step 2.2** FAIL 确认 → **Step 2.3 实现**:
 
 ```rust
 use serde::Deserialize;
@@ -300,13 +300,13 @@ pub fn parse_eval(raw: &str) -> Result<EvalResult> {
 }
 ```
 
-- [ ] **Step 2.4** PASS → **Step 2.5** `git commit -m "feat(core): 评估 JSON 严格解析 (L1-T2)"`
+- [x] **Step 2.4** PASS → **Step 2.5** `git commit -m "feat(core): 评估 JSON 严格解析 (L1-T2)"`
 
 ### Task 3: models — 领域模型与 book/block 存取
 
 **Files:** Create: `core/src/models.rs`
 
-- [ ] **Step 3.1 失败测试**:
+- [x] **Step 3.1 失败测试**:
 
 ```rust
 #[test]
@@ -324,7 +324,7 @@ fn insert_and_fetch_book_with_blocks() {
 }
 ```
 
-- [ ] **Step 3.2** FAIL → **Step 3.3 实现**(要点;字段与 schema 一一对应):
+- [x] **Step 3.2** FAIL → **Step 3.3 实现**(要点;字段与 schema 一一对应):
 
 ```rust
 use rusqlite::Connection;
@@ -368,7 +368,7 @@ pub fn next_new_blocks(conn: &Connection, book_id: i64, n: usize) -> Result<Vec<
 pub fn get_book_slug_type(conn: &Connection, book_id: i64) -> Result<(String, BookType)> { /* SELECT slug,type */ }
 ```
 
-- [ ] **Step 3.4** PASS → **Step 3.5** `git commit -m "feat(core): 领域模型与 book/block 存取 (L1-T3)"`
+- [x] **Step 3.4** PASS → **Step 3.5** `git commit -m "feat(core): 领域模型与 book/block 存取 (L1-T3)"`
 
 ### Task 4: memory — 初始化与文件模板
 
@@ -376,7 +376,7 @@ pub fn get_book_slug_type(conn: &Connection, book_id: i64) -> Result<(String, Bo
 
 设计(TECH §3):`MemoryStore { root }`。init 创建 `INDEX.md`/`profile.md` 模板并 `git init`;`ensure_book` 创建 `books/<slug>/{_map.md,_weakpoints.md,blocks/}`;`_map.md`/`_weakpoints.md` 永远由 `sync_map`/`sync_weakpoints` 从 SQLite 数据再生(镜像),块文件为累积内容。
 
-- [ ] **Step 4.1 失败测试**:
+- [x] **Step 4.1 失败测试**:
 
 ```rust
 #[test]
@@ -404,16 +404,16 @@ fn ensure_book_creates_book_dir_and_updates_index() {
 }
 ```
 
-- [ ] **Step 4.2** FAIL → **Step 4.3 实现要点**:
+- [x] **Step 4.2** FAIL → **Step 4.3 实现要点**:
   - `init`:mkdir_p;若文件不存在写模板(INDEX 头部 + 空书表;profile 四节);`git init` + 首次 commit(子进程,`git -C <root> …`;需设 `user.name/email` 本地配置为 `book-learner`,避免服务器无全局配置时失败)。
   - `ensure_book(slug, title)`:建目录与两个镜像文件占位;INDEX.md 书表追加一行(存在则跳过)。
-- [ ] **Step 4.4** PASS → **Step 4.5** `git commit -m "feat(core): 记忆库初始化与模板 (L1-T4)"`
+- [x] **Step 4.4** PASS → **Step 4.5** `git commit -m "feat(core): 记忆库初始化与模板 (L1-T4)"`
 
 ### Task 5: memory — apply_eval 与镜像再生
 
 **Files:** Modify: `core/src/memory.rs`
 
-- [ ] **Step 5.1 失败测试**:
+- [x] **Step 5.1 失败测试**:
 
 ```rust
 fn sample_eval(pass: bool) -> crate::eval::EvalResult { /* 构造:1 个未修复薄弱点 + observation_note */ }
@@ -456,17 +456,17 @@ fn sync_map_regenerates_mirror() {
 }
 ```
 
-- [ ] **Step 5.2** FAIL → **Step 5.3 实现要点**:
+- [x] **Step 5.2** FAIL → **Step 5.3 实现要点**:
   - 块文件解析:按 `## 复述终稿` / `## 评估历史` / `## AI 观察笔记` 三个标记切分旧内容;frontmatter 全量再生(status/scores/passed_at/review_stage),`status` 由 verdict 决定(pass→passed,relearn→learning);评估历史**前插**一行 `- <date> 第N次:<verdict中文>;薄弱点:<titles(已当场修复标记)>`;observation_note 非空则**追加**到笔记区;verdict=pass 时终稿替换为 final_restatement,否则保留旧终稿。
   - frontmatter 的 `review_stage` 在 apply_eval 时恒写 0(该字段由调度层维护于 SQLite,md 中仅作展示,后续由 sync_map 层面体现进度)。
   - `sync_weakpoints(slug, open, fixed)` 与 `sync_map(slug, title, blocks: &[(String,String)])`(title+status):整文件再生。
-- [ ] **Step 5.4** PASS → **Step 5.5** `git commit -m "feat(core): apply_eval 块文件累积与镜像再生 (L1-T5)"`
+- [x] **Step 5.4** PASS → **Step 5.5** `git commit -m "feat(core): apply_eval 块文件累积与镜像再生 (L1-T5)"`
 
 ### Task 6: memory — git 自动 commit
 
 **Files:** Modify: `core/src/memory.rs`
 
-- [ ] **Step 6.1 失败测试**:
+- [x] **Step 6.1 失败测试**:
 
 ```rust
 #[test]
@@ -482,14 +482,14 @@ fn commit_creates_git_commit_and_tolerates_empty() {
 }
 ```
 
-- [ ] **Step 6.2** FAIL → **Step 6.3 实现**:`git -C root add -A` 后 `git -C root commit -m msg`;commit 退出码非 0 时检查 stdout/stderr 含 "nothing to commit" 则 Ok,否则 Err。
-- [ ] **Step 6.4** PASS → **Step 6.5** `git commit -m "feat(core): 记忆库 git 自动提交 (L1-T6)"`
+- [x] **Step 6.2** FAIL → **Step 6.3 实现**:`git -C root add -A` 后 `git -C root commit -m msg`;commit 退出码非 0 时检查 stdout/stderr 含 "nothing to commit" 则 Ok,否则 Err。
+- [x] **Step 6.4** PASS → **Step 6.5** `git commit -m "feat(core): 记忆库 git 自动提交 (L1-T6)"`
 
 ### Task 7: ai — AiProvider trait 与 CodexCliProvider
 
 **Files:** Create: `core/src/ai.rs`
 
-- [ ] **Step 7.1 失败测试**(假 codex 脚本):
+- [x] **Step 7.1 失败测试**(假 codex 脚本):
 
 ```rust
 fn fake_codex(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
@@ -529,7 +529,7 @@ fn codex_provider_times_out() {
 }
 ```
 
-- [ ] **Step 7.2** FAIL → **Step 7.3 实现**:
+- [x] **Step 7.2** FAIL → **Step 7.3 实现**:
 
 ```rust
 pub enum Role { User, Assistant }
@@ -541,7 +541,7 @@ pub struct CodexCliProvider { pub bin: std::path::PathBuf, pub extra_args: Vec<S
 
   - prompt 渲染:`system + "\n\n=== 对话记录 ===\n" + 每轮 "用户:…"/"学生:…" + "\n(请给出你的下一条回复)"`(无历史则省略对话段)。
   - 子进程:`bin exec -C workdir --sandbox (read-only|workspace-write) --output-last-message <tmp> <prompt>`;`spawn` 后循环 `try_wait` + 100ms sleep,超时 `kill` 并返回 `CoreError::Ai("timeout")`;退出码非 0 → Err(带 stderr 摘要);读 tmp 文件为回复,空文件 → Err。
-- [ ] **Step 7.4** PASS → **Step 7.5 真实冒烟(手动)**:
+- [x] **Step 7.4** PASS → **Step 7.5 真实冒烟(手动)**:
 
 ```rust
 #[test] #[ignore] // 需要本机已登录 codex;手动 cargo test -- --ignored 运行
@@ -557,13 +557,13 @@ fn codex_real_smoke() {
 ```
 
   运行 `cargo test codex_real_smoke -- --ignored`,把真实行为(参数是否兼容 0.144.4、耗时)记入 DEVLOG。
-- [ ] **Step 7.6** `git commit -m "feat(core): AiProvider trait 与 codex CLI 子进程实现 (L1-T7)"`
+- [x] **Step 7.6** `git commit -m "feat(core): AiProvider trait 与 codex CLI 子进程实现 (L1-T7)"`
 
 ### Task 8: prompts — 固定注入与 prompt 构造
 
 **Files:** Create: `core/src/prompts.rs`
 
-- [ ] **Step 8.1 失败测试**:
+- [x] **Step 8.1 失败测试**:
 
 ```rust
 fn ctx() -> super::FixedContext { /* profile_summary/block_title/block_source_text/
@@ -599,14 +599,14 @@ fn eval_prompt_demands_json_only() {
 }
 ```
 
-- [ ] **Step 8.2** FAIL → **Step 8.3 实现**:`FixedContext` struct + 三个构造器 `feynman_system` / `eval_prompt` / `review_quiz_prompt`(TECH §6.2/6.3/6.7 的中文模板,`format!` 拼装;书籍类型侧重段:教材=准确性/推导/边界条件,方法论=框架要素/案例,人文=因果链/时间线)。同时在 `eval.rs` 增加 §6.7 响应解析:`pub struct QuizResult { pub passed: bool, pub comment: String, #[serde(default)] pub new_weak_point: Option<WeakPointItem> }` 与 `parse_quiz`(提取/严格规则同 `parse_eval`)。地图生成、迁移应用、情境化、终评 prompt 属 Mac 阶段流程,**本期不实现**(YAGNI,模板文本已在 TECH §6 备好)。
-- [ ] **Step 8.4** PASS → **Step 8.5** `git commit -m "feat(core): 固定注入与费曼/评估/复习 prompt 构造 (L1-T8)"`
+- [x] **Step 8.2** FAIL → **Step 8.3 实现**:`FixedContext` struct + 三个构造器 `feynman_system` / `eval_prompt` / `review_quiz_prompt`(TECH §6.2/6.3/6.7 的中文模板,`format!` 拼装;书籍类型侧重段:教材=准确性/推导/边界条件,方法论=框架要素/案例,人文=因果链/时间线)。同时在 `eval.rs` 增加 §6.7 响应解析:`pub struct QuizResult { pub passed: bool, pub comment: String, #[serde(default)] pub new_weak_point: Option<WeakPointItem> }` 与 `parse_quiz`(提取/严格规则同 `parse_eval`)。地图生成、迁移应用、情境化、终评 prompt 属 Mac 阶段流程,**本期不实现**(YAGNI,模板文本已在 TECH §6 备好)。
+- [x] **Step 8.4** PASS → **Step 8.5** `git commit -m "feat(core): 固定注入与费曼/评估/复习 prompt 构造 (L1-T8)"`
 
 ### Task 9: sched — 每日队列生成
 
 **Files:** Create: `core/src/sched.rs`
 
-- [ ] **Step 9.1 失败测试**:
+- [x] **Step 9.1 失败测试**:
 
 ```rust
 fn setup() -> (rusqlite::Connection, i64) {
@@ -640,14 +640,14 @@ fn generate_daily_is_idempotent() {
 }
 ```
 
-- [ ] **Step 9.2** FAIL → **Step 9.3 实现**:`DailyTask` struct;`generate_daily(conn, date)`:该日已有任务→直接查回;否则事务内:open weak_point 按 created_at 取 ≤3(est 10min)→ due review(est 5min)→ active plan 的 daily_new_blocks 个 `next_new_blocks`(est 30min);seq 递增插入,`ref_id` 记 weak_point/review_schedule id。
-- [ ] **Step 9.4** PASS → **Step 9.5** `git commit -m "feat(core): 每日队列生成 (L1-T9)"`
+- [x] **Step 9.2** FAIL → **Step 9.3 实现**:`DailyTask` struct;`generate_daily(conn, date)`:该日已有任务→直接查回;否则事务内:open weak_point 按 created_at 取 ≤3(est 10min)→ due review(est 5min)→ active plan 的 daily_new_blocks 个 `next_new_blocks`(est 30min);seq 递增插入,`ref_id` 记 weak_point/review_schedule id。
+- [x] **Step 9.4** PASS → **Step 9.5** `git commit -m "feat(core): 每日队列生成 (L1-T9)"`
 
 ### Task 10: sched — 通过流转与间隔重复
 
 **Files:** Modify: `core/src/sched.rs`
 
-- [ ] **Step 10.1 失败测试**:
+- [x] **Step 10.1 失败测试**:
 
 ```rust
 #[test]
@@ -733,19 +733,19 @@ fn weak_retest_two_passes_fixes() {
 }
 ```
 
-- [ ] **Step 10.2** FAIL → **Step 10.3 实现**:
+- [x] **Step 10.2** FAIL → **Step 10.3 实现**:
   - 日期运算用 chrono `NaiveDate`;stage 推进映射 `1→3→7→14→consolidated`;**推进后的 due_date = 本次结果日期 + 下一档天数**(与 fail 重置"结果日期+1"口径一致)。
   - `on_block_passed(conn, block_id, date)`:置 `knowledge_block.status='passed', passed_at=date`(幂等)并插入 stage1 复习(due=date+1)。
   - **`apply_eval_to_db(conn, block_id, &EvalResult, date)`(评估落库的唯一入口,TECH §3.3 的 SQLite 半边)**:更新 `knowledge_block.scores_json`;verdict=pass → 调 `on_block_passed`;verdict=relearn → `status='learning'`;将 `fixed_in_session=false` 的 weak_points 逐条 INSERT 进 `weak_point` 表(anchor 序列化进 anchor_json)。
   - `on_weak_retest(id, pass, date)`:pass→pass_streak+1,≥2 置 fixed(记 fixed_at);fail→streak 清零。
   - 查询辅助 `list_weakpoints(conn, book_id) -> (open: Vec<(String,String,String)>, fixed: Vec<...>)`(块标题/薄弱点标题/日期),供 `sync_weakpoints` 镜像与 Mac 壳复用,避免调用方手写 SQL。
-- [ ] **Step 10.4** PASS → **Step 10.5** `git commit -m "feat(core): 间隔重复流转与薄弱点重考 (L1-T10)"`
+- [x] **Step 10.4** PASS → **Step 10.5** `git commit -m "feat(core): 间隔重复流转与薄弱点重考 (L1-T10)"`
 
 ### Task 11: sched — 落后检测与重排
 
 **Files:** Modify: `core/src/sched.rs`
 
-- [ ] **Step 11.1 失败测试**:
+- [x] **Step 11.1 失败测试**:
 
 ```rust
 #[test]
@@ -778,14 +778,14 @@ fn on_track_returns_ok() {
 }
 ```
 
-- [ ] **Step 11.2** FAIL → **Step 11.3 实现**:`enum Replan { OnTrack, AutoAdjusted{new_daily: i64}, NeedsDecision{required_daily: i64, cap: i64} }`;判定:近 2 个"有 new 任务的日期"其 new 任务均非 done → behind;`required = ceil(剩余未学块 / max(1, 截止-今天天数))`;≤cap → AutoAdjusted 并 `UPDATE study_plan.daily_new_blocks`;>cap → NeedsDecision(截止日不动,交上层确认——PRODUCT §6)。
-- [ ] **Step 11.4** PASS → **Step 11.5** `git commit -m "feat(core): 落后检测与自动重排 (L1-T11)"`
+- [x] **Step 11.2** FAIL → **Step 11.3 实现**:`enum Replan { OnTrack, AutoAdjusted{new_daily: i64}, NeedsDecision{required_daily: i64, cap: i64} }`;判定:近 2 个"有 new 任务的日期"其 new 任务均非 done → behind;`required = ceil(剩余未学块 / max(1, 截止-今天天数))`;≤cap → AutoAdjusted 并 `UPDATE study_plan.daily_new_blocks`;>cap → NeedsDecision(截止日不动,交上层确认——PRODUCT §6)。
+- [x] **Step 11.4** PASS → **Step 11.5** `git commit -m "feat(core): 落后检测与自动重排 (L1-T11)"`
 
 ### Task 12: 端到端集成测试(生命周期)
 
 **Files:** Create: `core/tests/lifecycle.rs`;Modify: `lib.rs`(公开 API 检查)
 
-- [ ] **Step 12.1** 写集成测试(用 MockProvider 返回 canned 评估 JSON,不依赖 codex):
+- [x] **Step 12.1** 写集成测试(用 MockProvider 返回 canned 评估 JSON,不依赖 codex):
 
 ```rust
 use book_learner_core::*;
@@ -808,10 +808,10 @@ fn full_block_lifecycle() {
 }
 ```
 
-- [ ] **Step 12.2** 跑通全部:`cargo test`(含单测+集成)全绿。
-- [ ] **Step 12.3** `cargo clippy -- -D warnings` 清零(若 clippy 不可用,记 DEVLOG 跳过)。
-- [ ] **Step 12.4** DEVLOG 收尾条目(L1 完成、测试计数、真实 codex 冒烟结果、遗留)。
-- [ ] **Step 12.5** `git add -A && git commit -m "test(core): 块生命周期端到端集成测试 (L1-T12)" && git tag l1-core`
+- [x] **Step 12.2** 跑通全部:`cargo test`(含单测+集成)全绿。
+- [x] **Step 12.3** `cargo clippy -- -D warnings` 清零(若 clippy 不可用,记 DEVLOG 跳过)。
+- [x] **Step 12.4** DEVLOG 收尾条目(L1 完成、测试计数、真实 codex 冒烟结果、遗留)。
+- [x] **Step 12.5** `git add -A && git commit -m "test(core): 块生命周期端到端集成测试 (L1-T12)" && git tag l1-core`
 
 ---
 
