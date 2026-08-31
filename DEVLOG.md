@@ -2,6 +2,12 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-08-31 · Mac Foundation T4 完成
+- SQLite 连接完整性:`open` 与 `open_in_memory` 统一经私有 `configure`,每次连接显式开启并回读验证 `foreign_keys=1`,再执行迁移;孤儿 `knowledge_block.book_id` 由 SQLite FK 约束拒绝。bundled SQLite 本机编译默认已开启 FK,所以公开路径 FK 测试在基线即通过;另以原始连接显式关闭 FK 后验证 `configure` 恢复为 1,取得缺少配置入口的编译 RED 后转 GREEN。
+- schema v2:仅新增 `study_plan_one_per_book` 与 partial unique `study_plan_single_active`,分别约束每书单计划与全库单 active 计划;两个索引和 `user_version=2` 同一事务提交。legacy v1 若有冲突计划则迁移显式失败,事务回滚确保不删行、不残留半套索引且版本保持 1,交由用户修复数据。
+- TDD:首轮 focused DB tests 因版本仍为 1、两个唯一约束缺失、legacy 冲突未阻止迁移而 4 项 RED;配置入口测试另以 `configure` 不存在产生编译 RED;事务内无法启用 FK 的测试先复现模糊嵌套事务错误 RED,再由回读检查转为明确错误。最小实现后 focused DB 10/10 GREEN。
+- 验证:`cargo test --manifest-path core/Cargo.toml db::tests` 10/10;`cargo test --manifest-path core/Cargo.toml --all-targets` 39 通过/1 ignored + lifecycle 1/1;`cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings` 零警告。
+
 ## 2026-08-31 · Mac Foundation T3 完成
 - 共享默认值:仓库级 `shared/app-defaults.json` 成为 Web 设置的唯一默认值来源;`APP_DEFAULTS` 以 `Readonly<AppSettings>` 冻结副本导出,番茄钟常量与 `MockBackend` 设置均由其派生;Vite 仅额外放行 `shared/`,TypeScript 将该 JSON 纳入应用图。
 - 本地日期:新增 `localCalendarDate`,统一 Today/Map/Feynman 的日历日计算;测试可在任意宿主时区运行,并分别锁定上海 UTC 跨日、洛杉矶 DST 跳时后临近日界的跨日 instant,三页不得恢复 `toISOString().slice(0, 10)`。
