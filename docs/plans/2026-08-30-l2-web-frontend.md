@@ -238,9 +238,9 @@ describe('MockBackend 契约行为', () => {
 
 **测试约定(全部 feature 测试统一,只在此处定义一次)**:①凡 fake timers 与 userEvent 并用,必须 `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`,否则互等死锁;②注入模式:用工厂形式 `vi.mock('../../backend', () => ({ backend: null as unknown as Backend }))`(裸 automock 下命名空间可能不可写),`beforeEach` 里给 `backendModule.backend` 赋新 `new MockBackend()`,断言调用参数用 `vi.spyOn(backendModule.backend, 'confirmMap')` 等。
 
-- [ ] **Step 4.1 失败测试**:渲染 TodayPage → `findAllByTestId('task-card')` 顺序为 weak→review→new(卡上有 `KIND_LABEL` 文本与预估分钟);顶部显示进度(passed/total 来自 stats);点击新块卡"开始" → 断言路由跳 `/reader/:blockId?task=<taskId>`(T7 学习模式靠此参数,MemoryRouter 断言 location);**review 任务卡有直接"完成"按钮**(新块的完成走费曼确认流,复习/重考在对话页外也可标记)→ 点击后 `completeTask` 被调且卡片变完成态;**番茄钟**:点任务卡"专注"→ 倒计时从 `POMODORO_DEFAULT.work` 分钟开始走(fake timers 快进 1 分钟断言显示 24:00)。
-- [ ] **Step 4.2 实现** PRODUCT_SPEC §3.1:队列卡(左色条 = 任务色代币)、streak 与今日时长、进度环、空状态鼓励文案(明日预告契约缺失,留偏差)、页内番茄钟组件(work/break 两阶段,读 config;菜单栏倒计时归 Mac 阶段)。测试绿。
-- [ ] **Step 4.3 commit + push**:`feat(web): 今日学习页 (L2-T4)`
+- [x] **Step 4.1 失败测试**:渲染 TodayPage → `findAllByTestId('task-card')` 顺序为 weak→review→new(卡上有 `KIND_LABEL` 文本与预估分钟);顶部显示进度(passed/total 来自 stats);点击新块卡"开始" → 断言路由跳 `/reader/:blockId?task=<taskId>`(T7 学习模式靠此参数,MemoryRouter 断言 location);**review 任务卡有直接"完成"按钮**(新块的完成走费曼确认流,复习/重考在对话页外也可标记)→ 点击后 `completeTask` 被调且卡片变完成态;**番茄钟**:点任务卡"专注"→ 倒计时从 `POMODORO_DEFAULT.work` 分钟开始走(fake timers 快进 1 分钟断言显示 24:00)。
+- [x] **Step 4.2 实现** PRODUCT_SPEC §3.1:队列卡(左色条 = 任务色代币)、streak 与今日时长、进度环、空状态鼓励文案(明日预告契约缺失,留偏差)、页内番茄钟组件(work/break 两阶段,读 config;菜单栏倒计时归 Mac 阶段)。测试绿。
+- [x] **Step 4.3 commit + push**:`feat(web): 今日学习页 (L2-T4)`
 
 ### Task 5: 书架页 + 导入向导
 
