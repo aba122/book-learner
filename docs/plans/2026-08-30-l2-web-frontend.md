@@ -88,7 +88,7 @@ book-learner/
 
 **Files:** Create: `web/src/types.ts`, `web/src/backend/types.ts`, `web/src/config.ts`(**index.ts 归 T2**);Test: `web/src/backend/contract.test.ts`
 
-- [ ] **Step 1.1** `types.ts`(完整代码,镜像 core 模型):
+- [x] **Step 1.1** `types.ts`(完整代码,镜像 core 模型):
 
 ```ts
 export type BookType = 'textbook' | 'methodology' | 'humanities'
@@ -118,7 +118,7 @@ export interface Stats { totalBlocks: number; passedBlocks: number; streakDays: 
 export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string }
 ```
 
-- [ ] **Step 1.2** `backend/types.ts`(完整代码——唯一后端契约):
+- [x] **Step 1.2** `backend/types.ts`(完整代码——唯一后端契约):
 
 ```ts
 import type {
@@ -156,7 +156,7 @@ export interface Backend {
 }
 ```
 
-- [ ] **Step 1.3** `config.ts`(行为参数单点,完整代码):
+- [x] **Step 1.3** `config.ts`(行为参数单点,完整代码):
 
 ```ts
 import type { TaskKind } from './types'
@@ -169,7 +169,7 @@ export const KIND_LABEL: Record<TaskKind, string> = { new: '新知识块', weak_
 export const KIND_ORDER: TaskKind[] = ['weak_retest', 'review', 'new']
 ```
 
-- [ ] **Step 1.4 失败测试** `contract.test.ts`(测 MockBackend 的可见行为,T2 转绿):
+- [x] **Step 1.4 失败测试** `contract.test.ts`(测 MockBackend 的可见行为,T2 转绿):
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -210,7 +210,7 @@ describe('MockBackend 契约行为', () => {
 ```
 
   Run:FAIL(mock.ts 不存在)。**注意:T1 不建 backend/index.ts**(它 import mock.ts,会让 T1 提交连 build 都红;index.ts 归 T2)。`pnpm -C web build` 必须仍绿(红的只有测试)。
-- [ ] **Step 1.5 commit + push**:`feat(web): 领域类型与 Backend 契约 (L2-T1)`(契约+红测试小步提交,T2 立即转绿)
+- [x] **Step 1.5 commit + push**:`feat(web): 领域类型与 Backend 契约 (L2-T1)`(契约+红测试小步提交,T2 立即转绿)
 
 ### Task 2: MockBackend(Linux 开发的替身后端)
 
