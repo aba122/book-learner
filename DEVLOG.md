@@ -2,6 +2,13 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-09-01 · Mac Foundation T5 完成
+- 严格读模型:新增按 ID 稳定排序的 `Book` 查询与单知识块查询;book type/status、block status、前置依赖 JSON 和评估分数均严格解析,缺失知识块返回 typed `NotFound`,不再把损坏数据静默降级为默认类型或空依赖。
+- 核心用例:`library::set_active_book` 在单一 immediate transaction 内切换主攻书及对应计划;`planning::set_plan` 严格验证固定宽度 `YYYY-MM-DD`、正数配额/上限和 `HH:mm`,按书原子 upsert 并仅让主攻书计划 active;`today_queue` 直接委托既有排程器,未增加嵌套事务或截止日自动调整。
+- 设置持久化:Rust 通过 `include_str!` 读取 `shared/app-defaults.json`;新库和缺键只在读取结果中回退默认值而不回写。保存前统一验证 1–180 分钟与 `HH:mm`,再以单事务 upsert 四个已公开键,保留无关键。
+- TDD 与审查:foundation 24/24,覆盖磁盘重开、缺失目标、严格枚举/日期/时间、触发器注入失败回滚和 active 唯一性。规格审查发现 Chrono 会接受未补零日期,新增三个回归用例先 RED,再补显式格式检查转 GREEN;质量审查进一步隔离“用户请求无效”与“SQLite 持久化损坏”的错误类型,并补齐已存设置校验、损坏书状态和时间数字位回归后通过复审。
+- 验证:`cargo test --test foundation` 24/24;`cargo test --all-targets` 为 core unit 40 通过/1 ignored、foundation 24/24、lifecycle 1/1;`cargo clippy --all-targets -- -D warnings` 零警告;本节点 Rust 文件格式与 diff check 通过。
+
 ## 2026-08-31 · Mac Foundation T4 完成
 - SQLite 连接完整性:`open` 与 `open_in_memory` 统一经私有 `configure`,每次连接显式开启并回读验证 `foreign_keys=1`,再执行迁移;孤儿 `knowledge_block.book_id` 由 SQLite FK 约束拒绝。bundled SQLite 本机编译默认已开启 FK,所以公开路径 FK 测试在基线即通过;另以原始连接显式关闭 FK 后验证 `configure` 恢复为 1,取得缺少配置入口的编译 RED 后转 GREEN。
 - schema v2:仅新增 `study_plan_one_per_book` 与 partial unique `study_plan_single_active`,分别约束每书单计划与全库单 active 计划;两个索引和 `user_version=2` 同一事务提交。legacy v1 若有冲突计划则迁移显式失败,事务回滚确保不删行、不残留半套索引且版本保持 1,交由用户修复数据。
