@@ -2,6 +2,14 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-09-01 · Mac Foundation T7 完成
+- 原生适配：新增可注入 `InvokeFn` 的 `TauriBackend`，8 个已支持方法精确调用共享 wire contract 中的 command 与 camelCase 顶层 payload；默认边界使用 `@tauri-apps/api/core` 的 `invoke`。
+- 严格解码：Book/KnowledgeBlock/DailyTask 的所有 i64 字段及出站 ID/计划/设置整数均要求 `Number.isSafeInteger`；严格校验 book type/status、block status、task kind/status、字符串/数组/对象形状、可选 scores/passedAt/refId 的省略语义，分数限 1..5。仅校验传输形状，正数、日期、时间和分钟范围仍由 core 裁决，未增加 retry 或产品规则。
+- 失败边界：Tauri invoke rejection 仅接受 Rust `IpcError` 的 7 个已知 code，并使用与 Rust 一致的固定安全消息/retryable；除共享契约中的 `not_implemented` capability 外丢弃 raw details，原生 Error/未知拒绝统一固定消息且不附原对象。解码错误 details 只含 path/expected/actualType，不包含 raw value。11 个未支持方法只调 `unsupported_capability`，不使用 Mock/伪进度。
+- 运行时选择：导出可注入候选 global 的纯 `isTauriRuntime` 与 `createBackend`；浏览器选 `MockBackend`，Tauri 选 `TauriBackend`，原生路径无 warning 和 Mock fallback，测试不修改 window 或 module cache。
+- TDD 与审查：supported RED 为 `./tauri` 缺失；解码 RED 为 22 组坏 wire fixture 与 5 组 unsafe outbound i64 被静默接受；unsupported/error RED 为裸拒绝对象与缺方法 `TypeError`；runtime RED 为 detector/factory 未导出。质量复审又先复现 7 个敏感错误泄露 RED、3 个 non-null unit response 假成功 RED、4 个出站根对象误分类 RED，分别转 GREEN；malformed 表每 case 只调一次 operation 并复用 Promise。
+- 验证：adapter/index focused 53/53；Web 全量 93 通过/1 skipped；lint 退出 0（仅保留 6 个既有 React warning）；production build 通过（保留既有 >500kB chunk warning）；core unit 40 通过/1 ignored、foundation 25/25、lifecycle 1/1；Tauri 12/12，debug no-bundle build 通过。
+
 ## 2026-09-01 · Mac Foundation T6 完成
 - 契约优先：新增 Rust/TypeScript 共读的 `shared/tauri-wire-contract.json`，固定 9 个 Tauri command、camelCase 顶层 payload key 与 11 个 unsupported capability；移除 `health_check`，所有 handler 统一使用 async command 宏并在单一 handler 表注册。
 - 原生分层：`AppState` 独占一个启用 foreign keys 的磁盘 SQLite 连接，application 仅持单 guard 委托 core，DTO 与 core/数据库模型隔离；书、块、计划、队列和设置均通过 typed camelCase JSON 暴露，损坏持久化分数继续作为 internal 错误而非静默丢弃。
