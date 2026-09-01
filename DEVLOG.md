@@ -10,6 +10,8 @@
 - 冒烟与 CI：`seed_smoke` 只接受一个绝对目录，幂等播种一书/三块/一计划并打印精确 `app.db` 路径；mac-foundation 在 debug build 前新增 Tauri all-target tests 与 clippy 门禁。
 - TDD：基础测试先因五个原生模块缺失而 RED，最小实现后 9/9 GREEN；播种例程先因参数/播种函数缺失而 RED，随后 2/2 GREEN。
 - 审查修复：debug override 目录与 `seed_smoke` 统一为 `<BOOK_LEARNER_DATA_DIR>/app.db`，避免 Task 9 启动时错读嵌套子目录；无 override 的生产路径仍为平台数据目录下 `book-learner/app.db`，release 继续忽略环境变量。路径期望先 RED 后 GREEN。
+- 质量审查修复：planning 抽取严格 `YYYY-MM-DD` 校验，`today_queue` 在任何排程写入前拒绝非补零或无效日历日期；真实 Tauri mock runtime 通过生产共用的泛型注册函数逐项调用共享契约 9 个命令，并验证 request/date/settings 的 camelCase 顶层 key 与错误 key 拒绝；runtime 启动路径以幂等 `try_init` 安装最小 fmt tracing subscriber。三项均先取得定向 RED 再转 GREEN。
+- 验证：core unit 40 通过/1 ignored、foundation 25/25、lifecycle 1/1；Tauri debug 12/12、release 路径测试及 debug/release clippy 通过；Web 40 通过/1 skipped、production build 与 Tauri debug build 通过；Task 6 修改的 core 文件定向 rustfmt、Tauri crate 全量 fmt 与 diff check 通过。整个 core crate 的 `cargo fmt --check` 仍报告本节点外既有旧文件格式差异，本节点未制造无关批量格式提交。
 
 ## 2026-09-01 · Mac Foundation T5 完成
 - 严格读模型:新增按 ID 稳定排序的 `Book` 查询与单知识块查询;book type/status、block status、前置依赖 JSON 和评估分数均严格解析,缺失知识块返回 typed `NotFound`,不再把损坏数据静默降级为默认类型或空依赖。

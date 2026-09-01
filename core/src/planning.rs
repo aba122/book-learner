@@ -37,8 +37,8 @@ fn validate_time(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_plan(plan: &StudyPlan) -> Result<()> {
-    let date_bytes = plan.deadline.as_bytes();
+fn validate_date(value: &str, field: &str) -> Result<()> {
+    let date_bytes = value.as_bytes();
     let has_exact_date_shape = date_bytes.len() == 10
         && date_bytes.get(4) == Some(&b'-')
         && date_bytes.get(7) == Some(&b'-')
@@ -48,16 +48,17 @@ fn validate_plan(plan: &StudyPlan) -> Result<()> {
             .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
     if !has_exact_date_shape {
         return Err(CoreError::InvalidInput(format!(
-            "deadline must be a valid YYYY-MM-DD date: {}",
-            plan.deadline
+            "{field} must be a valid YYYY-MM-DD date: {value}"
         )));
     }
-    NaiveDate::parse_from_str(&plan.deadline, "%Y-%m-%d").map_err(|_| {
-        CoreError::InvalidInput(format!(
-            "deadline must be a valid YYYY-MM-DD date: {}",
-            plan.deadline
-        ))
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+        CoreError::InvalidInput(format!("{field} must be a valid YYYY-MM-DD date: {value}"))
     })?;
+    Ok(())
+}
+
+fn validate_plan(plan: &StudyPlan) -> Result<()> {
+    validate_date(&plan.deadline, "deadline")?;
     if plan.daily_new_blocks <= 0 {
         return Err(CoreError::InvalidInput(
             "daily new blocks must be positive".into(),
@@ -114,5 +115,6 @@ pub fn set_plan(conn: &Connection, plan: &StudyPlan) -> Result<()> {
 }
 
 pub fn today_queue(conn: &Connection, date: &str) -> Result<Vec<crate::sched::DailyTask>> {
+    validate_date(date, "date")?;
     crate::sched::generate_daily(conn, date)
 }

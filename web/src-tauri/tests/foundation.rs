@@ -14,6 +14,9 @@ use book_learner_core::models::{Book, BookStatus, BookType, KnowledgeBlock};
 use book_learner_core::sched::DailyTask;
 use book_learner_core::CoreError;
 use serde_json::{json, Value};
+use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
+use tauri::webview::InvokeRequest;
 use tracing_subscriber::fmt::MakeWriter;
 
 #[test]
@@ -460,8 +463,28 @@ fn unsupported_capability_is_always_safe_and_not_implemented() {
     assert_eq!(error.message, "此功能尚未在 Mac 版中实现");
 }
 
+fn invoke_json(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    command: &str,
+    payload: Value,
+) -> Result<Value, Value> {
+    get_ipc_response(
+        webview,
+        InvokeRequest {
+            cmd: command.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: "tauri://localhost".parse().unwrap(),
+            body: InvokeBody::Json(payload),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.into(),
+        },
+    )
+    .map(|body| body.deserialize().unwrap())
+}
+
 #[test]
-fn rust_command_surface_matches_the_shared_wire_contract() {
+fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     let contract: Value =
         serde_json::from_str(include_str!("../../../shared/tauri-wire-contract.json")).unwrap();
     assert_eq!(
@@ -494,12 +517,64 @@ fn rust_command_surface_matches_the_shared_wire_contract() {
         json!(commands::UNSUPPORTED_CAPABILITIES)
     );
 
-    let registered_source = include_str!("../src/lib.rs");
-    for (command, _) in commands::WIRE_COMMANDS {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, _, block) = seeded_state(&directory.path().join("ipc.db"));
+    let app = book_learner_app::register_commands(mock_builder().manage(state))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+
+    for entry in contract["commands"].as_array().unwrap() {
+        let command = entry["command"].as_str().unwrap();
+        let payload = match command {
+            "library_list_books" | "settings_get" => json!({}),
+            "library_set_active_book" | "map_list_blocks" => json!({"bookId": first}),
+            "map_get_block" => json!({"blockId": block}),
+            "planning_set_plan" => json!({"request": {
+                "bookId": first, "deadline": "2026-10-01", "dailyNewBlocks": 1,
+                "dailyCap": 4, "remindTime": "21:00"
+            }}),
+            "planning_today_queue" => json!({"date": "2026-09-01"}),
+            "settings_save" => json!({"settings": {
+                "obsidianVault": "/Notes", "pomodoroMinutes": 25,
+                "breakMinutes": 5, "remindTime": "21:00"
+            }}),
+            "unsupported_capability" => json!({"capability": "importEpub"}),
+            other => panic!("contract contains unknown command {other}"),
+        };
+        let actual_keys: Vec<&str> = payload
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let expected_keys: Vec<&str> = entry["payloadKeys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| key.as_str().unwrap())
+            .collect();
+        assert_eq!(actual_keys, expected_keys, "{command}");
+
+        let response = invoke_json(&webview, command, payload);
+        if command == "unsupported_capability" {
+            assert_eq!(response.unwrap_err()["code"], "not_implemented");
+        } else {
+            response.unwrap_or_else(|error| panic!("{command} was not invokable: {error}"));
+        }
+    }
+
+    for (command, wrong_payload) in [
+        ("planning_set_plan", json!({"plan": {}})),
+        ("planning_today_queue", json!({"day": "2026-09-01"})),
+        ("settings_save", json!({"value": {}})),
+    ] {
         assert!(
-            registered_source.contains(command),
-            "{command} is not registered"
+            invoke_json(&webview, command, wrong_payload).is_err(),
+            "{command}"
         );
     }
-    assert!(!registered_source.contains("health_check"));
+    assert!(invoke_json(&webview, "health_check", json!({})).is_err());
 }

@@ -433,6 +433,35 @@ fn today_queue_delegates_to_daily_scheduler() {
 }
 
 #[test]
+fn today_queue_rejects_invalid_calendar_dates_before_writing() {
+    for date in ["2026-9-01", "2026-02-30"] {
+        let conn = db::open_in_memory().unwrap();
+        let book =
+            models::insert_book(&conn, "书", "", models::BookType::Textbook, "book").unwrap();
+        models::insert_block(&conn, book, "模块", 1, "块", "block", &[]).unwrap();
+        planning::set_plan(
+            &conn,
+            &planning::StudyPlan {
+                book_id: book,
+                deadline: "2026-09-30".into(),
+                daily_new_blocks: 1,
+                daily_cap: 4,
+                remind_time: "21:00".into(),
+            },
+        )
+        .unwrap();
+
+        let error = planning::today_queue(&conn, date).unwrap_err();
+
+        assert!(matches!(error, CoreError::InvalidInput(_)), "{date}");
+        let task_count: i64 = conn
+            .query_row("SELECT count(*) FROM daily_task", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(task_count, 0, "{date}");
+    }
+}
+
+#[test]
 fn set_plan_rejects_missing_book_without_changes() {
     let conn = db::open_in_memory().unwrap();
     let plan = planning::StudyPlan {
