@@ -2,6 +2,14 @@
 
 > 每个工作阶段结束追加一条。格式:日期 / 完成内容 / 关键决策与偏差 / 测试状态。
 
+## 2026-09-01 · Mac Foundation T6 完成
+- 契约优先：新增 Rust/TypeScript 共读的 `shared/tauri-wire-contract.json`，固定 9 个 Tauri command、camelCase 顶层 payload key 与 11 个 unsupported capability；移除 `health_check`，所有 handler 统一使用 async command 宏并在单一 handler 表注册。
+- 原生分层：`AppState` 独占一个启用 foreign keys 的磁盘 SQLite 连接，application 仅持单 guard 委托 core，DTO 与 core/数据库模型隔离；书、块、计划、队列和设置均通过 typed camelCase JSON 暴露，损坏持久化分数继续作为 internal 错误而非静默丢弃。
+- 路径与启动：生产路径只从 Tauri `data_dir()` 解析并精确追加 `book-learner/app.db`，先创建目录再打开数据库，失败即终止且无内存回退；debug 的 `BOOK_LEARNER_DATA_DIR` 只接受绝对路径，release 编译忽略该变量。
+- 错误与观测：core 错误映射为稳定中文 `IpcError`；内部 cause 不进入序列化 payload。每个 command 生成 `mac-<pid>-<counter>` correlation ID，失败日志仅记录 command、correlation ID、error code 与内部 cause。unsupported 永远返回 `not_implemented`，安全 details 只含 capability。
+- 冒烟与 CI：`seed_smoke` 只接受一个绝对目录，幂等播种一书/三块/一计划并打印精确 `app.db` 路径；mac-foundation 在 debug build 前新增 Tauri all-target tests 与 clippy 门禁。
+- TDD：基础测试先因五个原生模块缺失而 RED，最小实现后 9/9 GREEN；播种例程先因参数/播种函数缺失而 RED，随后 2/2 GREEN。
+
 ## 2026-09-01 · Mac Foundation T5 完成
 - 严格读模型:新增按 ID 稳定排序的 `Book` 查询与单知识块查询;book type/status、block status、前置依赖 JSON 和评估分数均严格解析,缺失知识块返回 typed `NotFound`,不再把损坏数据静默降级为默认类型或空依赖。
 - 核心用例:`library::set_active_book` 在单一 immediate transaction 内切换主攻书及对应计划;`planning::set_plan` 严格验证固定宽度 `YYYY-MM-DD`、正数配额/上限和 `HH:mm`,按书原子 upsert 并仅让主攻书计划 active;`today_queue` 直接委托既有排程器,未增加嵌套事务或截止日自动调整。

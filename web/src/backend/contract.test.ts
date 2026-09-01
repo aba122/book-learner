@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { APP_DEFAULTS } from '../config'
 import { MockBackend } from './mock'
+import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 
 describe('MockBackend 契约行为', () => {
   it('种子含至少一本主攻书', async () => {
@@ -43,5 +44,26 @@ describe('MockBackend 契约行为', () => {
     expect(Reflect.set(APP_DEFAULTS, 'pomodoroMinutes', 99)).toBe(false)
 
     expect((await new MockBackend().getSettings()).pomodoroMinutes).toBe(25)
+  })
+})
+
+describe('Tauri wire contract fixture', () => {
+  it('固定命令名、顶层 payload key 与 unsupported capability', () => {
+    expect(Object.keys(tauriWireContract)).toEqual(['commands', 'unsupportedCapabilities'])
+    expect(tauriWireContract.commands).toEqual([
+      { method: 'listBooks', command: 'library_list_books', payloadKeys: [] },
+      { method: 'setActiveBook', command: 'library_set_active_book', payloadKeys: ['bookId'] },
+      { method: 'listBlocks', command: 'map_list_blocks', payloadKeys: ['bookId'] },
+      { method: 'getBlock', command: 'map_get_block', payloadKeys: ['blockId'] },
+      { method: 'setPlan', command: 'planning_set_plan', payloadKeys: ['request'] },
+      { method: 'todayQueue', command: 'planning_today_queue', payloadKeys: ['date'] },
+      { method: 'getSettings', command: 'settings_get', payloadKeys: [] },
+      { method: 'saveSettings', command: 'settings_save', payloadKeys: ['settings'] },
+      { method: 'unsupported', command: 'unsupported_capability', payloadKeys: ['capability'] },
+    ])
+    expect(tauriWireContract.unsupportedCapabilities).toEqual([
+      'importEpub', 'generateMap', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl',
+      'startSession', 'studentReply', 'endSession', 'confirmVerdict', 'stats',
+    ])
   })
 })
