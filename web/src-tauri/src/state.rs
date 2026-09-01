@@ -43,8 +43,10 @@ impl AppState {
 }
 
 pub fn resolve_database_path(platform_data_dir: &Path) -> Result<PathBuf, IpcError> {
-    let base = debug_data_dir_override()?.unwrap_or_else(|| platform_data_dir.to_path_buf());
-    Ok(base.join("book-learner").join("app.db"))
+    match debug_data_dir_override()? {
+        Some(directory) => Ok(directory.join("app.db")),
+        None => Ok(platform_data_dir.join("book-learner").join("app.db")),
+    }
 }
 
 #[cfg(debug_assertions)]

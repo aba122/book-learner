@@ -326,7 +326,7 @@ fn database_path_appends_exact_product_location_and_debug_override_is_absolute()
         std::env::set_var("BOOK_LEARNER_DATA_DIR", "/private/tmp/book-data");
         assert_eq!(
             resolve_database_path(Path::new("/ignored")).unwrap(),
-            Path::new("/private/tmp/book-data/book-learner/app.db")
+            Path::new("/private/tmp/book-data/app.db")
         );
         std::env::set_var("BOOK_LEARNER_DATA_DIR", "relative/path");
         let error = resolve_database_path(Path::new("/ignored")).unwrap_err();

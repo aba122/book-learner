@@ -9,6 +9,7 @@
 - 错误与观测：core 错误映射为稳定中文 `IpcError`；内部 cause 不进入序列化 payload。每个 command 生成 `mac-<pid>-<counter>` correlation ID，失败日志仅记录 command、correlation ID、error code 与内部 cause。unsupported 永远返回 `not_implemented`，安全 details 只含 capability。
 - 冒烟与 CI：`seed_smoke` 只接受一个绝对目录，幂等播种一书/三块/一计划并打印精确 `app.db` 路径；mac-foundation 在 debug build 前新增 Tauri all-target tests 与 clippy 门禁。
 - TDD：基础测试先因五个原生模块缺失而 RED，最小实现后 9/9 GREEN；播种例程先因参数/播种函数缺失而 RED，随后 2/2 GREEN。
+- 审查修复：debug override 目录与 `seed_smoke` 统一为 `<BOOK_LEARNER_DATA_DIR>/app.db`，避免 Task 9 启动时错读嵌套子目录；无 override 的生产路径仍为平台数据目录下 `book-learner/app.db`，release 继续忽略环境变量。路径期望先 RED 后 GREEN。
 
 ## 2026-09-01 · Mac Foundation T5 完成
 - 严格读模型:新增按 ID 稳定排序的 `Book` 查询与单知识块查询;book type/status、block status、前置依赖 JSON 和评估分数均严格解析,缺失知识块返回 typed `NotFound`,不再把损坏数据静默降级为默认类型或空依赖。
