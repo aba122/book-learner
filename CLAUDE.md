@@ -13,15 +13,17 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - [x] 产品与技术设计定稿(2026-08-30,与用户四轮问答确认)
 - [x] L1 core crate(Linux,feat/l1-core):db/models/eval/memory/ai/sched,31 测试绿
 - [x] L2 React 前端(Linux,feat/l2-web):七页面 + MockBackend,浏览器闭环可跑,27 测试绿
-- [ ] Mac 阶段 ← **从这里开始**:实现 `web/src/backend/tauri.ts` + Tauri 壳接线(core 暴露 command),再接 EPUB 抽取/CFI、whisper、tray
+- [x] Mac Foundation 本地实现(feat/mac-m1):Tauri 2 壳、类型化 IPC、8 个 SQLite 能力、11 个显式未实现能力、七路由失败态
+- [ ] Mac Foundation 发布门禁:在 Apple Silicon 完成原生退出/重启持久化冒烟,推送分支并通过 macOS CI、PR 与 `mac-m1` tag
+- [ ] 产品 M1:EPUB 导入/抽取/CFI、地图生成与定稿、Codex 费曼闭环、评估一致性(见 IMPLEMENTATION_PLAN)
 - [ ] M2 学习系统 / M3 体验完善(见 IMPLEMENTATION_PLAN)
 
 ## 开发环境要求
 
-macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、codex CLI 已安装并登录(`codex exec "hi"` 可用)。
+前端/core 可在 Linux 开发;Tauri 原生发布门禁需 macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、codex CLI 已安装并登录(`codex exec "hi"` 可用)。
 
 ## 约定
 
-- 开发:`pnpm tauri dev`;构建:`pnpm tauri build`
+- 浏览器开发:`pnpm -C web dev`;原生开发:`pnpm -C web tauri dev`;基础调试构建:`pnpm -C web tauri:build:debug`
 - 界面语言中文;设计决策变更须同步回写对应 SPEC 文档
-- 先做 IMPLEMENTATION_PLAN 中标注的两个不确定点冒烟(codex exec 参数行为、CFI 锚定),再铺开功能
+- Mac Foundation 的真实能力矩阵和冒烟手册见 `docs/smoke/mac-m1-native-smoke.md`;禁止原生环境回退到 Mock 数据

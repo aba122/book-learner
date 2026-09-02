@@ -173,3 +173,11 @@
 - Stats 将 loading/success 与 `BackendError` 分开,不用零值或 Mock 数据伪装原生失败;可重试错误只重发 `stats`,generation 与 unmount invalidation 阻止较晚的旧成功/失败恢复过期页面。
 - Settings 将加载与保存错误独立呈现;保存时捕获不可变快照,失败不重置表单,编辑后重试使用当前新快照。同步 ref guard 阻止双击写入,form revision 避免在写入期间继续编辑后误报“已保存”,load/save generation 忽略过期与卸载结果。
 - TDD:旧实现在 Stats/Settings 新矩阵上为 7 failed/7 passed 且有 10 个 unhandled rejections;实现后两文件 16/16。八文件页面错误契约 86/86,全量 Web 158 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅原有 6 warnings),production build 成功(179 modules,602.96 kB chunk warning),`git diff --check` 通过。
+
+## 2026-09-02 · Mac Foundation T9 本地收口(发布门禁待完成)
+- 权威文档已对齐真实边界:`CLAUDE.md` 将 Mac Foundation 本地实现与 Apple Silicon 发布门禁/产品 M1 分开;`TECH_DESIGN.md` 记录 runtime、transport、command/application/DTO、数据路径及 8 supported/11 unsupported 能力;`web/ARCHITECTURE.md` 补齐 TauriBackend、BackendError 与异步边界守则。
+- 持久化冒烟手册新增 `docs/smoke/mac-m1-native-smoke.md`,固定单一 `mktemp` fixture、两次同 shell 启动、Cmd+Q 退出、Settings 重启持久化、Tauri/Mock 对照与 production Application Support 路径检查;当前未在 Apple Silicon 上执行的槽位保持 PENDING。
+- 历史 rustfmt 偏差:Task 6 曾明确保留 core 中 7 个旧文件的全库格式差异;Task 9 需要全量 `cargo fmt --check`,因此以单独的纯机械提交 `83b9275` 应用当前 stable rustfmt。格式化后 core 66 passed/1 ignored 且 clippy `-D warnings` 通过,无行为变更。
+- CI 增加 core rustfmt + all-target tests + clippy、Web lint 与 Tauri rustfmt 门禁;工作流 YAML 解析通过。两个 Node job 仍显式激活项目锁定的 pnpm 11.24.0。
+- 当前 Linux x86_64 验证:core fmt/tests/clippy PASS,Tauri fmt PASS,Web 158 passed/2 skipped + lint/build PASS,Playwright CFI 1/1 PASS。Tauri tests/clippy/debug build 在编译项目代码前因主机缺 `gdk-3.0`/Pango/Cairo 开发库失败;这些命令与 GUI 持久化冒烟必须由 macOS-14 CI/Apple Silicon 重跑。
+- 发布阻塞:当前 GitHub 身份 `Liuzzyg` 只有 READ,无法推送本地节点或触发 Actions;因此不创建 PR、不合并、不打 `mac-m1` tag,也不将产品 M1 标记完成。

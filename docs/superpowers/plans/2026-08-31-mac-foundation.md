@@ -29,7 +29,7 @@
 | Task 8B | Complete locally | App/Library/Import/Map focused 21/21; full Web 134 passed/2 skipped, lint/build green |
 | Task 8C | Complete locally | Reader/Feynman focused 19/19; full Web 145 passed/2 skipped, lint/build green |
 | Task 8D | Complete locally | Stats/Settings focused 16/16; eight-file route contract 86/86; full Web 158 passed/2 skipped, lint/build green |
-| Task 9 | Remaining | Next: native persistence smoke, milestone documentation, CI/PR/tag gate |
+| Task 9 | Release-gated | Closeout docs and local non-GUI gates complete; Apple Silicon smoke, push, remote CI, PR, and tag pending |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
 
@@ -942,7 +942,7 @@ git push origin feat/mac-m1
 - Modify: `docs/superpowers/plans/2026-08-31-mac-foundation.md` (check completed steps)
 - Create: `docs/smoke/mac-m1-native-smoke.md`
 
-- [ ] **Step 1: Update authority and closeout documentation**
+- [x] **Step 1: Update authority and closeout documentation**
 
 Mark Mac Foundation complete in `CLAUDE.md`, document actual command/DTO locations in `TECH_DESIGN.md`, keep product M1 unchecked, update `web/ARCHITECTURE.md`, append final DEVLOG evidence/deviations, and draft `docs/smoke/mac-m1-native-smoke.md` with pending result slots.
 
@@ -965,6 +965,8 @@ pnpm -C web exec playwright test e2e/cfi-smoke.spec.ts
 ```
 
 Expected: zero test/build/lint errors. Existing known bundle-size warning may remain documented.
+
+Current-host result (2026-09-02): core fmt/tests/clippy, Tauri fmt, Web tests/lint/build, and Playwright CFI pass. Tauri tests/clippy/debug build cannot reach project compilation on this Linux x86_64 host because the Tauri Linux target requires unavailable GTK/Pango/Cairo development libraries. Keep Step 2 open until the macOS job runs the exact native gates.
 
 - [ ] **Step 3: Prepare explicit native fixture**
 
@@ -1008,7 +1010,7 @@ git diff --check
 git status --short --branch
 ```
 
-- [ ] **Step 6: Final commit and push**
+- [x] **Step 6: Final local commit; push pending repository write access**
 
 ```bash
 git add CLAUDE.md TECH_DESIGN.md web/ARCHITECTURE.md DEVLOG.md docs/smoke/mac-m1-native-smoke.md docs/superpowers/plans/2026-08-31-mac-foundation.md
