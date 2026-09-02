@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: 22
       - run: corepack enable
+      - run: corepack prepare pnpm@11.24.0 --activate
       - run: pnpm -C web install --frozen-lockfile
       - run: pnpm -C web test -- --run
       - run: pnpm -C web build
@@ -33,6 +34,7 @@ jobs:
         with:
           node-version: 22
       - run: corepack enable
+      - run: corepack prepare pnpm@11.24.0 --activate
       - run: pnpm -C web install --frozen-lockfile
       - run: cargo test --manifest-path core/Cargo.toml
       - run: cargo test --manifest-path web/src-tauri/Cargo.toml --all-targets
