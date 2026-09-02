@@ -1,7 +1,13 @@
-import type { TaskKind } from './types'
+import appDefaults from '../../shared/app-defaults.json'
+import type { AppSettings, TaskKind } from './types'
+
+export const APP_DEFAULTS: Readonly<AppSettings> = Object.freeze({ ...appDefaults })
 export const REVIEW_STAGES = [1, 3, 7, 14] as const
 export const WEAK_RETEST_DAILY_LIMIT = 3
-export const POMODORO_DEFAULT = { work: 25, break: 5 }
+export const POMODORO_DEFAULT = {
+  work: APP_DEFAULTS.pomodoroMinutes,
+  break: APP_DEFAULTS.breakMinutes,
+}
 export const DAILY_CAP_DEFAULT = 4
 export const TASK_EST_MINUTES: Record<TaskKind, number> = { new: 30, weak_retest: 10, review: 5 }
 export const KIND_LABEL: Record<TaskKind, string> = { new: '新知识块', weak_retest: '薄弱点重考', review: '间隔复习' }

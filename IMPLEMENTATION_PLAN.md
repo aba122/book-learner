@@ -3,6 +3,10 @@
 > 每期结束产物都可日常使用。任务按依赖排序,标注验收标准(AC)。
 > 环境:macOS + Rust stable + Node 20+ + pnpm + codex CLI 已登录。
 
+## Mac Foundation 前置门禁
+
+在产品 M1 前先完成 `docs/superpowers/specs/2026-08-31-mac-foundation-design.md`:Tauri 原生壳、typed IPC、受支持 SQLite 用例、`TauriBackend` 与真实后端错误态。该门禁产物标记为 `mac-m1`,**不等同于**本计划的产品 `m1`,也不满足下方 M1 验收。它只为 M1.1 提供 Tauri 壳(仍欠 tray),为 M1.2 提供数据库/command 基座;M1.3–M1.10 及全部 M1 闭环仍按原计划完成。
+
 ## M1 核心闭环 —— 「能导入一本书并完整学完一个知识块」
 
 | # | 任务 | 说明 / 依赖 |

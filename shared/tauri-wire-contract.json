@@ -1,0 +1,26 @@
+{
+  "commands": [
+    { "method": "listBooks", "command": "library_list_books", "payloadKeys": [] },
+    { "method": "setActiveBook", "command": "library_set_active_book", "payloadKeys": ["bookId"] },
+    { "method": "listBlocks", "command": "map_list_blocks", "payloadKeys": ["bookId"] },
+    { "method": "getBlock", "command": "map_get_block", "payloadKeys": ["blockId"] },
+    { "method": "setPlan", "command": "planning_set_plan", "payloadKeys": ["request"] },
+    { "method": "todayQueue", "command": "planning_today_queue", "payloadKeys": ["date"] },
+    { "method": "getSettings", "command": "settings_get", "payloadKeys": [] },
+    { "method": "saveSettings", "command": "settings_save", "payloadKeys": ["settings"] },
+    { "method": "unsupported", "command": "unsupported_capability", "payloadKeys": ["capability"] }
+  ],
+  "unsupportedCapabilities": [
+    "importEpub",
+    "generateMap",
+    "confirmMap",
+    "completeTask",
+    "blockSource",
+    "epubUrl",
+    "startSession",
+    "studentReply",
+    "endSession",
+    "confirmVerdict",
+    "stats"
+  ]
+}

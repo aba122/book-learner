@@ -30,7 +30,7 @@
 
 前端在 `web/`(Vite 7 + React 18 + TS + Tailwind v4 + vitest),架构守则见 `web/ARCHITECTURE.md`(变更局部化四规则)。关键位置:
 
-- **Backend 契约(后端能力唯一接口)**:`web/src/backend/types.ts` 的 `Backend` interface;页面只 import `web/src/backend/index.ts` 导出的 `backend` 单例。当前恒为 `MockBackend`(`backend/mock.ts`,内存种子+学生剧本)。**Mac 阶段接真后端 = 新增 `backend/tauri.ts` 一个文件**(Tauri command 封装,实现同一 interface)并在 `index.ts` 按 `__TAURI_INTERNALS__` 检测切换,页面零改动。
+- **Backend 契约(后端能力唯一接口)**:`web/src/backend/types.ts` 的 `Backend` interface;页面只 import `web/src/backend/index.ts` 导出的 `backend` 单例。浏览器使用 `MockBackend`(`backend/mock.ts`,内存种子+学生剧本);Mac 原生环境新增 `backend/tauri.ts` 封装 Tauri command,实现同一 interface,并在 `index.ts` 按 `__TAURI_INTERNALS__` 检测切换。业务成功路径与 Backend 依赖方向不因换后端而改;允许页面补充真实后端所需的错误/未实现状态,并允许用共享 helper 修复跨页面基础问题(如本地日历日),但页面仍禁止直接 import Tauri API。
 - **领域类型单源**:`web/src/types.ts`(镜像 core 模型,camelCase)。
 - **设计代币**:`web/src/theme/tokens.css`(双主题全部视觉参数,经 `@theme inline` 映射为 Tailwind 类名);**行为参数**:`web/src/config.ts`(复习间隔/番茄钟/队列上限/字号档/打字机速度)。
 - **功能切片**:`web/src/features/{today,library,map,reader,feynman,stats,settings}/`,切片间禁止互相 import。

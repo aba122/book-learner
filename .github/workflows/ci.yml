@@ -23,3 +23,18 @@ jobs:
       - run: pnpm -C web install --frozen-lockfile
       - run: pnpm -C web test -- --run
       - run: pnpm -C web build
+
+  mac-foundation:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm -C web install --frozen-lockfile
+      - run: cargo test --manifest-path core/Cargo.toml
+      - run: cargo test --manifest-path web/src-tauri/Cargo.toml --all-targets
+      - run: cargo clippy --manifest-path web/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: pnpm -C web tauri:build:debug

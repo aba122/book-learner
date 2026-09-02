@@ -40,6 +40,7 @@ impl AiProvider for CodexCliProvider {
         let sandbox = if req.read_only { "read-only" } else { "workspace-write" };
         let mut child = std::process::Command::new(&self.bin)
             .arg("exec")
+            .arg("--skip-git-repo-check")
             .arg("-C").arg(&req.workdir)
             .arg("--sandbox").arg(sandbox)
             .arg("--output-last-message").arg(tmp.path())
@@ -107,6 +108,37 @@ printf '%s' '{reply}' > \"$out\"
             messages: vec![(super::Role::User, "讲弹性".into())],
             workdir: dir.path().to_path_buf(), read_only: true, timeout_secs: 10 };
         assert_eq!(super::AiProvider::complete(&p, &req).unwrap(), "你好,我是学生");
+    }
+    #[test]
+    fn codex_provider_skips_git_repo_check_for_managed_workdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "trust-check-codex",
+            r#"#!/bin/bash
+skip_git_check=0
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--skip-git-repo-check" ]]; then skip_git_check=1; fi
+  if [[ "$1" == "--output-last-message" ]]; then out="$2"; shift; fi
+  shift
+done
+if [[ "$skip_git_check" != "1" ]]; then
+  echo "missing --skip-git-repo-check" >&2
+  exit 42
+fi
+printf '%s' 'ok' > "$out"
+"#,
+        );
+        let provider = super::CodexCliProvider { bin, extra_args: vec![] };
+        let request = super::CompletionRequest {
+            system: "s".into(),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            timeout_secs: 10,
+        };
+
+        assert_eq!(super::AiProvider::complete(&provider, &request).unwrap(), "ok");
     }
     #[test]
     fn codex_provider_times_out() {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { APP_DEFAULTS } from '../config'
 import { MockBackend } from './mock'
+import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 
 describe('MockBackend 契约行为', () => {
   it('种子含至少一本主攻书', async () => {
@@ -31,5 +33,37 @@ describe('MockBackend 契约行为', () => {
     for (const s of Object.values(ev.scores)) { expect(s).toBeGreaterThanOrEqual(1); expect(s).toBeLessThanOrEqual(5) }
     await b.confirmVerdict(sessionId, true)
     expect((await b.getBlock(4)).status).toBe('passed')
+  })
+  it('设置默认值来自共享配置', async () => {
+    const b = new MockBackend()
+
+    expect(await b.getSettings()).toEqual(APP_DEFAULTS)
+  })
+  it('共享默认值不可变且 Mock 使用独立副本', async () => {
+    expect(Object.isFrozen(APP_DEFAULTS)).toBe(true)
+    expect(Reflect.set(APP_DEFAULTS, 'pomodoroMinutes', 99)).toBe(false)
+
+    expect((await new MockBackend().getSettings()).pomodoroMinutes).toBe(25)
+  })
+})
+
+describe('Tauri wire contract fixture', () => {
+  it('固定命令名、顶层 payload key 与 unsupported capability', () => {
+    expect(Object.keys(tauriWireContract)).toEqual(['commands', 'unsupportedCapabilities'])
+    expect(tauriWireContract.commands).toEqual([
+      { method: 'listBooks', command: 'library_list_books', payloadKeys: [] },
+      { method: 'setActiveBook', command: 'library_set_active_book', payloadKeys: ['bookId'] },
+      { method: 'listBlocks', command: 'map_list_blocks', payloadKeys: ['bookId'] },
+      { method: 'getBlock', command: 'map_get_block', payloadKeys: ['blockId'] },
+      { method: 'setPlan', command: 'planning_set_plan', payloadKeys: ['request'] },
+      { method: 'todayQueue', command: 'planning_today_queue', payloadKeys: ['date'] },
+      { method: 'getSettings', command: 'settings_get', payloadKeys: [] },
+      { method: 'saveSettings', command: 'settings_save', payloadKeys: ['settings'] },
+      { method: 'unsupported', command: 'unsupported_capability', payloadKeys: ['capability'] },
+    ])
+    expect(tauriWireContract.unsupportedCapabilities).toEqual([
+      'importEpub', 'generateMap', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl',
+      'startSession', 'studentReply', 'endSession', 'confirmVerdict', 'stats',
+    ])
   })
 })

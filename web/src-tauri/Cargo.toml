@@ -1,0 +1,27 @@
+[package]
+name = "book-learner"
+version = "0.1.0"
+description = "攻书 macOS desktop application"
+authors = ["book-learner contributors"]
+edition = "2021"
+
+[lib]
+name = "book_learner_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+book_learner_core = { path = "../../core" }
+rusqlite = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tempfile = "3"

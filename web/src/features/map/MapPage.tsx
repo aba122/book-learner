@@ -6,6 +6,7 @@ import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import Tag, { type TagTone } from '../../components/Tag'
 import { DAILY_CAP_DEFAULT } from '../../config'
+import { localCalendarDate } from '../../lib/localDate'
 import { useSession } from '../../store'
 import type { BlockStatus, KnowledgeBlock, Scores } from '../../types'
 
@@ -44,8 +45,6 @@ interface EditEntry {
   skipped: boolean
   block: KnowledgeBlock
 }
-
-const todayStr = () => new Date().toISOString().slice(0, 10)
 
 export default function MapPage() {
   const { bookId: bookIdParam } = useParams()
@@ -113,7 +112,7 @@ export default function MapPage() {
   const remaining = blocks?.length ?? 0
   const dailyBlocks = useMemo(() => {
     if (!deadline) return null
-    const days = Math.floor((Date.parse(deadline) - Date.parse(todayStr())) / 86400000) + 1
+    const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
     if (days < 1) return null
     return Math.ceil(remaining / days)
   }, [deadline, remaining])

@@ -21,12 +21,16 @@ export default function TaskCard({
   onStart,
   onComplete,
   onFocus,
+  completing = false,
+  completionUnavailable = false,
 }: {
   task: DailyTask
   block?: KnowledgeBlock
   onStart: (task: DailyTask) => void
   onComplete: (task: DailyTask) => void
   onFocus: (task: DailyTask) => void
+  completing?: boolean
+  completionUnavailable?: boolean
 }) {
   const done = task.status === 'done'
   return (
@@ -59,7 +63,12 @@ export default function TaskCard({
               )}
               {task.kind === 'weak_retest' && (
                 <>
-                  <Button onClick={() => onComplete(task)}>完成</Button>
+                  <Button
+                    disabled={completing || completionUnavailable}
+                    onClick={() => onComplete(task)}
+                  >
+                    {completionUnavailable ? '完成暂不可用' : completing ? '处理中…' : '完成'}
+                  </Button>
                   <Button variant="primary" onClick={() => onStart(task)}>
                     开始重考
                   </Button>
@@ -67,8 +76,12 @@ export default function TaskCard({
               )}
               {task.kind === 'review' && (
                 <>
-                  <Button variant="primary" onClick={() => onComplete(task)}>
-                    完成
+                  <Button
+                    variant="primary"
+                    disabled={completing || completionUnavailable}
+                    onClick={() => onComplete(task)}
+                  >
+                    {completionUnavailable ? '完成暂不可用' : completing ? '处理中…' : '完成'}
                   </Button>
                   <Button onClick={() => onStart(task)}>回读原文</Button>
                 </>
