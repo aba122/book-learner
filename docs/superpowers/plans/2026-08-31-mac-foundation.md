@@ -19,13 +19,14 @@
 
 ---
 
-## Execution status (updated 2026-09-01)
+## Execution status (updated 2026-09-02)
 
 | Scope | Status | Evidence |
 |---|---|---|
 | Tasks 0–6 | Complete and pushed | Remote `feat/mac-m1` through `6c9c1cd` |
 | Task 7 | Complete, verified, and reviewed | Commit `5f194bd`; focused 53/53, Web 93 passed/1 skipped, core and Tauri suites green |
-| Tasks 8A–8D | Remaining | Route-specific real-backend error and unavailable states |
+| Task 8A | Complete, verified, reviewed, and pushed | Commit `e82f572`; focused 33/33, Web 121 passed/1 skipped, lint/build green |
+| Tasks 8B–8D | Remaining | Next: Library/Import/Map preservation, then Reader/Feynman and Stats/Settings |
 | Task 9 | Remaining | Native persistence smoke, milestone documentation, CI/PR/tag gate |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
@@ -56,6 +57,7 @@ Expected before starting 8A: `5f194bd feat(web): connect typed Tauri backend` an
 - Work only in `/Users/wulinxie/Desktop/.worktrees/book-learner/feat-mac-m1` on `feat/mac-m1`.
 - Preserve unrelated user changes; stop if the worktree is unexpectedly dirty.
 - For every behavioral change: write one focused failing test, run it and confirm the expected failure, implement minimally, run focused and full regression tests, then refactor.
+- For frontend async work, isolate errors by resource or operation identity. Read pipelines must invalidate superseded and post-unmount results; non-idempotent writes must acquire a synchronous in-flight guard before invoking the backend and must not silently retry an ambiguously committed write.
 - Scaffold/docs steps use explicit build/structure checks rather than artificial failing tests.
 - Update `DEVLOG.md` at every node with decisions, deviations, exact verification, and known gaps.
 - After each task: `git diff --check`, focused tests, full relevant suites, build, atomic commit, and `git push origin feat/mac-m1`.
@@ -692,6 +694,7 @@ git push origin feat/mac-m1
 - Create: `web/src/components/AsyncError.tsx`
 - Create: `web/src/components/AsyncError.test.tsx`
 - Modify: `web/src/features/today/TodayPage.tsx`
+- Modify: `web/src/features/today/TaskCard.tsx`
 - Modify: `web/src/features/today/today.test.tsx`
 - Modify: `DEVLOG.md`
 
@@ -707,11 +710,11 @@ Every remaining route follows this unchanged product matrix:
 | Stats | retry runtime query | unavailable, never zero metrics | none fabricated |
 | Settings | retry load/save | message only | edited form values |
 
-- [ ] **Step 1: Write RED shared-presentation tests**
+- [x] **Step 1: Write RED shared-presentation tests**
 
 Test that `AsyncError` renders the `BackendError` Chinese message with accessible `role="alert"` semantics. Test compact and full variants. A retry action renders only when `error.retryable === true` and an `onRetry` callback exists; the component owns no request or product state.
 
-- [ ] **Step 2: Implement `AsyncError` minimally and verify GREEN**
+- [x] **Step 2: Implement `AsyncError` minimally and verify GREEN**
 
 Add only presentation props (`error`, optional `onRetry`, optional variant). Reuse existing `Button` and visual tokens; do not import `backend` or add timers/retry policy. Run:
 
@@ -721,13 +724,13 @@ pnpm -C web exec vitest --run src/components/AsyncError.test.tsx
 
 Expected: all shared-presentation tests pass.
 
-- [ ] **Step 3: Write Today RED tests for independent failures**
+- [x] **Step 3: Write Today RED tests for independent failures**
 
-Cover retryable and non-retryable `todayQueue` failures, `listBlocks` failure during queue hydration, `stats` failure while a usable queue remains visible, and `completeTask` failure retaining the affected task/status. Treat `todayQueue` plus its required `listBlocks` hydration as one queue pipeline: publish a new tasks/blocks snapshot only after the whole pipeline succeeds, and preserve the previous usable snapshot if a refresh fails. Assert queue retry reissues that pipeline but not `stats`; stats retry reissues only `stats`; operation retry reissues only the failed operation with the same task ID.
+Cover retryable and non-retryable `todayQueue` failures, `listBlocks` failure during queue hydration, `stats` failure while a usable queue remains visible, and `completeTask` failure retaining the affected task/status. Treat `todayQueue` plus its required `listBlocks` hydration as one queue pipeline: publish a new tasks/blocks snapshot only after the whole pipeline succeeds, and preserve the previous usable snapshot if a refresh fails. Assert queue retry reissues that pipeline but not `stats`; stats retry reissues only `stats`; operation retry reissues only the failed operation with the same task ID. Also cover superseded queue/stats results, unmount during queue or completion, independent per-task failures, double-click suppression, and a committed completion whose queue refresh fails.
 
-- [ ] **Step 4: Implement Today request isolation and verify GREEN**
+- [x] **Step 4: Implement Today request isolation and verify GREEN**
 
-Use separate `queueError`, `statsError`, and operation-error state. Keep the queue pipeline and stats request independent; do not combine them with `Promise.all`, do not fabricate stats, and do not optimistically remove a task before `completeTask` succeeds. A successful `completeTask` refreshes only the queue pipeline.
+Use separate `queueError`, `statsError`, and task-keyed operation-error state. Keep the queue pipeline and stats request independent; do not combine them with `Promise.all`, do not fabricate stats, and do not optimistically remove a task before `completeTask` succeeds. Queue/stats generations ignore superseded or post-unmount results. Each completion acquires a synchronous per-task guard before invoking the backend; after a successful write the guard remains until a fresh queue snapshot is published, so a failed refresh cannot duplicate the write. A non-retryable completion failure keeps that task's completion action unavailable while leaving its other actions usable. A successful `completeTask` refreshes only the queue pipeline.
 
 ```bash
 pnpm -C web exec vitest --run src/components/AsyncError.test.tsx src/features/today/today.test.tsx
@@ -736,7 +739,7 @@ pnpm -C web lint
 pnpm -C web build
 ```
 
-- [ ] **Step 5: Record, commit, and push node**
+- [x] **Step 5: Record, commit, and push node**
 
 Append exact RED/GREEN and verification evidence to `DEVLOG.md`, then:
 
@@ -761,7 +764,7 @@ git push origin feat/mac-m1
 
 - [ ] **Step 1: Write Library/Import RED tests**
 
-Cover retryable and non-retryable `listBooks` failures. For import, use two distinct cases: `not_implemented` preserves the selected `File` and type but renders message/close only; a synthetic retryable failure renders retry and reuses the exact captured selection. Close clears the attempt and stale error.
+Cover retryable and non-retryable `listBooks` failures, including superseded and post-unmount results. For import, use two distinct cases: `not_implemented` preserves the selected `File` and type but renders message/close only; a synthetic retryable failure renders retry and reuses the exact captured selection. Assert a synchronous attempt guard prevents duplicate import submits. Close clears the attempt and stale error.
 
 ```bash
 pnpm -C web exec vitest --run src/features/library/library.test.tsx
@@ -775,7 +778,7 @@ Add explicit try/catch/finally boundaries for list/import attempts. Clear stale 
 
 - [ ] **Step 3: Write Map RED tests**
 
-Cover retryable/non-retryable `listBlocks` failures. For confirm, use two distinct cases after title/module/order/skip edits: native `not_implemented` preserves the draft and shows message only; a synthetic retryable rejection exposes retry and invokes only `confirmMap` with the exact captured edit snapshot. List reload is not part of confirm retry.
+Cover retryable/non-retryable `listBlocks` failures, including superseded and post-unmount results. For confirm, use two distinct cases after title/module/order/skip edits: native `not_implemented` preserves the draft and shows message only; a synthetic retryable rejection exposes retry and invokes only `confirmMap` with the exact captured edit snapshot. Assert duplicate confirms are blocked while the first write is in flight. List reload is not part of confirm retry.
 
 ```bash
 pnpm -C web exec vitest --run src/features/map/map.test.tsx
@@ -871,7 +874,7 @@ git push origin feat/mac-m1
 
 - [ ] **Step 1: Write Stats RED tests**
 
-Test `not_implemented` separately from a retryable runtime failure. Neither failure may render zero-valued metrics. Runtime retry reissues only `stats`; non-retryable/unimplemented state shows the real unavailable message without a retry action.
+Test `not_implemented` separately from a retryable runtime failure. Neither failure may render zero-valued metrics. Runtime retry reissues only `stats`; non-retryable/unimplemented state shows the real unavailable message without a retry action. Superseded and post-unmount results must not restore stale metrics or errors.
 
 ```bash
 pnpm -C web exec vitest --run src/features/stats/stats.test.tsx
@@ -885,7 +888,7 @@ Use `Stats | null` only for loading/success and a separate `BackendError | null`
 
 - [ ] **Step 3: Write Settings RED tests**
 
-Cover retryable/non-retryable load and save failures. A failed save keeps all edited form values, retry uses the current edited snapshot, and a successful retry clears the old error and shows saved state. A load retry must not reuse a failed save closure.
+Cover retryable/non-retryable load and save failures. A failed save keeps all edited form values, retry uses the current edited snapshot, and a successful retry clears the old error and shows saved state. A load retry must not reuse a failed save closure. Assert stale/post-unmount loads are ignored and duplicate saves are blocked while a write is in flight.
 
 ```bash
 pnpm -C web exec vitest --run src/features/settings/settings.test.tsx
