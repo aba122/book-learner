@@ -163,3 +163,8 @@
 - Map 将 block list 与 book title 作为独立读取资源,分别支持 retry/generation/unmount 隔离;定稿失败保留名称、顺序与跳过编辑,重试复用精确快照且不触发列表读取,同步 guard 阻止双击。目标保存同样捕获错误并防止并发写。
 - TDD:新增用例在旧实现上为 11 failed/7 passed 且产生 10 个 unhandled rejections;最小实现后 App/Library/Import/Map focused 21/21。全量 Web 为 134 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅 6 条既有 React warnings),production build 通过(179 modules,保留 599.77 kB chunk warning),`git diff --check` 通过。
 - 远端偏差:当前 GitHub 身份 `Liuzzyg` 对仓库仅有 READ 权限,CI 修复提交 `980e83e` 推送收到 HTTP 403;后续节点继续保留本地原子提交,待具备写权限后统一推送并取得 Actions 证据。
+
+## 2026-09-02 · Mac Foundation T8C 完成
+- Reader 使用单一 generation/cancel-safe 内容管线,只有 `getBlock`、`blockSource` 与 `epubUrl` 全部成功才原子发布并挂载 `EpubView`;失败替换永久 loading,保留 `task`/`back` 导航语义,可重试错误重跑完整读取,参数切换或卸载后的结果被忽略。
+- Feynman 将 today queue、block、source 三段只读准备与 `startSession` 非幂等边界分开。只读失败可在尚未尝试创建 session 时重试;调用 `startSession` 前同步设置 attempted guard,其 pending、歧义失败或卸载结果都不会获得第二次创建入口。失败初始化不发布半成品 task/block/source,也无法调用 reply/end/verdict/complete 操作。
+- TDD:Reader/Feynman 新用例在旧实现上为 10 failed/9 passed 并产生 10 个 unhandled rejections;实现后 focused 19/19。全量 Web 为 145 passed/2 timezone-conditional skipped(14 files),lint exit 0 且仍只有 6 条既有 warning,production build 通过(179 modules,保留约 602 kB chunk warning),`git diff --check` 通过。

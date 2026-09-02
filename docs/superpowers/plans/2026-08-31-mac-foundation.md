@@ -27,7 +27,8 @@
 | Task 7 | Complete, verified, and reviewed | Commit `5f194bd`; focused 53/53, Web 93 passed/1 skipped, core and Tauri suites green |
 | Task 8A | Complete, verified, reviewed, and pushed | Commit `e82f572`; focused 33/33, Web 121 passed/1 skipped, lint/build green |
 | Task 8B | Complete locally | App/Library/Import/Map focused 21/21; full Web 134 passed/2 skipped, lint/build green |
-| Tasks 8C–8D | Remaining | Next: Reader/Feynman, then Stats/Settings |
+| Task 8C | Complete locally | Reader/Feynman focused 19/19; full Web 145 passed/2 skipped, lint/build green |
+| Task 8D | Remaining | Next: Stats/Settings unavailable and state-preserving failures |
 | Task 9 | Remaining | Native persistence smoke, milestone documentation, CI/PR/tag gate |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
@@ -818,7 +819,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/feynman/feynman.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Reader RED tests**
+- [x] **Step 1: Write Reader RED tests**
 
 Reject `getBlock`, `blockSource`, and `epubUrl` independently. Assert loading is replaced by the real Chinese error and a route-aware back action, while `task`/`back` search parameters continue to determine navigation context. Retryable failures may reissue content initialization; non-retryable failures expose only the back action.
 
@@ -828,11 +829,11 @@ pnpm -C web exec vitest --run src/features/reader/reader.test.tsx
 
 Expected RED: rejection leaves the loading copy visible or becomes unhandled.
 
-- [ ] **Step 2: Implement Reader initialization boundary and verify GREEN**
+- [x] **Step 2: Implement Reader initialization boundary and verify GREEN**
 
 Keep one cancel-safe initialization function for the block/source/EPUB sequence. Never mount `EpubView` with missing data, never replace content with a fixture URL, and ignore late results after unmount or parameter change.
 
-- [ ] **Step 3: Write Feynman RED tests**
+- [x] **Step 3: Write Feynman RED tests**
 
 Reject each initialization stage (`todayQueue`, `getBlock`, `blockSource`, `startSession`) and assert loading ends in a safe return state. Read-only initialization failures may retry only before any `startSession` attempt. Set an explicit start-attempted/in-flight guard before invoking `startSession`; while it is pending, after an ambiguous rejection, or after the route is abandoned/superseded, expose safe return only and never issue a second `startSession`. No failed initialization may call `studentReply`, `endSession`, `confirmVerdict`, or `completeTask`.
 
@@ -842,7 +843,7 @@ pnpm -C web exec vitest --run src/features/feynman/feynman.test.tsx
 
 Expected RED: rejected initialization remains stuck, and an unguarded retry can call `startSession` twice.
 
-- [ ] **Step 4: Implement Feynman initialization boundary and verify GREEN**
+- [x] **Step 4: Implement Feynman initialization boundary and verify GREEN**
 
 Keep initialization error/session state separate from transcript state. Retry only read-only stages while `sessionId === null` and no session start has been attempted. Preserve the existing successful-session conversation behavior unchanged; do not add an idempotency key or alter the Backend contract in this node.
 
@@ -853,7 +854,7 @@ pnpm -C web lint
 pnpm -C web build
 ```
 
-- [ ] **Step 5: Record, commit, and push node**
+- [x] **Step 5: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/reader web/src/features/feynman DEVLOG.md

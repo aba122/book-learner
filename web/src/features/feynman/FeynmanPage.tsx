@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import { BackendError, normalizeBackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
+import Card from '../../components/Card'
 import Confirm from '../../components/Confirm'
 import Tag from '../../components/Tag'
 import { KIND_LABEL, TYPEWRITER_CHAR_MS } from '../../config'
@@ -13,6 +16,7 @@ export default function FeynmanPage() {
   const { taskId: taskIdParam } = useParams()
   const taskId = Number(taskIdParam)
   const navigate = useNavigate()
+  const [today] = useState(localCalendarDate)
 
   const [task, setTask] = useState<DailyTask | null>(null)
   const [block, setBlock] = useState<KnowledgeBlock | null>(null)
@@ -28,26 +32,72 @@ export default function FeynmanPage() {
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null)
   const [abandonOpen, setAbandonOpen] = useState(false)
   const [sourceOpen, setSourceOpen] = useState(true)
+  const [initError, setInitError] = useState<BackendError | null>(null)
+  const [canRetryInitialization, setCanRetryInitialization] = useState(true)
   const scrollAnchor = useRef<HTMLDivElement>(null)
+  const mounted = useRef(false)
+  const initGeneration = useRef(0)
+  const initGuard = useRef(false)
+  const startAttempted = useRef(false)
+
+  const initialize = useCallback(async () => {
+    if (!mounted.current || initGuard.current || startAttempted.current) return
+    const generation = ++initGeneration.current
+    initGuard.current = true
+    setCanRetryInitialization(true)
+    setInitError(null)
+    setTask(null)
+    setBlock(null)
+    setSource(null)
+    setSessionId(null)
+    setTranscript([])
+    setDraft('')
+    setThinking(false)
+    setTyping(null)
+    setReadyToEnd(false)
+    setEvalResult(null)
+    try {
+      const queue = await backend.todayQueue(today)
+      if (!mounted.current || generation !== initGeneration.current) return
+      const t = queue.find(x => x.id === taskId)
+      if (!t) {
+        throw new BackendError({
+          code: 'not_found',
+          message: '今天的队列中没有找到这项学习任务',
+          retryable: false,
+        })
+      }
+      const b = await backend.getBlock(t.blockId)
+      if (!mounted.current || generation !== initGeneration.current) return
+      const nextSource = await backend.blockSource(t.blockId)
+      if (!mounted.current || generation !== initGeneration.current) return
+      startAttempted.current = true
+      setCanRetryInitialization(false)
+      const s = await backend.startSession(t.blockId, t.kind)
+      if (!mounted.current || generation !== initGeneration.current) return
+      setTask(t)
+      setBlock(b)
+      setSource(nextSource)
+      setSessionId(s.sessionId)
+    } catch (error) {
+      if (!mounted.current || generation !== initGeneration.current) return
+      setInitError(normalizeBackendError(error))
+    } finally {
+      if (generation === initGeneration.current) initGuard.current = false
+    }
+  }, [taskId, today])
 
   useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const queue = await backend.todayQueue(localCalendarDate())
-      const t = queue.find(x => x.id === taskId)
-      if (!t || !alive) return
-      setTask(t)
-      const b = await backend.getBlock(t.blockId)
-      if (!alive) return
-      setBlock(b)
-      setSource(await backend.blockSource(t.blockId))
-      const s = await backend.startSession(t.blockId, t.kind)
-      if (alive) setSessionId(s.sessionId)
-    })()
+    mounted.current = true
+    startAttempted.current = false
+    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend pipeline.
+    void initialize()
     return () => {
-      alive = false
+      mounted.current = false
+      initGeneration.current += 1
+      initGuard.current = false
     }
-  }, [taskId])
+  }, [initialize])
 
   // 打字机:interval 单独按轮次启动,批量推进也能整段渐显
   useEffect(() => {
@@ -100,6 +150,32 @@ export default function FeynmanPage() {
     await backend.confirmVerdict(sessionId, pass)
     if (pass) await backend.completeTask(task.id)
     navigate('/')
+  }
+
+  if (sessionId === null) {
+    return (
+      <div className="flex h-full items-center justify-center px-8 py-12">
+        <Card className="w-full max-w-xl p-8">
+          <h1 className="font-serif text-xl font-semibold text-ink-1">准备费曼讲授</h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-3">
+            正在读取今日任务、原文和讲授上下文。会话创建后才会开放输入。
+          </p>
+          <div className="mt-6">
+            {initError ? (
+              <AsyncError
+                error={initError}
+                onRetry={canRetryInitialization ? initialize : undefined}
+              />
+            ) : (
+              <p className="text-sm text-ink-3">正在准备讲授…</p>
+            )}
+          </div>
+          <div className="mt-6 flex justify-end">
+            <Button onClick={() => navigate('/')}>返回今日</Button>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (

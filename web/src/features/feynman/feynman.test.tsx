@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as backendModule from '../../backend'
+import { BackendError } from '../../backend/errors'
+import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import FeynmanPage from './FeynmanPage'
@@ -26,7 +28,7 @@ function Probe() {
 }
 
 async function renderFeynman(entry = '/feynman/3') {
-  render(
+  const view = render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/feynman/:taskId" element={<FeynmanPage />} />
@@ -36,6 +38,17 @@ async function renderFeynman(entry = '/feynman/3') {
     </MemoryRouter>,
   )
   await act(async () => {}) // 初始加载(microtask 链)
+  return view
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 async function click(el: HTMLElement) {
@@ -99,5 +112,113 @@ describe('费曼对话页', () => {
     await click(within(dialog).getByRole('button', { name: '放弃' }))
     expect(spy).not.toHaveBeenCalled()
     expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+  })
+
+  it('todayQueue 初始化失败显示安全返回态且不启动 session', async () => {
+    const startSession = vi.spyOn(backendModule.backend, 'startSession')
+    vi.spyOn(backendModule.backend, 'todayQueue').mockRejectedValue(new BackendError({
+      code: 'offline',
+      message: '今日任务暂时不可用',
+      retryable: true,
+    }))
+
+    await renderFeynman()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('今日任务暂时不可用')
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '返回今日' })).toBeEnabled()
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('getBlock 初始化失败不调用后续原文或 session', async () => {
+    const blockSource = vi.spyOn(backendModule.backend, 'blockSource')
+    const startSession = vi.spyOn(backendModule.backend, 'startSession')
+    vi.spyOn(backendModule.backend, 'getBlock').mockRejectedValue(new BackendError({
+      code: 'not_found',
+      message: '知识块不存在',
+      retryable: false,
+    }))
+
+    await renderFeynman()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('知识块不存在')
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(blockSource).not.toHaveBeenCalled()
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('blockSource 初始化失败不调用 startSession', async () => {
+    const startSession = vi.spyOn(backendModule.backend, 'startSession')
+    vi.spyOn(backendModule.backend, 'blockSource').mockRejectedValue(new BackendError({
+      code: 'offline',
+      message: '讲授原文暂时不可用',
+      retryable: true,
+    }))
+
+    await renderFeynman()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('讲授原文暂时不可用')
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('startSession 一旦尝试,即使错误标记可重试也只允许安全返回', async () => {
+    const studentReply = vi.spyOn(backendModule.backend, 'studentReply')
+    const endSession = vi.spyOn(backendModule.backend, 'endSession')
+    const confirmVerdict = vi.spyOn(backendModule.backend, 'confirmVerdict')
+    const completeTask = vi.spyOn(backendModule.backend, 'completeTask')
+    const startSession = vi.spyOn(backendModule.backend, 'startSession').mockRejectedValue(new BackendError({
+      code: 'offline',
+      message: '会话启动结果未知',
+      retryable: true,
+    }))
+
+    await renderFeynman()
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('会话启动结果未知')
+    expect(within(alert).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(startSession).toHaveBeenCalledTimes(1)
+    expect(studentReply).not.toHaveBeenCalled()
+    expect(endSession).not.toHaveBeenCalled()
+    expect(confirmVerdict).not.toHaveBeenCalled()
+    expect(completeTask).not.toHaveBeenCalled()
+  })
+
+  it('只读初始化失败可重试,成功后只启动一次 session', async () => {
+    const original = backendModule.backend.todayQueue.bind(backendModule.backend)
+    vi.spyOn(backendModule.backend, 'todayQueue')
+      .mockRejectedValueOnce(new BackendError({
+        code: 'offline',
+        message: '队列暂时不可用',
+        retryable: true,
+      }))
+      .mockImplementation(original)
+    const startSession = vi.spyOn(backendModule.backend, 'startSession')
+    await renderFeynman()
+
+    await click(screen.getByRole('button', { name: '重试' }))
+
+    expect(startSession).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('textbox')).toBeEnabled()
+  })
+
+  it('会话启动进行中不提供重复启动入口,卸载后失败被忽略', async () => {
+    const attempt = deferred<{ sessionId: number }>()
+    const startSession = vi.spyOn(backendModule.backend, 'startSession').mockReturnValue(attempt.promise)
+    const normalize = vi.spyOn(errorModule, 'normalizeBackendError')
+    const view = await renderFeynman()
+
+    expect(startSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '返回今日' })).toBeEnabled()
+    view.unmount()
+    await act(async () => attempt.reject(new BackendError({
+      code: 'offline',
+      message: '卸载后的启动失败',
+      retryable: true,
+    })))
+
+    expect(startSession).toHaveBeenCalledTimes(1)
+    expect(normalize).not.toHaveBeenCalled()
   })
 })

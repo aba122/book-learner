@@ -1,7 +1,9 @@
 import type { NavItem } from 'epubjs'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Tag from '../../components/Tag'
@@ -34,25 +36,43 @@ export default function ReaderPage() {
   const [theme, setTheme] = useState<ReaderTheme>('paper')
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
+  const [initError, setInitError] = useState<BackendError | null>(null)
+  const mounted = useRef(false)
+  const initGeneration = useRef(0)
 
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
+  const loadContent = useCallback(async () => {
+    if (!mounted.current) return
+    const generation = ++initGeneration.current
+    setInitError(null)
+    setBlock(null)
+    setSource(null)
+    setUrl(null)
+    try {
       const b = await backend.getBlock(blockId)
-      if (!alive) return
-      setBlock(b)
+      if (!mounted.current || generation !== initGeneration.current) return
       const [src, epub] = await Promise.all([
         backend.blockSource(blockId),
         backend.epubUrl(b.bookId),
       ])
-      if (!alive) return
+      if (!mounted.current || generation !== initGeneration.current) return
+      setBlock(b)
       setSource(src)
       setUrl(epub)
-    })()
-    return () => {
-      alive = false
+    } catch (error) {
+      if (!mounted.current || generation !== initGeneration.current) return
+      setInitError(normalizeBackendError(error))
     }
   }, [blockId])
+
+  useEffect(() => {
+    mounted.current = true
+    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend read.
+    void loadContent()
+    return () => {
+      mounted.current = false
+      initGeneration.current += 1
+    }
+  }, [loadContent])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -64,6 +84,8 @@ export default function ReaderPage() {
   }, [])
 
   const learning = taskId !== null
+  const ready = block !== null && source !== null && url !== null
+  const goBack = () => (backTaskId ? navigate(`/feynman/${backTaskId}`) : navigate(-1))
 
   return (
     <div className="flex h-full flex-col">
@@ -71,7 +93,7 @@ export default function ReaderPage() {
       <div className="flex items-center gap-3 border-b border-line bg-paper-2/70 px-5 py-2.5">
         <Button
           className="px-3 py-1.5 text-xs"
-          onClick={() => (backTaskId ? navigate(`/feynman/${backTaskId}`) : navigate(-1))}
+          onClick={goBack}
         >
           {backTaskId ? '返回讲授' : '← 返回'}
         </Button>
@@ -80,22 +102,30 @@ export default function ReaderPage() {
             {block ? `${block.moduleName} · ${block.title}` : '阅读'}
           </span>
         </div>
-        <Button className="px-3 py-1.5 text-xs" onClick={() => setTocOpen(o => !o)}>
-          目录
-        </Button>
-        <Button
-          className="px-3 py-1.5 text-xs"
-          aria-label="阅读设置"
-          onClick={() => setSettingsOpen(o => !o)}
-        >
-          Aa
-        </Button>
+        {ready && (
+          <>
+            <Button className="px-3 py-1.5 text-xs" onClick={() => setTocOpen(o => !o)}>
+              目录
+            </Button>
+            <Button
+              className="px-3 py-1.5 text-xs"
+              aria-label="阅读设置"
+              onClick={() => setSettingsOpen(o => !o)}
+            >
+              Aa
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
         {/* 正文 */}
-        {url ? (
+        {initError ? (
+          <div className="p-10">
+            <AsyncError error={initError} onRetry={loadContent} />
+          </div>
+        ) : ready ? (
           <EpubView
             ref={epubRef}
             url={url}
@@ -110,20 +140,24 @@ export default function ReaderPage() {
         )}
 
         {/* 翻页 */}
-        <button
-          aria-label="上一页"
-          onClick={() => epubRef.current?.prev()}
-          className="absolute top-1/2 left-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
-        >
-          ‹
-        </button>
-        <button
-          aria-label="下一页"
-          onClick={() => epubRef.current?.next()}
-          className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
-        >
-          ›
-        </button>
+        {ready && (
+          <>
+            <button
+              aria-label="上一页"
+              onClick={() => epubRef.current?.prev()}
+              className="absolute top-1/2 left-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
+            >
+              ‹
+            </button>
+            <button
+              aria-label="下一页"
+              onClick={() => epubRef.current?.next()}
+              className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
+            >
+              ›
+            </button>
+          </>
+        )}
 
         {/* 目录抽屉 */}
         {tocOpen && (
@@ -196,7 +230,7 @@ export default function ReaderPage() {
         </div>
 
         {/* 学习模式侧栏(分栏,不遮翻页) */}
-        {learning && block && (
+        {learning && ready && (
           <div className="flex shrink-0 items-stretch border-l border-line bg-paper-1">
             {panelOpen ? (
               <Card className="m-3 flex w-72 flex-col gap-3 overflow-y-auto p-5">
@@ -242,7 +276,7 @@ export default function ReaderPage() {
       </div>
 
       {/* 进度条 */}
-      <div className="flex items-center gap-3 border-t border-line bg-paper-2/70 px-5 py-1.5">
+      {ready && <div className="flex items-center gap-3 border-t border-line bg-paper-2/70 px-5 py-1.5">
         <div className="h-1 flex-1 overflow-hidden rounded-full bg-paper-3">
           <div
             className="h-full rounded-full bg-review transition-[width] duration-300"
@@ -250,7 +284,7 @@ export default function ReaderPage() {
           />
         </div>
         <span className="text-[11px] text-ink-4 tabular-nums">{Math.round(progress * 100)}%</span>
-      </div>
+      </div>}
     </div>
   )
 }

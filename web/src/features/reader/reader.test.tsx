@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as backendModule from '../../backend'
+import { BackendError } from '../../backend/errors'
+import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import { READER_FONT_STEPS } from '../../config'
@@ -97,5 +99,69 @@ describe('阅读器', () => {
     expect(await screen.findByText('价格管制与市场干预')).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: '开始费曼讲授' }))
     expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/3')
+  })
+
+  it.each([
+    ['getBlock', '知识块读取失败'],
+    ['blockSource', '原文读取失败'],
+    ['epubUrl', 'EPUB 地址读取失败'],
+  ] as const)('%s 初始化失败会替换 loading 且保留返回讲授上下文', async (method, message) => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, method).mockRejectedValue(new BackendError({
+      code: 'not_implemented',
+      message,
+      retryable: false,
+    }))
+
+    renderReader('/reader/4?back=3')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(message)
+    expect(screen.queryByText('正在打开书籍…')).not.toBeInTheDocument()
+    expect(h.ePub).not.toHaveBeenCalled()
+    expect(within(alert).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '返回讲授' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/3')
+  })
+
+  it('可重试初始化失败只重发完整内容管线', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'blockSource').mockResolvedValue({
+      href: 'chap1.xhtml',
+      text: '原文',
+    })
+    const original = backendModule.backend.getBlock.bind(backendModule.backend)
+    const getBlock = vi.spyOn(backendModule.backend, 'getBlock')
+      .mockRejectedValueOnce(new BackendError({
+        code: 'offline',
+        message: '阅读内容暂时不可用',
+        retryable: true,
+      }))
+      .mockImplementation(original)
+
+    renderReader('/reader/4?task=3')
+    await user.click(await screen.findByRole('button', { name: '重试' }))
+
+    await waitFor(() => expect(h.ePub).toHaveBeenCalledWith('/fixtures/sample.epub'))
+    expect(getBlock).toHaveBeenCalledTimes(2)
+    expect(await screen.findByText('价格管制与市场干预')).toBeInTheDocument()
+  })
+
+  it('卸载后晚到的初始化失败不会进入错误状态', async () => {
+    let reject!: (reason?: unknown) => void
+    vi.spyOn(backendModule.backend, 'getBlock').mockReturnValue(new Promise((_resolve, rej) => {
+      reject = rej
+    }))
+    const normalize = vi.spyOn(errorModule, 'normalizeBackendError')
+    const view = renderReader('/reader/4')
+
+    view.unmount()
+    await act(async () => reject(new BackendError({
+      code: 'offline',
+      message: '卸载后的阅读失败',
+      retryable: true,
+    })))
+
+    expect(normalize).not.toHaveBeenCalled()
   })
 })
