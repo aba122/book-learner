@@ -28,8 +28,8 @@
 | Task 8A | Complete, verified, reviewed, and pushed | Commit `e82f572`; focused 33/33, Web 121 passed/1 skipped, lint/build green |
 | Task 8B | Complete locally | App/Library/Import/Map focused 21/21; full Web 134 passed/2 skipped, lint/build green |
 | Task 8C | Complete locally | Reader/Feynman focused 19/19; full Web 145 passed/2 skipped, lint/build green |
-| Task 8D | Remaining | Next: Stats/Settings unavailable and state-preserving failures |
-| Task 9 | Remaining | Native persistence smoke, milestone documentation, CI/PR/tag gate |
+| Task 8D | Complete locally | Stats/Settings focused 16/16; eight-file route contract 86/86; full Web 158 passed/2 skipped, lint/build green |
+| Task 9 | Remaining | Next: native persistence smoke, milestone documentation, CI/PR/tag gate |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
 
@@ -874,7 +874,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/settings/settings.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Stats RED tests**
+- [x] **Step 1: Write Stats RED tests**
 
 Test `not_implemented` separately from a retryable runtime failure. Neither failure may render zero-valued metrics. Runtime retry reissues only `stats`; non-retryable/unimplemented state shows the real unavailable message without a retry action. Superseded and post-unmount results must not restore stale metrics or errors.
 
@@ -884,11 +884,11 @@ pnpm -C web exec vitest --run src/features/stats/stats.test.tsx
 
 Expected RED: rejected stats remains on the loading state or produces an unhandled rejection.
 
-- [ ] **Step 2: Implement Stats unavailable state and verify GREEN**
+- [x] **Step 2: Implement Stats unavailable state and verify GREEN**
 
 Use `Stats | null` only for loading/success and a separate `BackendError | null` for failure. Do not create placeholder metrics or fall back to browser Mock values.
 
-- [ ] **Step 3: Write Settings RED tests**
+- [x] **Step 3: Write Settings RED tests**
 
 Cover retryable/non-retryable load and save failures. A failed save keeps all edited form values, retry uses the current edited snapshot, and a successful retry clears the old error and shows saved state. A load retry must not reuse a failed save closure. Assert stale/post-unmount loads are ignored and duplicate saves are blocked while a write is in flight.
 
@@ -898,11 +898,11 @@ pnpm -C web exec vitest --run src/features/settings/settings.test.tsx
 
 Expected RED: load/save rejection is unhandled or the edited form is lost.
 
-- [ ] **Step 4: Implement Settings load/save isolation and verify GREEN**
+- [x] **Step 4: Implement Settings load/save isolation and verify GREEN**
 
 Keep load and save errors independent. Disable only actions that require missing data or an in-flight duplicate request; do not reset the form on failure.
 
-- [ ] **Step 5: Verify the complete seven-route contract**
+- [x] **Step 5: Verify the complete seven-route contract**
 
 ```bash
 pnpm -C web exec vitest --run \
@@ -921,7 +921,7 @@ pnpm -C web build
 
 Expected: existing browser Mock happy paths and all new real-backend failure paths pass together.
 
-- [ ] **Step 6: Record, commit, and push node**
+- [x] **Step 6: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/stats web/src/features/settings DEVLOG.md

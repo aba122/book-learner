@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
@@ -29,20 +31,70 @@ const inputCls =
 export default function SettingsPage() {
   const [form, setForm] = useState<AppSettings | null>(null)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [loadError, setLoadError] = useState<BackendError | null>(null)
+  const [saveError, setSaveError] = useState<BackendError | null>(null)
+  const mounted = useRef(false)
+  const loadGeneration = useRef(0)
+  const saveGeneration = useRef(0)
+  const saveGuard = useRef(false)
+  const formRevision = useRef(0)
 
-  useEffect(() => {
-    backend.getSettings().then(setForm)
+  const loadSettings = useCallback(async () => {
+    if (!mounted.current) return
+    const generation = ++loadGeneration.current
+    setLoadError(null)
+    try {
+      const settings = await backend.getSettings()
+      if (!mounted.current || generation !== loadGeneration.current) return
+      formRevision.current += 1
+      setForm(settings)
+    } catch (error) {
+      if (!mounted.current || generation !== loadGeneration.current) return
+      setLoadError(normalizeBackendError(error))
+    }
   }, [])
 
+  useEffect(() => {
+    mounted.current = true
+    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend read.
+    void loadSettings()
+    return () => {
+      mounted.current = false
+      loadGeneration.current += 1
+      saveGeneration.current += 1
+      saveGuard.current = false
+    }
+  }, [loadSettings])
+
   const update = (patch: Partial<AppSettings>) => {
+    formRevision.current += 1
     setForm(cur => (cur ? { ...cur, ...patch } : cur))
     setSaved(false)
   }
 
   const save = async () => {
-    if (!form) return
-    await backend.saveSettings(form)
-    setSaved(true)
+    if (!form || saveGuard.current) return
+    const snapshot = { ...form }
+    const revision = formRevision.current
+    const generation = ++saveGeneration.current
+    saveGuard.current = true
+    setSaving(true)
+    setSaved(false)
+    setSaveError(null)
+    try {
+      await backend.saveSettings(snapshot)
+      if (!mounted.current || generation !== saveGeneration.current) return
+      if (revision === formRevision.current) setSaved(true)
+    } catch (error) {
+      if (!mounted.current || generation !== saveGeneration.current) return
+      setSaveError(normalizeBackendError(error))
+    } finally {
+      if (generation === saveGeneration.current) {
+        saveGuard.current = false
+        if (mounted.current) setSaving(false)
+      }
+    }
   }
 
   return (
@@ -53,17 +105,21 @@ export default function SettingsPage() {
         actions={
           <div className="flex items-center gap-3">
             {saved && <span className="text-xs text-ok">已保存</span>}
-            <Button variant="primary" onClick={save} disabled={!form}>
-              保存
+            <Button variant="primary" onClick={save} disabled={!form || saving}>
+              {saving ? '保存中…' : '保存'}
             </Button>
           </div>
         }
       />
 
       {form === null ? (
-        <p className="text-sm text-ink-3">正在读取设置…</p>
+        loadError
+          ? <AsyncError error={loadError} onRetry={loadSettings} />
+          : <p className="text-sm text-ink-3">正在读取设置…</p>
       ) : (
         <div className="flex flex-col gap-6">
+          {loadError && <AsyncError error={loadError} onRetry={loadSettings} variant="compact" />}
+          {saveError && <AsyncError error={saveError} onRetry={save} />}
           <Card className="divide-y divide-line px-6 py-2">
             <Field label="番茄钟(分钟)">
               {id => (

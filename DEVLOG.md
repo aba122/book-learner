@@ -168,3 +168,8 @@
 - Reader 使用单一 generation/cancel-safe 内容管线,只有 `getBlock`、`blockSource` 与 `epubUrl` 全部成功才原子发布并挂载 `EpubView`;失败替换永久 loading,保留 `task`/`back` 导航语义,可重试错误重跑完整读取,参数切换或卸载后的结果被忽略。
 - Feynman 将 today queue、block、source 三段只读准备与 `startSession` 非幂等边界分开。只读失败可在尚未尝试创建 session 时重试;调用 `startSession` 前同步设置 attempted guard,其 pending、歧义失败或卸载结果都不会获得第二次创建入口。失败初始化不发布半成品 task/block/source,也无法调用 reply/end/verdict/complete 操作。
 - TDD:Reader/Feynman 新用例在旧实现上为 10 failed/9 passed 并产生 10 个 unhandled rejections;实现后 focused 19/19。全量 Web 为 145 passed/2 timezone-conditional skipped(14 files),lint exit 0 且仍只有 6 条既有 warning,production build 通过(179 modules,保留约 602 kB chunk warning),`git diff --check` 通过。
+
+## 2026-09-02 · Mac Foundation T8D 完成
+- Stats 将 loading/success 与 `BackendError` 分开,不用零值或 Mock 数据伪装原生失败;可重试错误只重发 `stats`,generation 与 unmount invalidation 阻止较晚的旧成功/失败恢复过期页面。
+- Settings 将加载与保存错误独立呈现;保存时捕获不可变快照,失败不重置表单,编辑后重试使用当前新快照。同步 ref guard 阻止双击写入,form revision 避免在写入期间继续编辑后误报“已保存”,load/save generation 忽略过期与卸载结果。
+- TDD:旧实现在 Stats/Settings 新矩阵上为 7 failed/7 passed 且有 10 个 unhandled rejections;实现后两文件 16/16。八文件页面错误契约 86/86,全量 Web 158 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅原有 6 warnings),production build 成功(179 modules,602.96 kB chunk warning),`git diff --check` 通过。

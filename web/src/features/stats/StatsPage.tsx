@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
@@ -7,16 +9,41 @@ import type { Stats } from '../../types'
 
 export default function StatsPage() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [statsError, setStatsError] = useState<BackendError | null>(null)
+  const mounted = useRef(false)
+  const statsGeneration = useRef(0)
+
+  const loadStats = useCallback(async () => {
+    if (!mounted.current) return
+    const generation = ++statsGeneration.current
+    setStatsError(null)
+    try {
+      const nextStats = await backend.stats()
+      if (!mounted.current || generation !== statsGeneration.current) return
+      setStats(nextStats)
+    } catch (error) {
+      if (!mounted.current || generation !== statsGeneration.current) return
+      setStatsError(normalizeBackendError(error))
+    }
+  }, [])
 
   useEffect(() => {
-    backend.stats().then(setStats)
-  }, [])
+    mounted.current = true
+    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend read.
+    void loadStats()
+    return () => {
+      mounted.current = false
+      statsGeneration.current += 1
+    }
+  }, [loadStats])
 
   if (stats === null) {
     return (
       <div className="mx-auto max-w-4xl px-10 py-12">
         <PageHeader title="统计" subtitle="进度、连续天数与薄弱点收敛" />
-        <p className="text-sm text-ink-3">正在统计…</p>
+        {statsError
+          ? <AsyncError error={statsError} onRetry={loadStats} />
+          : <p className="text-sm text-ink-3">正在统计…</p>}
       </div>
     )
   }
@@ -27,6 +54,12 @@ export default function StatsPage() {
   return (
     <div className="mx-auto max-w-4xl px-10 py-12">
       <PageHeader title="统计" subtitle="进度、连续天数与薄弱点收敛" />
+
+      {statsError && (
+        <div className="mb-6">
+          <AsyncError error={statsError} onRetry={loadStats} variant="compact" />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <Card className="col-span-2 flex items-center gap-6 p-6 lg:row-span-2">
