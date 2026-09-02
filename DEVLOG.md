@@ -180,7 +180,7 @@
 - 历史 rustfmt 偏差:Task 6 曾明确保留 core 中 7 个旧文件的全库格式差异;Task 9 需要全量 `cargo fmt --check`,因此以单独的纯机械提交 `83b9275` 应用当前 stable rustfmt。格式化后 core 66 passed/1 ignored 且 clippy `-D warnings` 通过,无行为变更。
 - CI 增加 core rustfmt + all-target tests + clippy、Web lint 与 Tauri rustfmt 门禁;工作流 YAML 解析通过。两个 Node job 仍显式激活项目锁定的 pnpm 11.24.0。
 - 当前 Linux x86_64 验证:core fmt/tests/clippy PASS,Tauri fmt PASS,Web 158 passed/2 skipped + lint/build PASS,Playwright CFI 1/1 PASS。Tauri tests/clippy/debug build 在编译项目代码前因主机缺 `gdk-3.0`/Pango/Cairo 开发库失败;这些命令与 GUI 持久化冒烟必须由 macOS-14 CI/Apple Silicon 重跑。
-- 发布阻塞:当前 GitHub 身份 `Liuzzyg` 只有 READ,无法推送本地节点或触发 Actions;因此不创建 PR、不合并、不打 `mac-m1` tag,也不将产品 M1 标记完成。
+- 发布阻塞:当前 GitHub 身份 `Liuzzyg` 的 REST 权限为 `pull:true,push:false`,无法推送本地节点或触发 Actions。远程 `28f563f` 的 [Actions 33606579463](https://github.com/aba122/book-learner/actions/runs/33606579463) 仅 core 成功,Web/macOS 都在 pnpm install 失败后跳过后续;本地 `980e83e` 修复了该入口但无法发布验证。因此不创建 PR、不合并、不打 `mac-m1` tag,也不将产品 M1 标记完成。
 
 ## 2026-09-02 · 产品 M1 架构复审与执行基线
 - 复审不把 Foundation 的 11 个 `not_implemented` 直接按方法表平铺:真实依赖是“发布门禁 → ADR/模型 → EPUB 导入与缓存 → Codex 调用硬化 → 地图生成/定稿 → 阅读锚定 → 持久会话 → 评估确认/outbox → 前端操作失败恢复 → tray/E2E”。

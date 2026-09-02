@@ -21,7 +21,7 @@
 | Web lint/build | PASS | lint exit 0(原有 6 warnings);179 modules;minified JS 602.96 kB 警告 |
 | EPUB CFI Playwright | PASS | Chromium;`chap1.xhtml`;CFI round-trip 还原“第一章 供给与需求”;1/1 |
 | Tauri tests/clippy/debug build | PENDING(macOS CI) | 当前 Linux 缺 `gdk-3.0`/Pango/Cairo 系统库,GTK build script 在本项目 Rust 代码前失败 |
-| 远程 CI | PENDING | 当前 GitHub 身份对 `aba122/book-learner` 仅 READ,本地提交无法推送 |
+| 远程 CI | PENDING | 最新远程运行 [33606579463](https://github.com/aba122/book-learner/actions/runs/33606579463) 在 `28f563f` 上的 core 成功,Web/macOS 均在 pnpm install 失败后跳过其余门禁;本地 `980e83e` 已显式激活 pnpm 11.24.0,但当前 GitHub 权限为 `pull:true,push:false` |
 
 Playwright 可在无浏览器的新机器上先执行:
 
