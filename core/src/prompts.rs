@@ -94,14 +94,23 @@ mod tests {
     #[test]
     fn review_quiz_prompt_and_result_parse() {
         let s = super::review_quiz_prompt(&ctx());
-        for k in ["快问", "薄弱点", "JSON"] { assert!(s.contains(k), "missing {k}"); }
+        for k in ["快问", "薄弱点", "JSON"] {
+            assert!(s.contains(k), "missing {k}");
+        }
         let r = crate::eval::parse_quiz(r#"{"passed":true,"comment":"答出了要点"}"#).unwrap();
         assert!(r.passed && r.new_weak_point.is_none());
     }
     #[test]
     fn eval_prompt_demands_json_only() {
         let s = super::eval_prompt(&ctx(), "用户:...\n学生:...");
-        for k in ["评估", "准确性", "完整性", "清晰度", "最后一条消息只输出 JSON", "fixed_in_session"] {
+        for k in [
+            "评估",
+            "准确性",
+            "完整性",
+            "清晰度",
+            "最后一条消息只输出 JSON",
+            "fixed_in_session",
+        ] {
             assert!(s.contains(k), "missing {k}");
         }
     }

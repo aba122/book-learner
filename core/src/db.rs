@@ -116,14 +116,16 @@ mod tests {
     }
 
     fn foreign_keys(conn: &Connection) -> i64 {
-        conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap()
+        conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap()
     }
 
     fn insert_book(conn: &Connection, slug: &str) -> i64 {
         conn.execute(
             "INSERT INTO book(title,type,slug) VALUES(?1,'textbook',?2)",
             [slug, slug],
-        ).unwrap();
+        )
+        .unwrap();
         conn.last_insert_rowid()
     }
 
@@ -140,13 +142,28 @@ mod tests {
     #[test]
     fn open_creates_schema_v2() {
         let conn = super::open_in_memory().unwrap();
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, 2);
-        for t in ["book","knowledge_block","study_plan","daily_task",
-                  "feynman_session","weak_point","review_schedule","artifact","setting"] {
-            let n: i64 = conn.query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                [t], |r| r.get(0)).unwrap();
+        for t in [
+            "book",
+            "knowledge_block",
+            "study_plan",
+            "daily_task",
+            "feynman_session",
+            "weak_point",
+            "review_schedule",
+            "artifact",
+            "setting",
+        ] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [t],
+                    |r| r.get(0),
+                )
+                .unwrap();
             assert_eq!(n, 1, "missing table {t}");
         }
     }
@@ -172,7 +189,9 @@ mod tests {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .unwrap();
         first_migration.execute_batch(super::SCHEMA_V2).unwrap();
-        first_migration.pragma_update(None, "user_version", 2).unwrap();
+        first_migration
+            .pragma_update(None, "user_version", 2)
+            .unwrap();
 
         MIGRATION_WAITING_ON_LOCK.store(false, Ordering::SeqCst);
         let second_path = path.clone();
@@ -187,7 +206,10 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(2);
         while !MIGRATION_WAITING_ON_LOCK.load(Ordering::SeqCst) {
-            assert!(Instant::now() < deadline, "second migration never waited on SQLite's write lock");
+            assert!(
+                Instant::now() < deadline,
+                "second migration never waited on SQLite's write lock"
+            );
             std::thread::yield_now();
         }
 
@@ -221,9 +243,9 @@ mod tests {
         let error = super::configure(&tx).unwrap_err();
 
         assert_eq!(foreign_keys(&tx), 0);
-        assert!(error.to_string().contains(
-            "failed to enable SQLite foreign keys: PRAGMA foreign_keys returned 0"
-        ));
+        assert!(error
+            .to_string()
+            .contains("failed to enable SQLite foreign keys: PRAGMA foreign_keys returned 0"));
     }
 
     #[test]
@@ -281,7 +303,8 @@ mod tests {
         conn.execute(
             "INSERT INTO study_plan(book_id,deadline,daily_new_blocks) VALUES(?1,'2026-09-30',2)",
             [first_book],
-        ).unwrap();
+        )
+        .unwrap();
 
         let error = conn.execute(
             "INSERT INTO study_plan(book_id,deadline,daily_new_blocks) VALUES(?1,'2026-10-31',1)",
@@ -320,8 +343,12 @@ mod tests {
         assert!(super::open(&path).is_err());
 
         let unchanged = Connection::open(&path).unwrap();
-        let version: i64 = unchanged.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        let plans: i64 = unchanged.query_row("SELECT count(*) FROM study_plan", [], |r| r.get(0)).unwrap();
+        let version: i64 = unchanged
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        let plans: i64 = unchanged
+            .query_row("SELECT count(*) FROM study_plan", [], |r| r.get(0))
+            .unwrap();
         let v2_indexes: i64 = unchanged.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('study_plan_one_per_book','study_plan_single_active')",
             [],
