@@ -26,7 +26,8 @@
 | Tasks 0–6 | Complete and pushed | Remote `feat/mac-m1` through `6c9c1cd` |
 | Task 7 | Complete, verified, and reviewed | Commit `5f194bd`; focused 53/53, Web 93 passed/1 skipped, core and Tauri suites green |
 | Task 8A | Complete, verified, reviewed, and pushed | Commit `e82f572`; focused 33/33, Web 121 passed/1 skipped, lint/build green |
-| Tasks 8B–8D | Remaining | Next: Library/Import/Map preservation, then Reader/Feynman and Stats/Settings |
+| Task 8B | Complete locally | App/Library/Import/Map focused 21/21; full Web 134 passed/2 skipped, lint/build green |
+| Tasks 8C–8D | Remaining | Next: Reader/Feynman, then Stats/Settings |
 | Task 9 | Remaining | Native persistence smoke, milestone documentation, CI/PR/tag gate |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
@@ -762,7 +763,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/map/map.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Library/Import RED tests**
+- [x] **Step 1: Write Library/Import RED tests**
 
 Cover retryable and non-retryable `listBooks` failures, including superseded and post-unmount results. For import, use two distinct cases: `not_implemented` preserves the selected `File` and type but renders message/close only; a synthetic retryable failure renders retry and reuses the exact captured selection. Assert a synchronous attempt guard prevents duplicate import submits. Close clears the attempt and stale error.
 
@@ -772,11 +773,11 @@ pnpm -C web exec vitest --run src/features/library/library.test.tsx
 
 Expected RED: rejected requests are unhandled or leave the page/wizard in loading/progress state.
 
-- [ ] **Step 2: Implement Library/Import failures and verify GREEN**
+- [x] **Step 2: Implement Library/Import failures and verify GREEN**
 
 Add explicit try/catch/finally boundaries for list/import attempts. Clear stale errors only when a new attempt begins or the wizard closes; do not replace native failures with Mock data.
 
-- [ ] **Step 3: Write Map RED tests**
+- [x] **Step 3: Write Map RED tests**
 
 Cover retryable/non-retryable `listBlocks` failures, including superseded and post-unmount results. For confirm, use two distinct cases after title/module/order/skip edits: native `not_implemented` preserves the draft and shows message only; a synthetic retryable rejection exposes retry and invokes only `confirmMap` with the exact captured edit snapshot. Assert duplicate confirms are blocked while the first write is in flight. List reload is not part of confirm retry.
 
@@ -786,7 +787,7 @@ pnpm -C web exec vitest --run src/features/map/map.test.tsx
 
 Expected RED: list/confirm rejection is unhandled or edit state is lost.
 
-- [ ] **Step 4: Implement Map failure preservation and verify GREEN**
+- [x] **Step 4: Implement Map failure preservation and verify GREEN**
 
 Render list errors at the route boundary and confirm errors beside confirm actions. Preserve draft names, order, and skip flags until a successful confirm or an explicit cancel. Do not add the deferred product goal-entry shortcut.
 
@@ -797,7 +798,7 @@ pnpm -C web lint
 pnpm -C web build
 ```
 
-- [ ] **Step 5: Record, commit, and push node**
+- [x] **Step 5: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/library web/src/features/map DEVLOG.md

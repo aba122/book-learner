@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import type { MapEditBlock } from '../../backend/types'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
@@ -58,19 +61,70 @@ export default function MapPage() {
   const [goalOpen, setGoalOpen] = useState(false)
   const [deadline, setDeadline] = useState('')
   const [remindTime, setRemindTime] = useState('21:00')
+  const [blocksError, setBlocksError] = useState<BackendError | null>(null)
+  const [titleError, setTitleError] = useState<BackendError | null>(null)
+  const [confirmError, setConfirmError] = useState<BackendError | null>(null)
+  const [confirmAttempt, setConfirmAttempt] = useState<MapEditBlock[] | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [planError, setPlanError] = useState<BackendError | null>(null)
+  const [planning, setPlanning] = useState(false)
+  const mounted = useRef(false)
+  const blocksGeneration = useRef(0)
+  const titleGeneration = useRef(0)
+  const confirmGeneration = useRef(0)
+  const planGeneration = useRef(0)
+  const confirmGuard = useRef(false)
+  const planGuard = useRef(false)
 
   const reload = useCallback(async () => {
-    const list = await backend.listBlocks(bookId)
-    setBlocks([...list].sort((a, z) => a.seq - z.seq))
+    if (!mounted.current) return false
+    const generation = ++blocksGeneration.current
+    setBlocksError(null)
+    try {
+      const list = await backend.listBlocks(bookId)
+      if (!mounted.current || generation !== blocksGeneration.current) return false
+      setBlocks([...list].sort((a, z) => a.seq - z.seq))
+      return true
+    } catch (error) {
+      if (!mounted.current || generation !== blocksGeneration.current) return false
+      setBlocksError(normalizeBackendError(error))
+      return false
+    }
+  }, [bookId])
+
+  const loadTitle = useCallback(async () => {
+    if (!mounted.current) return
+    const generation = ++titleGeneration.current
+    setTitleError(null)
+    try {
+      const books = await backend.listBooks()
+      if (!mounted.current || generation !== titleGeneration.current) return
+      setBookTitle(books.find(book => book.id === bookId)?.title ?? '')
+    } catch (error) {
+      if (!mounted.current || generation !== titleGeneration.current) return
+      setTitleError(normalizeBackendError(error))
+    }
   }, [bookId])
 
   useEffect(() => {
-    reload()
-    backend.listBooks().then(bs => setBookTitle(bs.find(b => b.id === bookId)?.title ?? ''))
-  }, [reload, bookId])
+    mounted.current = true
+    void reload()
+    void loadTitle()
+    return () => {
+      mounted.current = false
+      blocksGeneration.current += 1
+      titleGeneration.current += 1
+      confirmGeneration.current += 1
+      planGeneration.current += 1
+      confirmGuard.current = false
+      planGuard.current = false
+    }
+  }, [reload, loadTitle])
 
   const startEdit = () => {
     if (!blocks) return
+    setConfirmError(null)
+    setConfirmAttempt(null)
     setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: false, block: b })))
   }
 
@@ -97,15 +151,40 @@ export default function MapPage() {
     )
   }
 
-  const finalize = async () => {
+  const submitMap = async (snapshot: MapEditBlock[]) => {
+    if (confirmGuard.current) return
+    const generation = ++confirmGeneration.current
+    confirmGuard.current = true
+    setConfirming(true)
+    setConfirmAttempt(snapshot)
+    setConfirmError(null)
+    try {
+      await backend.confirmMap(bookId, snapshot)
+      if (!mounted.current || generation !== confirmGeneration.current) return
+      setEdits(null)
+      setConfirmAttempt(null)
+      setGoalOpen(true)
+      void reload()
+    } catch (error) {
+      if (!mounted.current || generation !== confirmGeneration.current) return
+      setConfirmError(normalizeBackendError(error))
+    } finally {
+      if (generation === confirmGeneration.current) {
+        confirmGuard.current = false
+        if (mounted.current) setConfirming(false)
+      }
+    }
+  }
+
+  const finalize = () => {
     if (!edits) return
-    await backend.confirmMap(
-      bookId,
-      edits.map((e, i) => ({ title: e.title, moduleName: e.moduleName, seq: i + 1, skipped: e.skipped })),
-    )
-    setEdits(null)
-    await reload()
-    setGoalOpen(true)
+    const snapshot = edits.map((entry, index) => ({
+      title: entry.title,
+      moduleName: entry.moduleName,
+      seq: index + 1,
+      skipped: entry.skipped,
+    }))
+    void submitMap(snapshot)
   }
 
   // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整
@@ -118,17 +197,33 @@ export default function MapPage() {
   }, [deadline, remaining])
 
   const startLearning = async () => {
-    if (!deadline || dailyBlocks === null) return
-    await backend.setPlan({
-      bookId,
-      deadline,
-      dailyNewBlocks: dailyBlocks,
-      dailyCap: DAILY_CAP_DEFAULT,
-      remindTime,
-    })
-    await backend.setActiveBook(bookId)
-    setActiveBookId(bookId)
-    navigate('/')
+    if (!deadline || dailyBlocks === null || planGuard.current) return
+    const generation = ++planGeneration.current
+    planGuard.current = true
+    setPlanning(true)
+    setPlanError(null)
+    try {
+      await backend.setPlan({
+        bookId,
+        deadline,
+        dailyNewBlocks: dailyBlocks,
+        dailyCap: DAILY_CAP_DEFAULT,
+        remindTime,
+      })
+      if (!mounted.current || generation !== planGeneration.current) return
+      await backend.setActiveBook(bookId)
+      if (!mounted.current || generation !== planGeneration.current) return
+      setActiveBookId(bookId)
+      navigate('/')
+    } catch (error) {
+      if (!mounted.current || generation !== planGeneration.current) return
+      setPlanError(normalizeBackendError(error))
+    } finally {
+      if (generation === planGeneration.current) {
+        planGuard.current = false
+        if (mounted.current) setPlanning(false)
+      }
+    }
   }
 
   // 渲染顺序:编辑模式用 edits 平铺;浏览模式用 blocks
@@ -153,9 +248,15 @@ export default function MapPage() {
         actions={
           editing ? (
             <>
-              <Button onClick={() => setEdits(null)}>取消</Button>
-              <Button variant="primary" onClick={finalize}>
-                确认定稿
+              <Button disabled={confirming} onClick={() => {
+                setConfirmError(null)
+                setConfirmAttempt(null)
+                setEdits(null)
+              }}>
+                取消
+              </Button>
+              <Button variant="primary" disabled={confirming} onClick={finalize}>
+                {confirming ? '定稿中…' : '确认定稿'}
               </Button>
             </>
           ) : (
@@ -164,7 +265,31 @@ export default function MapPage() {
         }
       />
 
-      {blocks === null ? (
+      {titleError && (
+        <div className="mb-4">
+          <AsyncError error={titleError} onRetry={loadTitle} variant="compact" />
+        </div>
+      )}
+
+      {blocksError && blocks !== null && (
+        <div className="mb-4">
+          <AsyncError error={blocksError} onRetry={reload} variant="compact" />
+        </div>
+      )}
+
+      {confirmError && (
+        <div className="mb-4">
+          <AsyncError
+            error={confirmError}
+            onRetry={confirmAttempt ? () => void submitMap(confirmAttempt) : undefined}
+            variant="compact"
+          />
+        </div>
+      )}
+
+      {blocksError && blocks === null ? (
+        <AsyncError error={blocksError} onRetry={reload} />
+      ) : blocks === null ? (
         <p className="text-sm text-ink-3">正在展开地图…</p>
       ) : (
         <div className="flex flex-col gap-8">
@@ -175,6 +300,7 @@ export default function MapPage() {
                   <input
                     aria-label={`模块名:${group.moduleName}`}
                     defaultValue={group.moduleName}
+                    disabled={confirming}
                     onBlur={e => renameModule(group.moduleName, e.target.value || group.moduleName)}
                     className="rounded-s border border-line bg-paper-2 px-2 py-1 font-serif text-base font-semibold text-ink-1"
                   />
@@ -209,13 +335,13 @@ export default function MapPage() {
                     {!editing && <Tag tone={STATUS_TONE[block.status]}>{STATUS_LABEL[block.status]}</Tag>}
                     {editing && (
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, -1)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, -1)}>
                           上移
                         </Button>
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, 1)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, 1)}>
                           下移
                         </Button>
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => toggleSkip(flatIdx)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => toggleSkip(flatIdx)}>
                           {entry?.skipped ? '恢复' : '跳过'}
                         </Button>
                         <Button
@@ -254,6 +380,7 @@ export default function MapPage() {
                 <input
                   type="date"
                   value={deadline}
+                  disabled={planning}
                   onChange={e => setDeadline(e.target.value)}
                   className="rounded-s border border-line bg-paper-1 px-3 py-1.5 text-ink-1"
                 />
@@ -263,6 +390,7 @@ export default function MapPage() {
                 <input
                   type="time"
                   value={remindTime}
+                  disabled={planning}
                   onChange={e => setRemindTime(e.target.value)}
                   className="rounded-s border border-line bg-paper-1 px-3 py-1.5 text-ink-1"
                 />
@@ -278,10 +406,20 @@ export default function MapPage() {
                 )}
               </div>
             </div>
+            {planError && (
+              <div className="mt-4">
+                <AsyncError error={planError} onRetry={startLearning} variant="compact" />
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-2">
-              <Button onClick={() => setGoalOpen(false)}>稍后再定</Button>
-              <Button variant="primary" disabled={dailyBlocks === null} onClick={startLearning}>
-                开始学习
+              <Button disabled={planning} onClick={() => {
+                setPlanError(null)
+                setGoalOpen(false)
+              }}>
+                稍后再定
+              </Button>
+              <Button variant="primary" disabled={dailyBlocks === null || planning} onClick={startLearning}>
+                {planning ? '保存中…' : '开始学习'}
               </Button>
             </div>
           </Card>

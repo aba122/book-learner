@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Confirm from '../../components/Confirm'
 import PageHeader from '../../components/PageHeader'
@@ -24,27 +26,77 @@ export default function LibraryPage() {
   const [books, setBooks] = useState<Book[] | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<Book | null>(null)
+  const [booksError, setBooksError] = useState<BackendError | null>(null)
+  const [switchError, setSwitchError] = useState<BackendError | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const mounted = useRef(false)
+  const listGeneration = useRef(0)
+  const switchGeneration = useRef(0)
+  const switchGuard = useRef(false)
 
   const reload = useCallback(async () => {
-    const list = await backend.listBooks()
-    setBooks([...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active')))
+    if (!mounted.current) return false
+    const generation = ++listGeneration.current
+    setBooksError(null)
+    try {
+      const list = await backend.listBooks()
+      if (!mounted.current || generation !== listGeneration.current) return false
+      setBooks([...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active')))
+      return true
+    } catch (error) {
+      if (!mounted.current || generation !== listGeneration.current) return false
+      setBooksError(normalizeBackendError(error))
+      return false
+    }
   }, [])
 
   useEffect(() => {
-    reload()
+    mounted.current = true
+    void reload()
+    return () => {
+      mounted.current = false
+      listGeneration.current += 1
+      switchGeneration.current += 1
+      switchGuard.current = false
+    }
   }, [reload])
 
   const open = (book: Book) => {
     if (book.status === 'active') navigate(`/map/${book.id}`)
-    else setSwitchTarget(book)
+    else {
+      setSwitchError(null)
+      setSwitchTarget(book)
+    }
   }
 
   const confirmSwitch = async () => {
-    if (!switchTarget) return
-    await backend.setActiveBook(switchTarget.id)
-    setActiveBookId(switchTarget.id)
+    if (!switchTarget || switchGuard.current) return
+    const target = switchTarget
+    const generation = ++switchGeneration.current
+    switchGuard.current = true
+    setSwitching(true)
+    setSwitchError(null)
+    try {
+      await backend.setActiveBook(target.id)
+      if (!mounted.current || generation !== switchGeneration.current) return
+      setActiveBookId(target.id)
+      setSwitchTarget(null)
+      void reload()
+    } catch (error) {
+      if (!mounted.current || generation !== switchGeneration.current) return
+      setSwitchError(normalizeBackendError(error))
+    } finally {
+      if (generation === switchGeneration.current) {
+        switchGuard.current = false
+        if (mounted.current) setSwitching(false)
+      }
+    }
+  }
+
+  const cancelSwitch = () => {
+    if (switchGuard.current) return
+    setSwitchError(null)
     setSwitchTarget(null)
-    await reload()
   }
 
   return (
@@ -59,7 +111,15 @@ export default function LibraryPage() {
         }
       />
 
-      {books === null ? (
+      {booksError && books !== null && (
+        <div className="mb-6">
+          <AsyncError error={booksError} onRetry={reload} variant="compact" />
+        </div>
+      )}
+
+      {booksError && books === null ? (
+        <AsyncError error={booksError} onRetry={reload} />
+      ) : books === null ? (
         <p className="text-sm text-ink-3">正在打开书架…</p>
       ) : books.length === 0 ? (
         <p className="text-sm text-ink-3">书架还空着——导入一本 EPUB 开始。</p>
@@ -105,10 +165,18 @@ export default function LibraryPage() {
         open={switchTarget !== null}
         title="切换主攻书?"
         message={`当前进行中的书会暂停,《${switchTarget?.title ?? ''}》将成为唯一主攻书。今日队列明天起按新书生成。`}
-        confirmText="切换"
+        confirmText={switching ? '切换中…' : '切换'}
+        confirmDisabled={switching}
+        cancelDisabled={switching}
         onConfirm={confirmSwitch}
-        onCancel={() => setSwitchTarget(null)}
-      />
+        onCancel={cancelSwitch}
+      >
+        {switchError && (
+          <div className="mt-4">
+            <AsyncError error={switchError} onRetry={confirmSwitch} variant="compact" />
+          </div>
+        )}
+      </Confirm>
     </div>
   )
 }

@@ -156,3 +156,10 @@
 ## 2026-09-02 · Mac Foundation CI 工具链修复
 - `main` 与 `feat/mac-m1` 的 Web/macOS jobs 均在业务门禁前失败:从仓库根目录启动的 Corepack 选择 pnpm 11.25.0,与 `web/package.json` 固定的 11.24.0 冲突。两个 job 在 `corepack enable` 后显式激活 `pnpm@11.24.0`,保持包管理器版本与项目契约一致。
 - 该修复只恢复 CI 依赖安装入口,不改变产品代码;提交后以远端 Actions 作为 Linux Web 与 macOS Tauri 门禁证据。
+
+## 2026-09-02 · Mac Foundation T8B 完成
+- App 启动时的主攻书探测变为 cancel-safe 的非关键读取,失败由 route loader 负责呈现且不再产生 unhandled rejection。Library 的书目读取按 generation 隔离重试、过期及卸载结果;已有书目在刷新失败时保留。切换主攻书使用同步 guard,错误留在确认框内。
+- Import 捕获不可变的 File/type 尝试快照,同步 guard 阻止重复提交;`importEpub` 成功而 `generateMap` 失败时保存 `bookId`,重试只恢复地图生成而不重复导入。不可重试错误保留所选文件和类型并只提供关闭,关闭清理全部尝试状态。
+- Map 将 block list 与 book title 作为独立读取资源,分别支持 retry/generation/unmount 隔离;定稿失败保留名称、顺序与跳过编辑,重试复用精确快照且不触发列表读取,同步 guard 阻止双击。目标保存同样捕获错误并防止并发写。
+- TDD:新增用例在旧实现上为 11 failed/7 passed 且产生 10 个 unhandled rejections;最小实现后 App/Library/Import/Map focused 21/21。全量 Web 为 134 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅 6 条既有 React warnings),production build 通过(179 modules,保留 599.77 kB chunk warning),`git diff --check` 通过。
+- 远端偏差:当前 GitHub 身份 `Liuzzyg` 对仓库仅有 READ 权限,CI 修复提交 `980e83e` 推送收到 HTTP 403;后续节点继续保留本地原子提交,待具备写权限后统一推送并取得 Actions 证据。

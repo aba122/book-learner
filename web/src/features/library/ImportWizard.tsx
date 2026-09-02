@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
+import { normalizeBackendError, type BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import type { BookType } from '../../types'
@@ -11,19 +13,84 @@ const TYPES: { type: BookType; label: string; desc: string }[] = [
   { type: 'humanities', label: '人文·社科', desc: '主题与脉络优先,重理解、联结与观点' },
 ]
 
+interface ImportAttempt {
+  file: File
+  type: BookType
+  bookId?: number
+}
+
 export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
+  const [failure, setFailure] = useState<BackendError | null>(null)
+  const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
+  const [busy, setBusy] = useState(false)
+  const inFlight = useRef(false)
+  const generation = useRef(0)
+  const mounted = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      generation.current += 1
+      inFlight.current = false
+    }
+  }, [])
 
   if (!open) return null
 
-  const chooseType = async (type: BookType) => {
+  const close = () => {
+    if (inFlight.current) return
+    generation.current += 1
+    setFile(null)
+    setProgress(null)
+    setFailure(null)
+    setAttempt(null)
+    setBusy(false)
+    onClose()
+  }
+
+  const runAttempt = async (captured: ImportAttempt) => {
+    if (inFlight.current) return
+    inFlight.current = true
+    const currentGeneration = ++generation.current
+    let nextAttempt = captured
+    setAttempt(captured)
+    setFailure(null)
+    setBusy(true)
+    setProgress(captured.bookId === undefined ? '正在导入书籍…' : '正在生成知识地图…')
+    try {
+      let bookId = captured.bookId
+      if (bookId === undefined) {
+        const imported = await backend.importEpub(captured.file, captured.type)
+        if (!mounted.current || currentGeneration !== generation.current) return
+        bookId = imported.bookId
+        nextAttempt = { ...captured, bookId }
+        setAttempt(nextAttempt)
+      }
+      await backend.generateMap(bookId, message => {
+        if (mounted.current && currentGeneration === generation.current) setProgress(message)
+      })
+      if (!mounted.current || currentGeneration !== generation.current) return
+      navigate(`/map/${bookId}`)
+    } catch (error) {
+      if (!mounted.current || currentGeneration !== generation.current) return
+      setAttempt(nextAttempt)
+      setFailure(normalizeBackendError(error))
+      setProgress(null)
+    } finally {
+      if (currentGeneration === generation.current) {
+        inFlight.current = false
+        if (mounted.current) setBusy(false)
+      }
+    }
+  }
+
+  const chooseType = (type: BookType) => {
     if (!file) return
-    setProgress('正在导入书籍…')
-    const { bookId } = await backend.importEpub(file, type)
-    await backend.generateMap(bookId, msg => setProgress(msg))
-    navigate(`/map/${bookId}`)
+    void runAttempt({ file, type })
   }
 
   return (
@@ -33,17 +100,30 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       aria-label="导入书籍"
       className="fixed inset-0 z-50 flex items-center justify-center"
     >
-      <div className="absolute inset-0 bg-ink-1/25" onClick={progress ? undefined : onClose} />
+      <div className="absolute inset-0 bg-ink-1/25" onClick={busy ? undefined : close} />
       <Card className="relative w-130 max-w-[92vw] p-8 shadow-pop">
-        {progress ? (
+        {busy ? (
           <div className="py-6 text-center">
             <div
               aria-hidden
               className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-line border-t-new"
             />
-            <p className="font-serif text-lg text-ink-1">{progress}</p>
+            <p className="font-serif text-lg text-ink-1">{progress ?? '正在处理…'}</p>
             <p className="mt-2 text-xs text-ink-3">AI 正在通读目录并拆分知识块,请稍候</p>
           </div>
+        ) : failure && attempt ? (
+          <>
+            <h2 className="font-serif text-xl font-semibold text-ink-1">导入未完成</h2>
+            <p className="mt-1 text-sm text-ink-3">
+              《{attempt.file.name.replace(/\.epub$/i, '')}》· {TYPES.find(t => t.type === attempt.type)?.label}
+            </p>
+            <div className="mt-6">
+              <AsyncError error={failure} onRetry={() => void runAttempt(attempt)} />
+            </div>
+            <div className="mt-5 flex justify-end">
+              <Button onClick={close}>关闭</Button>
+            </div>
+          </>
         ) : !file ? (
           <>
             <h2 className="font-serif text-xl font-semibold text-ink-1">导入 EPUB</h2>
@@ -59,7 +139,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
               />
             </label>
             <div className="mt-5 flex justify-end">
-              <Button onClick={onClose}>取消</Button>
+              <Button onClick={close}>取消</Button>
             </div>
           </>
         ) : (
@@ -83,7 +163,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
             </div>
             <div className="mt-5 flex justify-between">
               <Button onClick={() => setFile(null)}>重选文件</Button>
-              <Button onClick={onClose}>取消</Button>
+              <Button onClick={close}>取消</Button>
             </div>
           </>
         )}

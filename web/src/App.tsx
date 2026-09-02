@@ -64,10 +64,18 @@ export default function App() {
   const setActiveBookId = useSession(s => s.setActiveBookId)
 
   useEffect(() => {
-    backend.listBooks().then(books => {
-      const active = books.find(b => b.status === 'active')
-      if (active) setActiveBookId(active.id)
-    })
+    let alive = true
+    void backend.listBooks()
+      .then(books => {
+        if (!alive) return
+        const active = books.find(b => b.status === 'active')
+        if (active) setActiveBookId(active.id)
+      })
+      // Active-book discovery is non-critical: route-level loaders own visible errors.
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
   }, [setActiveBookId])
 
   return (
