@@ -7,6 +7,8 @@
 
 在产品 M1 前先完成 `docs/superpowers/specs/2026-08-31-mac-foundation-design.md`:Tauri 原生壳、typed IPC、受支持 SQLite 用例、`TauriBackend` 与真实后端错误态。该门禁产物标记为 `mac-m1`,**不等同于**本计划的产品 `m1`,也不满足下方 M1 验收。它只为 M1.1 提供 Tauri 壳(仍欠 tray),为 M1.2 提供数据库/command 基座;M1.3–M1.10 及全部 M1 闭环仍按原计划完成。
 
+> 2026-09-02 实施基线:上述 Foundation 代码已本地收口,但 Apple Silicon 原生冒烟、远程 CI/PR/tag 仍是硬门禁。由于 L1/L2/Foundation 已预先完成了部分 M1/M2 基础,后续依赖顺序、当前缺口与每节点验收以 `docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md` 为执行基线;本文的产品范围与最终验收不变。
+
 ## M1 核心闭环 —— 「能导入一本书并完整学完一个知识块」
 
 | # | 任务 | 说明 / 依赖 |

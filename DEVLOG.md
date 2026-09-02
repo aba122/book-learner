@@ -181,3 +181,9 @@
 - CI 增加 core rustfmt + all-target tests + clippy、Web lint 与 Tauri rustfmt 门禁;工作流 YAML 解析通过。两个 Node job 仍显式激活项目锁定的 pnpm 11.24.0。
 - 当前 Linux x86_64 验证:core fmt/tests/clippy PASS,Tauri fmt PASS,Web 158 passed/2 skipped + lint/build PASS,Playwright CFI 1/1 PASS。Tauri tests/clippy/debug build 在编译项目代码前因主机缺 `gdk-3.0`/Pango/Cairo 开发库失败;这些命令与 GUI 持久化冒烟必须由 macOS-14 CI/Apple Silicon 重跑。
 - 发布阻塞:当前 GitHub 身份 `Liuzzyg` 只有 READ,无法推送本地节点或触发 Actions;因此不创建 PR、不合并、不打 `mac-m1` tag,也不将产品 M1 标记完成。
+
+## 2026-09-02 · 产品 M1 架构复审与执行基线
+- 复审不把 Foundation 的 11 个 `not_implemented` 直接按方法表平铺:真实依赖是“发布门禁 → ADR/模型 → EPUB 导入与缓存 → Codex 调用硬化 → 地图生成/定稿 → 阅读锚定 → 持久会话 → 评估确认/outbox → 前端操作失败恢复 → tray/E2E”。
+- 必须先修的高风险边界:当前 schema 只有单段 `spine_href/cfi_start/cfi_end`,无 spine 文本缓存/多段锚点/地图版本;地图定稿 DTO 无 stable block ID/version;Feynman 传整段客户端 transcript 且 send/end/confirm 尚无错误恢复与幂等 key;SQLite→Markdown→Git 测试只是两段顺序调用,不具备跨存储原子性。
+- Codex provider 在子进程退出前不消费 piped stderr,大量输出可填满 pipe 并被误判为超时;只 kill 直接 child 也需要验证不留后代进程。MemoryStore 直接 `join(slug)` 且原地覆写,生产接线前必须限定内部 slug、使用 temp+rename 投影并以 operation ID 幂等重放。
+- 新基线文档:`docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md`;保留 `IMPLEMENTATION_PLAN.md` 的产品验收,但用 12 个可审计节点取代已过时的粗粒度实施顺序。
