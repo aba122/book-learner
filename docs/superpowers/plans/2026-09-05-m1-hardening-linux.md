@@ -71,6 +71,9 @@ web/ARCHITECTURE.md / TECH_DESIGN.md / DEVLOG.md ← T10 回写
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { normalizeBackendError, type BackendError } from '../backend/errors'
 
+/** 多步 fetcher 在 isCurrent()===false 时抛出,hook 静默丢弃(不算错误)。 */
+export class StaleResult extends Error { constructor() { super('stale'); this.name = 'StaleResult' } }
+
 export interface AsyncResource<T> {
   data: T | null            // 最近一次成功结果;失败时保留旧快照
   error: BackendError | null
@@ -97,6 +100,7 @@ export function useAsyncResource<T>(fetcher: (isCurrent: () => boolean) => Promi
       setData(next); setError(null); setLoading(false)
       return true
     } catch (e) {
+      if (e instanceof StaleResult) return false        // 多步 fetcher 主动放弃
       if (!mounted.current || gen !== generation.current) return false
       setError(normalizeBackendError(e)); setLoading(false)
       return false
@@ -173,7 +177,7 @@ export function useBackendOperation<A extends unknown[]>(
 **Files:** Modify `web/src/features/today/TodayPage.tsx`;测试 `today.test.tsx` **不改断言**
 
 - [ ] **Step 3.1** 记录基线:`pnpm -C web exec vitest --run src/features/today/today.test.tsx`(33 passed)与 `wc -l TodayPage.tsx`(230)。
-- [ ] **Step 3.2** 重构:队列+blocks 合为一个 `useAsyncResource(loadQueueBundle)`(fetcher 内部串行 todayQueue→listBlocks,**每步之间 `if (!isCurrent()) return null`** 以保住既有断言 `today.test.tsx:292-303`;返回 `{tasks, blocks}` 原子发布;`today` 仍在挂载时固定);stats 为第二个 `useAsyncResource`;完成任务为 `useBackendOperation(backend.completeTask, { onCommitted: () => queue.reload().then(ok => ok ? undefined : Promise.reject()) })`,队列 reload 成功后 `releaseCommitted()` **并 `clearAllErrors()`**(F6:`conflict` 文案说"刷新后重试",刷新后必须重新可用);`completionUnavailable` = `errors.get(id)?.retryable === false`。**F9**:`onCommitted` 内 `void stats.reload()` **fire-and-forget**(不参与 ok/reject 判定,stats 失败不得持有完成守卫),然后 await 队列 reload——这会改动 `today.test.tsx:472`(`重试完成操作只重发同一任务并在成功后刷新队列`)中 `expect(stats).toHaveBeenCalledTimes(1)` → 2,属**有意行为变更**,DEVLOG 明记(本切片唯一允许改的旧断言)。新增用例:conflict 失败 → 队列刷新成功后"完成"重新可用。删除页面内全部 generation/mounted/guard ref。
+- [ ] **Step 3.2** 重构:队列+blocks 合为一个 `useAsyncResource(loadQueueBundle)`(fetcher 内部串行 todayQueue→listBlocks,**每步之间 `if (!isCurrent()) throw new StaleResult()`**(hook 对 StaleResult 静默丢弃,保持 `data` 类型干净,不引入 `| null`)以保住既有断言 `today.test.tsx:292-303`;返回 `{tasks, blocks}` 原子发布;`today` 仍在挂载时固定);stats 为第二个 `useAsyncResource`;完成任务为 `useBackendOperation(backend.completeTask, { onCommitted: () => queue.reload().then(ok => ok ? undefined : Promise.reject()) })`,队列 reload 成功后 `releaseCommitted()` **并 `clearAllErrors()`**(F6:`conflict` 文案说"刷新后重试",刷新后必须重新可用);`completionUnavailable` = `errors.get(id)?.retryable === false`。**F9**:`onCommitted` 内 `void stats.reload()` **fire-and-forget**(不参与 ok/reject 判定,stats 失败不得持有完成守卫),然后 await 队列 reload——这会改动 `today.test.tsx:472`(`重试完成操作只重发同一任务并在成功后刷新队列`)中 `expect(stats).toHaveBeenCalledTimes(1)` → 2,属**有意行为变更**,DEVLOG 明记(本切片唯一允许改的旧断言)。新增用例:conflict 失败 → 队列刷新成功后"完成"重新可用。删除页面内全部 generation/mounted/guard ref。
 - [ ] **Step 3.3** `today.test.tsx` 33/33 GREEN 不改断言;`pnpm -C web lint` 中 TodayPage 的 `set-state-in-effect` 警告消失(5 条剩余)。
 - [ ] **Step 3.4** commit `refactor(web): TodayPage 迁移至公共异步 hook (H-T3)`
 
@@ -213,7 +217,7 @@ export function useBackendOperation<A extends unknown[]>(
 **Files:** Modify `web/src/backend/tauri.ts:40`(normalizeInvokeError);Test `web/src/backend/tauri.test.ts`(新增)
 
 - [ ] **Step 6b.1 失败测试**:invoke reject 为纯字符串(Tauri 参数反序列化失败形态)→ `BackendError.code === 'transport_error'`、`retryable=false`、message 固定"与本地后端通信失败"、**details 仅含脱敏摘要 `{ actualType: 'string', length: n }`**(绝不带原文——既有用例 `tauri.test.ts:245-262` 断言 message+details 不含 `/Users/alice`/`top-secret`,必须继续成立);reject 为非契约对象 → `transport_error`,details `{ actualType: 'object', keys: <键名数组,≤10> }`(键名不是用户内容)。**有意更新**该既有 `it.each` 用例:code `'unknown'`→`'transport_error'`,message 随之改,隐私断言保留。
-- [ ] **Step 6b.2** RED → **Step 6b.3** 实现(只改 fallback 分支;`console.error('[ipc] transport_error', details)` 只输出脱敏摘要,符合基线 §3 日志策略)→ **Step 6b.4** GREEN → commit `fix(web): IPC 非契约错误显式归类为 transport_error 并保留原始信息 (H-T6b)`
+- [ ] **Step 6b.2** RED → **Step 6b.3** 实现(只改 fallback 分支;`console.error('[ipc] transport_error', details)` 只输出脱敏摘要,符合基线 §3 日志策略)→ **Step 6b.4** GREEN → commit `fix(web): IPC 非契约错误显式归类为 transport_error 并保留脱敏摘要 (H-T6b)`
 
 ### Task 7: core `ai.rs` — stderr 并发排空与进程组清理(基线 Node 4 子集)
 
@@ -227,7 +231,7 @@ export function useBackendOperation<A extends unknown[]>(
 - [ ] **Step 7.2** RED → **Step 7.3** 实现:
   - `Command::process_group(0)`(`std::os::unix::process::CommandExt`,unix-only;cfg 保护)使子进程成为独立进程组;
   - spawn 后 `take()` stderr,起一个线程持续 `read` 到环形/有界缓冲(保留最后 4 KiB),线程在 EOF 结束;
-  - 超时:`libc::kill(-pid, SIGKILL)`(引入 `libc` 依赖,unix)再 `child.wait()`;**正常退出路径也在 `wait()` 后对进程组补发 SIGKILL**(codex 留下的孙进程会让 stderr 管道不关闭、drain 线程 join 永挂);join 用 `recv_timeout(2s)` 有界等待,超时则放弃 join(线程为 detached,读到 EOF 自行结束);
+  - 超时:`libc::kill(-pid, SIGKILL)`(引入 `libc` 依赖,unix)再 `child.wait()`;**正常退出路径也在 `wait()` 后对进程组补发 SIGKILL**(注释说明:leader 被回收后 pgid 理论上可被复用,Linux 上窗口可忽略,勿"修复"掉)(codex 留下的孙进程会让 stderr 管道不关闭、drain 线程 join 永挂);join 用 `recv_timeout(2s)` 有界等待,超时则放弃 join(线程为 detached,读到 EOF 自行结束);
   - 非零退出:tail 取缓冲末 400 字符(chars 边界安全)。
   - 临时输出文件:`NamedTempFile` 在所有返回路径 drop 即删除(现状已满足,加注释断言)。
 - [ ] **Step 7.4** GREEN + `cargo clippy --all-targets -- -D warnings` → **Step 7.5** commit `fix(core): Codex 子进程 stderr 并发排空与进程组终止 (H-T7)`
@@ -240,16 +244,16 @@ export function useBackendOperation<A extends unknown[]>(
   1. `ensure_book("../evil", …)`、`"a/b"`、`""`、含 `\0` 或控制字符 → `Err(CoreError::InvalidInput)` 且 `root/..` 下未创建任何目录;
   2. `apply_eval` 传 `block_slug = "../x"` → InvalidInput;
   3. `atomic_write_leaves_no_temp`:apply_eval 成功后 `blocks/` 目录内不存在 `*.tmp*` 文件;
-  4. `atomic_write_replaces_whole_file`:先写好原始块文件,再把 `blocks/` 目录 `chmod 0o555` 使临时文件创建失败 → `apply_eval` 返回 Err 且原文件内容逐字节未变、目录内无残留临时文件;测试开头 `if unsafe { libc::geteuid() } == 0 { return }`(root 不受目录权限约束)。
-- [ ] **Step 8.2** RED → **Step 8.3** 实现:`fn validate_slug(s: &str) -> Result<&str>`(允许 `[A-Za-z0-9._-]` 且非空、不含 `..` 段、长度 ≤ 128;放宽中文?——**允许 Unicode 字母数字**但拒绝路径分隔符/控制字符/`..`,与 L2 mock 的 slug 兼容);所有 `join(slug)` 前调用;`fn atomic_write(path, content)`:同目录 `NamedTempFile::new_in(parent)` 写入 + `flush` + `persist(path)`(rename)。ensure_book/apply_eval/sync_weakpoints/sync_map/INDEX 追加全部改用。
+  4. `atomic_write_replaces_whole_file`:先写好原始块文件,再把 `blocks/` 目录 `chmod 0o555` 使临时文件创建失败 → `apply_eval` 返回 Err 且原文件内容逐字节未变、目录内无残留临时文件;测试开头 `if unsafe { libc::geteuid() } == 0 { return }`(root 不受目录权限约束);断言后把 `blocks/` 恢复 0o755,否则 TempDir 清理会静默失败留下目录。
+- [ ] **Step 8.2** RED → **Step 8.3** 实现:`fn validate_slug(s: &str) -> Result<&str>`(规则:非空、长度 ≤ 128、**允许 Unicode 字母数字及 `._-`**、拒绝 `/` `\\` 与控制字符、拒绝全为 `.` 的值(`.`、`..`、`...`)——否则 `ensure_book(".")` 会把镜像文件写进 `books/` 本身);所有 `join(slug)` 前调用;`fn atomic_write(path, content)`:同目录 `NamedTempFile::new_in(parent)` 写入 + `flush` + `persist(path)`(rename)。ensure_book/apply_eval/sync_weakpoints/sync_map/INDEX 追加全部改用。
 - [ ] **Step 8.4** GREEN(memory 焦点 + lifecycle 集成)→ **Step 8.5** commit `fix(core): 记忆库 slug 校验与原子落盘 (H-T8)`
 
 ### Task 9: core `db.rs` — v2 active 收敛 + SCHEMA_V3 子表外键重建
 
-**Files:** Modify `core/src/db.rs`
+**Files:** Modify `core/src/db.rs`, `core/src/sched.rs`(generate_daily 事务模式), `core/src/library.rs`, `core/src/planning.rs`, `core/src/models.rs`, `web/src/backend/mock.ts`
 
 - [ ] **Step 9.1 失败测试**:
-  0. **F1** `open_installs_busy_timeout_in_production_path`:两连接 A、B 打开同一文件库(不安装任何测试 handler);A 开 IMMEDIATE 事务持有 100ms 后提交;B 在此期间 `open()` **必须成功**而非 `SQLITE_BUSY`(断言 `PRAGMA busy_timeout` ≥ 5000);另一用例:`sched::generate_daily` 在另一连接持写锁 100ms 时不失败。
+  0. **F1** `open_installs_busy_timeout_in_production_path`:两连接 A、B 打开同一文件库(不安装任何测试 handler);A 开 IMMEDIATE 事务持有 100ms 后提交;B 在此期间 `open()` **必须成功**而非 `SQLITE_BUSY`(断言 `PRAGMA busy_timeout` ≥ 5000);另一用例:`sched::generate_daily` 在另一连接持写锁 100ms 时不失败——**前提是把 `generate_daily` 的 `unchecked_transaction()`(DEFERRED)改为 `Transaction::new_unchecked(conn, TransactionBehavior::Immediate)`**:SQLite 对已持 SHARED 读事务的连接做 RESERVED 升级时**不调用 busy handler**(死锁规避),DEFERRED 读后写会立刻 `database is locked`。并发策略正式记为:**所有读后写事务一律 BEGIN IMMEDIATE**(library/planning 已如此;`apply_eval_to_db` 先写故不受影响,也统一改)。
   1. `v1_with_two_active_plans_migrates_to_single_active`:手工建 v1 库,插两本书各一计划均 active=1 → `open()` 成功,user_version=3,仅 id 最大者 active=1;
   1b. **F2** `v1_with_two_plans_same_book_keeps_latest`:同一 book 两条 plan → 迁移后仅 id 最大者保留(另一条删除),不再是永久死锁;
   1c. **F5** `book_status_active_is_unique_after_v3`:v1 库三本书全 status='active' → v3 后仅 id 最大者 active,其余 'paused';之后 `INSERT book(... status='active')` 在已有 active 时 → `SQLITE_CONSTRAINT_UNIQUE`;
@@ -263,7 +267,7 @@ export function useBackendOperation<A extends unknown[]>(
 - [ ] **Step 9.2** RED → **Step 9.3** 实现:
   - **`open()` 与 `open_in_memory()` 中、调用 `configure()` 之前**执行 `conn.busy_timeout(Duration::from_secs(5))`(F1)。**不要放进 `configure()`**:`busy_timeout` 与 `busy_handler` 互斥,既有测试 `concurrent_open_waits_before_reading_migration_version`(`db.rs:179-218`)先自装 handler 再直接调 `configure()`,放进去会覆盖它导致该测试超时失败;
   - `SCHEMA_V2` 步骤前插入两条收敛:`DELETE FROM study_plan WHERE id NOT IN (SELECT max(id) FROM study_plan GROUP BY book_id)`(F2 同书多计划留最新)与 `UPDATE study_plan SET active=0 WHERE active=1 AND id NOT IN (SELECT max(id) FROM study_plan WHERE active=1)`(对已在 v2+ 的库不执行——步骤按版本跳过);
-  - `SCHEMA_V3` 增 book 收敛:优先保留**持有 active 计划的那本书**为 active(`UPDATE book SET status='paused' WHERE status='active' AND id <> COALESCE((SELECT book_id FROM study_plan WHERE active=1), (SELECT max(id) FROM book WHERE status='active'))`),再 `CREATE UNIQUE INDEX book_single_active ON book(status) WHERE status='active'`(F5;避免 v2 步骤保留的活跃计划与 v3 选出的活跃书不一致);
+  - `SCHEMA_V3` 增 book 收敛:优先保留**持有 active 计划的那本书**为 active(`UPDATE book SET status='paused' WHERE status='active' AND id <> COALESCE((SELECT sp.book_id FROM study_plan sp JOIN book b ON b.id=sp.book_id WHERE sp.active=1 AND b.status='active'), (SELECT max(id) FROM book WHERE status='active'))`——JOIN 限定活跃计划所属书本身 active,否则遗留数据会把所有书降级为零活跃),再 `CREATE UNIQUE INDEX book_single_active ON book(status) WHERE status='active'`(F5;避免 v2 步骤保留的活跃计划与 v3 选出的活跃书不一致);
   - `models::insert_book`:存在 active 书时以 `'paused'` 插入(F5);`planning::set_plan`:仅当目标书 status='active' 才置 active=1 并清其他,否则 active=0(F5,消除 MapPage 两调用间的窗口);`library::set_active_book`:先查目标书有无 plan,无 → `Conflict("目标书籍尚无学习计划")`,有 → 同一事务内更新 book.status 与 plan.active(F4);
   - `SCHEMA_V3`:对 daily_task / feynman_session / weak_point / review_schedule / artifact 五表执行 `CREATE TABLE <t>_v3(… REFERENCES …)` → `INSERT INTO <t>_v3 SELECT … FROM <t>` → `DROP TABLE <t>` → `ALTER TABLE <t>_v3 RENAME TO <t>`;外键:`block_id REFERENCES knowledge_block(id) ON DELETE CASCADE`、`book_id REFERENCES book(id) ON DELETE CASCADE`、`daily_task.ref_id` 不加 FK(多态引用,注释说明);全部在既有 IMMEDIATE 事务内,`foreign_keys=ON` 使 INSERT…SELECT 遇孤儿即失败并回滚(即测试 3 的机制);`user_version=3`。
   - 注意 SQLite 在事务内无法切换 `PRAGMA foreign_keys`,因此**不用** OFF/ON 重建法;RENAME 时 SQLite ≥3.26 会自动更新引用方,本项目无表引用这五张表,安全。
