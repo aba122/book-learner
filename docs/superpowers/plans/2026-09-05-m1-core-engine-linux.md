@@ -269,7 +269,7 @@ pub fn set_anchor_segments(conn, block_id, segments: &[AnchorSegment]) -> Result
 pub fn list_anchors(conn, block_id) -> Result<Vec<AnchorSegment>>;
 ```
 
-- [ ] **Step A6.1 失败测试**:
+- [x] **Step A6.1 失败测试**:
   1. `slugify_rules`:"供需弹性: 价格 vs 收入" → "供需弹性-价格-vs-收入";全符号标题 → `block-3`;41+ 字符截断到 ≤40;重复 → `-2`、`-3`;结果通过 validate_slug;
   2. `apply_creates_blocks_prereqs_and_fallback_anchors`:块/前置 id/模块/seq 正确;每块锚点 precision='chapter_fallback' 且 hint 为小节标题、spine_href 为解析出的 href;map_revision=1;outbox 有一行 `init_book`;二次 apply → Conflict;
   3. `stale_revision_conflicts_without_change`;
@@ -279,7 +279,7 @@ pub fn list_anchors(conn, block_id) -> Result<Vec<AnchorSegment>>;
   7. `set_anchor_segments_overwrites_with_exact`:回填后 list_anchors 为 exact 段且含 hint 与 text;
   8. `next_new_blocks_includes_learning_blocks`(models):`WHERE status IN ('unlearned','learning') AND skipped=0 ORDER BY seq`——learning 与 unlearned 纯按 seq 交错;`check_behind_counts_learning_as_remaining`(sched);
   9. memory:`apply_eval(book_slug, block_id, title, block_slug, eval, passed: bool, entry_key: &str, date)`——`passed` 决定 status/passed_at/终稿/"通过建议✓|重学建议"(不再看 eval.verdict);历史行末尾带 `<!-- {entry_key} -->`,若文件已含该 key 则整次调用为 no-op(观察笔记也不重复);既有 4 条调用 apply_eval 的用例改为 block_id 参数与 `0003-elasticity.md` 文件名、frontmatter `block_id: 3`;新增 `apply_eval_same_key_is_noop` 与 `apply_eval_passed_overrides_verdict`(eval.verdict=relearn + passed=true → `status: passed`、终稿写入);lifecycle.rs 改为 `0001-elasticity.md`。
-- [ ] **Step A6.2** RED → **Step A6.3 实现** → **Step A6.4** GREEN → **Step A6.5** commit `feat(core): 地图草图落库、slugify 与稳定 id/修订号的地图确认 (A-T6)`
+- [x] **Step A6.2** RED → **Step A6.3 实现** → **Step A6.4** GREEN → **Step A6.5** commit `feat(core): 地图草图落库、slugify 与稳定 id/修订号的地图确认 (A-T6)`
 
 ### Task A7: `session.rs` — 持久化会话与回合
 

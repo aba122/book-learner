@@ -248,3 +248,9 @@
 - A-T5 提交时的全量运行中 `ai::tests::codex_provider_returns_last_message` 偶发失败,复跑 5 次抓到根因:`spawn …: Text file busy (os error 26)`——并行测试写入可执行脚本时,另一测试 fork 出的子进程在 exec 前短暂继承了该写 fd。这是 L1 起就存在的测试设计隐患,新增的 5 个 spawn 用例让概率上升。
 - 修复:`CodexCliProvider` 的两处 spawn 改经 `spawn_with_retry`(`ErrorKind::ExecutableFileBusy` 有界重试 20×10ms;生产中二进制被替换时同样受益)。门禁脚本 `/bigtemp/fzv6en/book-learner/gate.sh`(test + clippy + fmt --check,任一失败非零)连续 6 次全绿。
 - 流程修正:此前 commit 命令未以门禁退出码串联,A-T5 提交时未拦住偶发失败(提交内容本身与该失败无关);此后所有 commit 一律 `gate.sh && git commit`。
+
+## 2026-09-05 · A-T6 地图草图落库、slugify 与稳定 id/修订号的地图确认完成
+- 新模块 `map.rs`:`slugify`(Unicode 字母数字保留、其余折叠为 `-`、≤40、空→`block-{seq}`、重复加 `-n`)、`AnchorSegment{spine_href,cfi_start,cfi_end,precision,hint,text}`、`apply_draft_map`(单事务:块/前置/每 source_section 一段 chapter_fallback 锚点含 hint;无法解析 → InvalidInput 整体回滚;revision 0→1;入队 `init_book`)、`confirm_map`(expected_revision 不等 → Conflict 无变更;Rename/RenameModule/Reorder(须为全排列)/SetSkipped/Merge(来源块 skipped、锚点段**复制**追加、prereq 重映射去重)/Split → InvalidInput;revision+1;入队 `sync_map`)、`set_anchor_segments`/`list_anchors`。
+- `memory::apply_eval` 新签名 `(book_slug, block_id, title, block_slug, eval, passed, entry_key, date)`:文件 `{block_id:04}-{slug}.md`、frontmatter `block_id:`、`passed` 覆盖 verdict、历史行尾 `<!-- entry_key -->`、同 key 整次 no-op;`validate_slug` 改 pub(crate)。`models::next_new_blocks` 含 learning 纯按 seq;`sched::check_behind` 剩余块计 learning。`projection.rs` 先落 `enqueue`(A9 补 run_pending)。
+- RED:42 处编译错误;GREEN 后 core 100 单测 + 27 + 1(含既有 memory 4 条改签名、lifecycle 改 `0001-elasticity.md`),门禁脚本全绿。
+- 偏差:`projection.rs` 提前在本 Task 创建(仅 enqueue);计划把它列在 A9。

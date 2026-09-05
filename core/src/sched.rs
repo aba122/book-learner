@@ -309,7 +309,7 @@ pub fn check_behind(conn: &Connection, book_id: i64, today: &str) -> Result<Repl
 
     let remaining: i64 = conn.query_row(
         "SELECT count(*) FROM knowledge_block \
-         WHERE book_id=?1 AND status='unlearned' AND skipped=0",
+         WHERE book_id=?1 AND status IN ('unlearned','learning') AND skipped=0",
         [book_id],
         |r| r.get(0),
     )?;
@@ -657,6 +657,32 @@ mod tests {
         assert!(matches!(
             super::check_behind(&conn, b, "2026-08-30").unwrap(),
             super::Replan::OnTrack
+        ));
+    }
+
+    #[test]
+    fn check_behind_counts_learning_as_remaining() {
+        let (conn, b) = setup();
+        conn.execute("UPDATE study_plan SET deadline='2026-08-30'", [])
+            .unwrap(); // 剩 1 天
+        conn.execute(
+            "UPDATE knowledge_block SET status='learning' WHERE id=1",
+            [],
+        )
+        .unwrap();
+        for d in ["2026-08-28", "2026-08-29"] {
+            conn.execute(
+                "INSERT INTO daily_task(date,book_id,block_id,kind,seq) VALUES(?1,?2,1,'new',1)",
+                rusqlite::params![d, b],
+            )
+            .unwrap();
+        }
+        assert!(matches!(
+            super::check_behind(&conn, b, "2026-08-30").unwrap(),
+            super::Replan::NeedsDecision {
+                required_daily: 6,
+                cap: 4
+            }
         ));
     }
 }
