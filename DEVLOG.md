@@ -206,3 +206,9 @@
 - 回写:web/ARCHITECTURE.md(规则 1 契约面、规则 5 单点 hook、目录导览 lib/)、TECH_DESIGN §3.5/§4/§5.1、IMPLEMENTATION_PLAN 加固切片注记、基线文档 Node 1/4/6/10 状态。
 - **待推送清单(本机无凭证,PAT 已撤销)**:`linux-local`(→ origin/feat/mac-m1,8 提交)与 `feat/m1-hardening`(15 提交)。凭证到位后:`git push origin linux-local:feat/mac-m1 feat/m1-hardening`,创建 PR #3(feat/m1-hardening → feat/mac-m1,堆叠),补记 CI URL。
 - 后续建议:为"切换到无计划书籍"增加专用 IPC 错误码/文案(现复用 conflict 通用文案);Reader/Feynman 路由懒加载以压缩 604 kB 主包(基线 P1);F3 在 Mac 上修。
+
+## 2026-09-05 · 加固切片合并入 linux-local
+- 按用户选择,`feat/m1-hardening` 快进合并进本地 `linux-local`(= 待推送的 feat/mac-m1 续做分支),feature 分支删除。合并结果复跑:core 53+27+1 绿、web 186/2 绿。
+- **待推送**:`linux-local` 领先 `origin/feat/mac-m1` 23 提交(8 Mac Foundation 续做 + 15 加固)。命令:`git push origin linux-local:feat/mac-m1`;远端 feat/mac-m1 之前是直接 merge 进 main 的,这批需再开 PR(feat/mac-m1 → main)。
+- 便携方案:`/bigtemp/fzv6en/book-learner/feat-mac-m1-pending.bundle` 含这 23 个提交,可在有凭证的机器上 `git fetch <bundle> linux-local` 后推送。
+- 权威工作副本为 `/bigtemp/fzv6en/book-learner/review-clone`;`/p/fzv6enresearch/xwl/book-learner` 副本停留在 d23ab9f(卷满不可写)。
