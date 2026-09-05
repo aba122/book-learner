@@ -238,3 +238,8 @@
 - prompts:`map_stage_a_prompt(ty, href, title, text)`(source_section 固定 `"{href}#{小节标题}"`)、`map_stage_b_prompt(ty, candidates_json)`(三类书组织原则 + 15–45 分钟 + 沿用格式)、`application_prompt`/`methodology_prompt`/`humanities_discussion_prompt`/`final_exam_prompt`(prompt only,本计划无消费者)。
 - eval:`ChapterCandidate`/`DraftMap{modules[{name, blocks[{title, summary, source_sections, prereqs}]}]}`/`ApplicationResult`/`MethodologyFragment`/`DiscussionNote`/`FinalReport`(全部 deny_unknown_fields + Serialize),数组提取 `[`..`]`,终评 overall 1–5 校验。
 - RED:6 条用例编译失败;GREEN 后 core 81 单测 + 27 + 1,clippy/fmt 通过。测试字面量含 `"#` 需避开 raw string 终止符(已改写)。
+
+## 2026-09-05 · A-T5 两阶段知识地图作业完成
+- 新模块 `mapgen.rs`:`store_spine`/`list_spine`(替换式缓存,`import_state='extracted'`,同 href 允许重复)、`resolve_source_section`(href / 章标题 / 文件名尾 → (href, hint))、`compact_candidates`、`validate_draft`(块数 1..=200、标题唯一、prereq 存在且三色 DFS 无环、source_sections 可解析、每模块 ≥1 块)、`run_map_job`(job 建/续:Stage A 逐章,>60 KiB 章按段落/字符边界切片 `:p{k}`;每章短事务存 next_chapter/candidates_json;Stage B 经 `run_ai_json` 且 parse 闭包含 validate_draft;候选超限先去 summary 压缩、仍超则 `too large` 失败;done 作业直接返回草图;失败记 stage/error)。
+- RED:7 条用例编译失败;GREEN 后 core 88 单测 + 27 + 1,clippy/fmt 通过。
+- 偏差:`run_map_job` 比计划多一个 `workdir: &Path` 参数(codex `-C` 需要记忆库根,计划签名漏列;后续 session/verdict 同样处理)。

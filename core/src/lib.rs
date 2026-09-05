@@ -2,6 +2,7 @@ pub mod ai;
 pub mod db;
 pub mod eval;
 pub mod library;
+pub mod mapgen;
 pub mod memory;
 pub mod models;
 pub mod orchestrate;

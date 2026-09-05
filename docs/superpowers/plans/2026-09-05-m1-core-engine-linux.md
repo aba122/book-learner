@@ -224,7 +224,7 @@ pub fn validate_draft(draft: &DraftMap, chapters: &[SpineChapter]) -> Result<()>
 // 每项的 href 部分(‘#’ 前)能匹配某章 href 或章标题(否则 InvalidInput 列出未匹配项);每模块 ≥1 块。
 ```
 
-- [ ] **Step A5.1 失败测试**(MockProvider 按 request_id 后缀返回 Stage A/B 固定 JSON):
+- [x] **Step A5.1 失败测试**(MockProvider 按 request_id 后缀返回 Stage A/B 固定 JSON):
   1. `three_chapters_run_a_thrice_then_b_once`:调用顺序 ch0,ch1,ch2,merge;progress 事件 3 次 Chapter + Merging + Done;`map_job.stage='done'`,`book.import_state='mapped'`;再次同 job_id → 不调 provider、返回同草图;
   2. `resume_after_crash_skips_finished_chapters`:先跑到 ch1 后让 provider 返回 Err(Ai) 三次 → job failed,next_chapter=2(0、1 已存);再次 `run_map_job` 同 job_id → 只调 ch2 与 merge(ai_request 同 ID 重放使 ch0/ch1 不再调 provider);
   3. `long_chapter_is_split_into_pieces`:一章 150 KiB 中文文本 → 该章 3 个 ai_request(`:p0..p2`),每片 prompt ≤ 100 KiB,候选按片顺序合并;
@@ -232,7 +232,7 @@ pub fn validate_draft(draft: &DraftMap, chapters: &[SpineChapter]) -> Result<()>
   5. `store_spine_replaces_old_cache`:两次 store_spine → 行数等于第二次章节数,`import_state='extracted'`;同 href 两次出现允许;
   6. `resolve_source_section_formats`:`"ch01.xhtml#1.2 弹性"` → (ch01.xhtml, "1.2 弹性");`"第一章#1.2"`(章标题)→ (该章 href, "1.2");`"ch01.xhtml"` → hint 空;未知 → None;
   7. `oversized_merge_input_is_compacted_then_rejected`:候选总量 > 100 KiB 但去 summary 后 ≤ 100 KiB → merge 成功;去后仍超 → InvalidInput 且 stage failed、error 含 "too large"。
-- [ ] **Step A5.2** RED → **Step A5.3 实现** → **Step A5.4** GREEN → **Step A5.5** commit `feat(core): 两阶段知识地图作业,断点续跑、长章分片与草图校验 (A-T5)`
+- [x] **Step A5.2** RED → **Step A5.3 实现** → **Step A5.4** GREEN → **Step A5.5** commit `feat(core): 两阶段知识地图作业,断点续跑、长章分片与草图校验 (A-T5)`
 
 ### Task A6: `map.rs` — 草图落库与带修订号的地图确认
 
