@@ -212,3 +212,10 @@
 - **待推送**:`linux-local` 领先 `origin/feat/mac-m1` 23 提交(8 Mac Foundation 续做 + 15 加固)。命令:`git push origin linux-local:feat/mac-m1`;远端 feat/mac-m1 之前是直接 merge 进 main 的,这批需再开 PR(feat/mac-m1 → main)。
 - 便携方案:`/bigtemp/fzv6en/book-learner/feat-mac-m1-pending.bundle` 含这 23 个提交,可在有凭证的机器上 `git fetch <bundle> linux-local` 后推送。
 - 权威工作副本为 `/bigtemp/fzv6en/book-learner/review-clone`;`/p/fzv6enresearch/xwl/book-learner` 副本停留在 d23ab9f(卷满不可写)。
+
+## 2026-09-05 · Plan A 评审通过与启动(feat/m1-core-engine,Linux)
+- 环境事故:本机 `/p/fzv6enresearch`(corezfs02 NFS)挂死,`~/.bashrc` 的 conda hook 让所有登录 shell 卡在 D 状态;已给两个 conda 块加 `timeout --foreground -s KILL 5 python -c pass` 可达性守卫(原文件备份 `~/.bashrc.bak-2026-09-05-before-nfs-guard`),shell 恢复。/p 卷仍不可用,工作全部在 /bigtemp 与 /u。
+- Plan A 独立评审两轮:第一轮 10 条 Issue + 9 条建议(planA-review.md)全部并入;第二轮新发现 5 条 Issue(用户判定未传到 md 投影、Stage B 语义无效草图卡死作业、source_section 格式与 hint 列、pending 回合 id 未暴露、block_eval 跨崩溃重放重复)+ 8 条建议,全部并入后 **Approved**;末轮 4 条 advisory 亦已写入计划。与建议的一处有意偏离:relearn 保持 `learning`,改 `next_new_blocks` 含 learning(计划文首"评审修订记录")。
+- 计划范围:schema v4、Codex 限额/校验、幂等 AI 编排、prompt 与严格解析、两阶段地图作业、地图确认、持久会话/回合、评估与判定、投影 outbox、端到端集成;ADR 0001–0004 落档(0004 Deferred)。
+- 基线(独立复跑):core 53 单测 + 27 foundation + 1 lifecycle 全绿、1 ignored;web vitest 186 passed / 2 skipped(16 files)。
+- 推送:本机无凭证,每 Task 本地 commit;Plan A DoD 达成后打 tag `m1-linux-a`。
