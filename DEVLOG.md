@@ -254,3 +254,8 @@
 - `memory::apply_eval` 新签名 `(book_slug, block_id, title, block_slug, eval, passed, entry_key, date)`:文件 `{block_id:04}-{slug}.md`、frontmatter `block_id:`、`passed` 覆盖 verdict、历史行尾 `<!-- entry_key -->`、同 key 整次 no-op;`validate_slug` 改 pub(crate)。`models::next_new_blocks` 含 learning 纯按 seq;`sched::check_behind` 剩余块计 learning。`projection.rs` 先落 `enqueue`(A9 补 run_pending)。
 - RED:42 处编译错误;GREEN 后 core 100 单测 + 27 + 1(含既有 memory 4 条改签名、lifecycle 改 `0001-elasticity.md`),门禁脚本全绿。
 - 偏差:`projection.rs` 提前在本 Task 创建(仅 enqueue);计划把它列在 A9。
+
+## 2026-09-05 · A-T7 持久化费曼会话、幂等回合与固定上下文组装完成
+- 新模块 `session.rs`:`get_session`(TurnView 含 `client_turn_id`/`ready_to_end`,学生文本输出时剥离 `[READY_TO_END]`)、`start_or_resume_session`(client_request_id 幂等;同任务未确认会话 resume;非当日/不存在 → NotFound;任务非 pending → Conflict;kind 映射 new→learn/weak_retest→retest/review→review)、`fixed_context_for_block`(exact 段 text 优先、fallback 整章且同章只取一次、60 KiB 字符边界截断、历史评估/薄弱点/前置状态)、`submit_turn`(①同 turn id done 重放/pending 续跑 ②事务 A 校验 state/无 pending/版本并写 pending 回合不 bump ③无事务 run_ai_request `turn:{sid}:{turn}` ④事务 B 复查 state='open'、落库学生原文、version+1)、`abandon_session`(允许 pending;confirmed/abandoned → Conflict)。
+- RED:31 处编译错误;GREEN 后 core 109 单测 + 27 + 1,门禁全绿。修了两处测试自身问题(RefCell 借用跨调用、clippy 类型复杂度)。
+- 偏差:`submit_turn` 比计划多 `workdir` 参数(同 A-T5 理由)。

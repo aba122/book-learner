@@ -11,6 +11,7 @@ pub mod planning;
 pub mod projection;
 pub mod prompts;
 pub mod sched;
+pub mod session;
 pub mod settings;
 
 #[derive(thiserror::Error, Debug)]

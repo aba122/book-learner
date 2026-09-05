@@ -1,6 +1,7 @@
 use crate::models::BookType;
 
 /// 每次 AI 调用的固定注入上下文(TECH_DESIGN §3.2)。
+#[derive(Debug, Clone, PartialEq)]
 pub struct FixedContext {
     pub profile_summary: String,
     pub block_title: String,

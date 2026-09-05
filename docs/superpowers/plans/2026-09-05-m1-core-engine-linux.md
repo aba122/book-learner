@@ -313,8 +313,8 @@ pub fn submit_turn(conn, provider, policy, session_id, expected_version, client_
 pub fn abandon_session(conn, session_id, expected_version) -> Result<()>;  // state='abandoned',version+1;允许存在 pending 回合;confirmed/abandoned → Conflict
 ```
 
-- [ ] **Step A7.1 失败测试**(MockProvider):双 start(不同 request id)返回同一 session;同 request id 重放返回同一;任务已 done → Conflict;非当日 → NotFound;submit 成功后 transcript 为 [user done, student done] 且 version=1;expected_version 错 → Conflict 且无写入;同 client_turn_id 重放 → 不调 provider、返回相同文本与 ready_to_end;provider 失败 → user turn pending、version 仍 0、Err;**重开连接** → get_session 的 pending 回合带 client_turn_id → 用该 id 与旧版本重试成功 → 只有一条 user turn、一条 student、version=1;另一 turn id 在 pending 期间 → Conflict;READY_TO_END 剥离但 session_turn.text 保留原文;abandon 后 submit → Conflict;pending 期间 abandon 成功且续跑回合的事务 B → Conflict、不写学生回复;fixed_context_for_block 用 exact 段 text 优先、无段回退整章、超长截断。
-- [ ] **Step A7.2** RED → **Step A7.3 实现** → **Step A7.4** GREEN → **Step A7.5** commit `feat(core): 持久化费曼会话、幂等回合与固定上下文组装 (A-T7)`
+- [x] **Step A7.1 失败测试**(MockProvider):双 start(不同 request id)返回同一 session;同 request id 重放返回同一;任务已 done → Conflict;非当日 → NotFound;submit 成功后 transcript 为 [user done, student done] 且 version=1;expected_version 错 → Conflict 且无写入;同 client_turn_id 重放 → 不调 provider、返回相同文本与 ready_to_end;provider 失败 → user turn pending、version 仍 0、Err;**重开连接** → get_session 的 pending 回合带 client_turn_id → 用该 id 与旧版本重试成功 → 只有一条 user turn、一条 student、version=1;另一 turn id 在 pending 期间 → Conflict;READY_TO_END 剥离但 session_turn.text 保留原文;abandon 后 submit → Conflict;pending 期间 abandon 成功且续跑回合的事务 B → Conflict、不写学生回复;fixed_context_for_block 用 exact 段 text 优先、无段回退整章、超长截断。
+- [x] **Step A7.2** RED → **Step A7.3 实现** → **Step A7.4** GREEN → **Step A7.5** commit `feat(core): 持久化费曼会话、幂等回合与固定上下文组装 (A-T7)`
 
 ### Task A8: `verdict.rs` — 评估与原子判定流转
 
