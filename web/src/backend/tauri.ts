@@ -1,8 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import type {
-  AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
-  DailyTask, EvalResult, KnowledgeBlock, Scores, Stats, StudyPlan, TaskKind,
+  AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapProgress, Scores, SessionView, SpineChapter,
+  Stats, StudyPlan, TaskKind, TurnResult, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MapEditBlock } from './types'
@@ -97,6 +98,11 @@ function safeIntegerAt(value: unknown, path: string): number {
   return value as number
 }
 
+function booleanAt(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') return invalidShape(path, 'boolean', value)
+  return value
+}
+
 function unitAt(value: unknown, path: string): void {
   if (value !== null) invalidShape(path, 'null Rust unit response', value)
 }
@@ -127,6 +133,8 @@ function decodeBook(value: unknown, path: string): Book {
     type: enumAt(wire.type, `${path}.type`, BOOK_TYPES),
     slug: stringAt(wire.slug, `${path}.slug`),
     status: enumAt(wire.status, `${path}.status`, BOOK_STATUSES),
+    // Mac DTO 尚未带 mapRevision 时默认 0(记入接线清单;接线后应为必填)
+    mapRevision: optionalAt(wire, 'mapRevision', path, safeIntegerAt) ?? 0,
   }
 }
 
@@ -155,6 +163,8 @@ function decodeBlock(value: unknown, path: string): KnowledgeBlock {
     status: enumAt(wire.status, `${path}.status`, BLOCK_STATUSES),
     ...(scores === undefined ? {} : { scores }),
     ...(passedAt === undefined ? {} : { passedAt }),
+    // Mac DTO 尚未带 skipped 时默认 false(记入接线清单)
+    skipped: optionalAt(wire, 'skipped', path, booleanAt) ?? false,
   }
 }
 
@@ -281,4 +291,15 @@ export class TauriBackend implements Backend {
   endSession(_sessionId: number): Promise<EvalResult> { return this.unsupported('endSession') }
   confirmVerdict(_sessionId: number, _pass: boolean): Promise<void> { return this.unsupported('confirmVerdict') }
   stats(): Promise<Stats> { return this.unsupported('stats') }
+
+  // ---- 契约 v2:解码器与门控在 B2 落地;此前显式 not_implemented ----
+  storeSpine(_bookId: number, _chapters: SpineChapter[]): Promise<void> { return this.unsupported('storeSpine') }
+  runMapJob(_bookId: number, _jobId: string, _onProgress?: (p: MapProgress) => void): Promise<KnowledgeBlock[]> { return this.unsupported('runMapJob') }
+  setAnchorSegments(_blockId: number, _segments: AnchorSegment[]): Promise<void> { return this.unsupported('setAnchorSegments') }
+  listAnchors(_blockId: number): Promise<AnchorSegment[]> { return this.unsupported('listAnchors') }
+  startOrResumeSession(_taskId: number, _clientRequestId: string, _date: string): Promise<SessionView> { return this.unsupported('startOrResumeSession') }
+  submitTurn(_sessionId: number, _expectedVersion: number, _clientTurnId: string, _text: string): Promise<TurnResult> { return this.unsupported('submitTurn') }
+  requestEvaluation(_sessionId: number, _requestId: string): Promise<EvaluationView> { return this.unsupported('requestEvaluation') }
+  confirmSessionVerdict(_sessionId: number, _expectedVersion: number, _requestId: string, _pass: boolean, _date: string): Promise<VerdictOutcome> { return this.unsupported('confirmSessionVerdict') }
+  abandonSession(_sessionId: number, _expectedVersion: number): Promise<void> { return this.unsupported('abandonSession') }
 }

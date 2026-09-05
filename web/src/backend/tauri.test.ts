@@ -10,6 +10,7 @@ const book = {
   type: 'textbook',
   slug: 'microeconomics',
   status: 'active',
+  mapRevision: 1,
 }
 
 const block = {
@@ -23,6 +24,7 @@ const block = {
   status: 'passed',
   scores: { accuracy: 5, completeness: 4, clarity: 3 },
   passedAt: '2026-08-31',
+  skipped: false,
 }
 
 const task = {
@@ -72,7 +74,9 @@ describe('TauriBackend supported transport', () => {
     expect(await backend.getSettings()).toEqual(settings)
     await backend.saveSettings(settings)
 
-    const expected = tauriWireContract.commands.filter(entry => entry.method !== 'unsupported')
+    // 受支持传输 = 契约中既非 unsupported 入口、也不在 unsupportedCapabilities 门控列表里的命令
+    const expected = tauriWireContract.commands.filter(entry =>
+      entry.method !== 'unsupported' && !tauriWireContract.unsupportedCapabilities.includes(entry.method))
     expect(calls.map(({ command, payload }, index) => ({
       method: expected[index].method,
       command,
@@ -103,6 +107,20 @@ describe('TauriBackend supported transport', () => {
 
     expect(await backend.getBlock(2)).toEqual(blockWithoutOptional)
     expect(await backend.todayQueue('2026-09-01')).toEqual([taskWithoutRef])
+  })
+
+  it('defaults mapRevision/skipped when the native DTO has not been extended yet (Mac wiring pending)', async () => {
+    const legacyBook = { ...book } as Partial<typeof book>
+    delete legacyBook.mapRevision
+    const legacyBlock = { ...block } as Partial<typeof block>
+    delete legacyBlock.skipped
+    const invoke: InvokeFn = async <T>(command: string) => (
+      command === 'library_list_books' ? [legacyBook] : legacyBlock
+    ) as T
+    const backend = new TauriBackend(invoke)
+
+    expect((await backend.listBooks())[0].mapRevision).toBe(0)
+    expect((await backend.getBlock(2)).skipped).toBe(false)
   })
 
   it.each([
@@ -337,6 +355,15 @@ describe('TauriBackend failures and unsupported capabilities', () => {
       () => backend.endSession(1),
       () => backend.confirmVerdict(1, true),
       () => backend.stats(),
+      () => backend.storeSpine(1, []),
+      () => backend.runMapJob(1, 'job-1', () => { progressCalls += 1 }),
+      () => backend.setAnchorSegments(1, []),
+      () => backend.listAnchors(1),
+      () => backend.startOrResumeSession(1, 'req-1', '2026-09-05'),
+      () => backend.submitTurn(1, 0, 'turn-1', 'x'),
+      () => backend.requestEvaluation(1, 'eval'),
+      () => backend.confirmSessionVerdict(1, 0, 'verdict', true, '2026-09-05'),
+      () => backend.abandonSession(1, 0),
     ]
 
     for (const operation of operations) {

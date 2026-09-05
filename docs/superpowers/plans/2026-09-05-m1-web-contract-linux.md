@@ -108,8 +108,8 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
 
 **Files:** Modify `core/src/models.rs`、`web/src/types.ts`、`web/src/backend/types.ts`、`shared/tauri-wire-contract.json`、`web/src/backend/mock.ts`、`web/src/backend/tauri.ts`、`web/src/backend/contract.test.ts`、`web/src/backend/tauri.test.ts`;Create `web/src/lib/ids.ts`、`web/src/lib/ids.test.ts`
 
-- [ ] **Step B1.1 core 失败测试**(models tests):`list_blocks` 返回 `skipped`;`UPDATE knowledge_block SET skipped=1` 后为 true。RED → 实现(`BLOCK_COLS` 加 `skipped`,`RawBlock` 加 i64,`parse_block` 转 bool,结构体加 `pub skipped: bool`)→ `gate.sh` 绿(map.rs 用例可顺手改用该字段,不强制)。
-- [ ] **Step B1.2 web 失败测试**:
+- [x] **Step B1.1 core 失败测试**(models tests):`list_blocks` 返回 `skipped`;`UPDATE knowledge_block SET skipped=1` 后为 true。RED → 实现(`BLOCK_COLS` 加 `skipped`,`RawBlock` 加 i64,`parse_block` 转 bool,结构体加 `pub skipped: bool`)→ `gate.sh` 绿(map.rs 用例可顺手改用该字段,不强制)。
+- [x] **Step B1.2 web 失败测试**:
   - `lib/ids.test.ts`:`newClientId()` 长度 ≤64、匹配 `/^[A-Za-z0-9._-]+$/`、两次不同;`crypto.randomUUID` 不存在时的回退同样满足(用 `vi.stubGlobal`)。
   - `contract.test.ts`:
     1. wire 契约:`commands` 精确等于旧 9 条 + 上表 10 条(顺序:旧条目后追加);`unsupportedCapabilities` 精确等于旧 11 条 + **9** 个新方法名(`storeSpine, runMapJob, setAnchorSegments, listAnchors, startOrResumeSession, submitTurn, requestEvaluation, confirmSessionVerdict, abandonSession`——`confirmMap` 已在旧 11 条中,不得重复,否则精确相等用例与 tauri "每个 unsupported 条目对应恰一个方法"用例失败)。
@@ -120,8 +120,8 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
     6. Mock 放弃:`abandonSession(s,v)` 后 state `abandoned`、`version` +1;再 `submitTurn` → `conflict`;同任务再 `startOrResumeSession('z')` 得到**新** sessionId。
     7. Mock 地图:种子书 `mapRevision=1`,块 `skipped=false`;`runMapJob(1,'job-1')` 已有地图直接返回 12 块且不改修订号;`importEpub` 新书 `mapRevision=0`,`storeSpine(book,3 章)` 后 `runMapJob(book,'job-2', onProgress)` 依次收到 `chapter×3 → merging → done{blocks}`,块标题来自章标题,每块 `listAnchors` 为 1 段 `chapter_fallback`(`hint` 为章标题、`spineHref` 为章 href),`mapRevision=1`;同 `'job-2'` 重放不再触发进度且返回同块 id;`'job-2'` 用于另一本书 → `conflict`;`setAnchorSegments(blockId, [exact 段])` 后 `listAnchors` 相等且 `blockSource` 文本取自段 `text`。
   - `tauri.test.ts`:unsupported 列表用例覆盖 9 个新方法(调用 → `not_implemented` 且 `unsupported_capability` payload 正确;`confirmMap` 仍为旧签名直到 B4);既有 fixture `book`/`block`/`blockWithoutOptional` 补 `mapRevision`/`skipped`(解码器会输出默认值,`toEqual` 才能相等)。
-- [ ] **Step B1.3** RED(tsc:接口缺方法)→ **Step B1.4 实现**:类型与接口追加;JSON;`lib/ids.ts`(`crypto.randomUUID?.() ?? 时间戳+随机` 并校验正则);Mock 内部结构 `MockSession{sessionId, taskId, blockId, kind, state, version, transcript, scriptIdx, eval, clientRequestId, turnResults: Map<string,TurnResult>, evalRequestId?, verdictRequestId?, verdictOutcome?}`、`jobs: Map<jobId, bookId>`、`spines: Map<bookId, SpineChapter[]>`、`anchors: Map<blockId, AnchorSegment[]>`、`Book.mapRevision`、`KnowledgeBlock.skipped`;错误一律 `BackendError`(code 见上表);`TauriBackend` 的 10 个方法先 `return this.unsupported('<method>')`;`decodeBook`/`decodeBlock` 接受可选 `mapRevision`(默认 0)/`skipped`(默认 false)——**记入 Mac 接线清单:Rust DTO 必须补齐两字段**。
-- [ ] **Step B1.5** GREEN(vitest 全量、tsc、lint 0、build、gate.sh)→ **Step B1.6** commit `feat(web): Backend 契约 v2 追加与 MockBackend 幂等/版本语义 (B-T1)`
+- [x] **Step B1.3** RED(tsc:接口缺方法)→ **Step B1.4 实现**:类型与接口追加;JSON;`lib/ids.ts`(`crypto.randomUUID?.() ?? 时间戳+随机` 并校验正则);Mock 内部结构 `MockSession{sessionId, taskId, blockId, kind, state, version, transcript, scriptIdx, eval, clientRequestId, turnResults: Map<string,TurnResult>, evalRequestId?, verdictRequestId?, verdictOutcome?}`、`jobs: Map<jobId, bookId>`、`spines: Map<bookId, SpineChapter[]>`、`anchors: Map<blockId, AnchorSegment[]>`、`Book.mapRevision`、`KnowledgeBlock.skipped`;错误一律 `BackendError`(code 见上表);`TauriBackend` 的 10 个方法先 `return this.unsupported('<method>')`;`decodeBook`/`decodeBlock` 接受可选 `mapRevision`(默认 0)/`skipped`(默认 false)——**记入 Mac 接线清单:Rust DTO 必须补齐两字段**。
+- [x] **Step B1.5** GREEN(vitest 全量、tsc、lint 0、build、gate.sh)→ **Step B1.6** commit `feat(web): Backend 契约 v2 追加与 MockBackend 幂等/版本语义 (B-T1)`
 
 ### Task B2: TauriBackend v2 解码器与契约门控
 
