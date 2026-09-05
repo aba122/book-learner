@@ -793,3 +793,59 @@ fn save_settings_rolls_back_all_keys_when_one_write_fails() {
         .unwrap();
     assert_eq!(persisted, 0);
 }
+
+#[test]
+fn insert_book_demotes_to_paused_when_active_exists() {
+    let conn = db::open_in_memory().unwrap();
+    let first = models::insert_book(&conn, "一", "", models::BookType::Textbook, "one").unwrap();
+    let second = models::insert_book(&conn, "二", "", models::BookType::Textbook, "two").unwrap();
+    let statuses: Vec<(i64, String)> = conn
+        .prepare("SELECT id,status FROM book ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        statuses,
+        vec![(first, "active".into()), (second, "paused".into())],
+        "已有主攻书时新书以 paused 入库(单主攻书)"
+    );
+}
+
+#[test]
+fn set_active_book_requires_plan() {
+    let conn = db::open_in_memory().unwrap();
+    let first = models::insert_book(&conn, "一", "", models::BookType::Textbook, "one").unwrap();
+    let second = models::insert_book(&conn, "二", "", models::BookType::Textbook, "two").unwrap();
+    conn.execute(
+        "INSERT INTO study_plan(book_id,deadline,daily_new_blocks,active) VALUES(?1,'2026-09-30',2,1)",
+        [first],
+    )
+    .unwrap();
+
+    let error = library::set_active_book(&conn, second).unwrap_err();
+
+    assert!(matches!(error, CoreError::Conflict(_)), "{error}");
+    let books: Vec<(i64, String)> = conn
+        .prepare("SELECT id,status FROM book ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        books,
+        vec![(first, "active".into()), (second, "paused".into())]
+    );
+    let (plan_book, active): (i64, i64) = conn
+        .query_row("SELECT book_id,active FROM study_plan", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(
+        (plan_book, active),
+        (first, 1),
+        "无计划书籍不得切换,活跃计划不得被清空"
+    );
+}

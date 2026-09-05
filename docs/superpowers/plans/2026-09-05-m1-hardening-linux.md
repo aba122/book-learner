@@ -271,7 +271,7 @@ export function useBackendOperation<A extends unknown[]>(
   - `models::insert_book`:存在 active 书时以 `'paused'` 插入(F5);`planning::set_plan`:仅当目标书 status='active' 才置 active=1 并清其他,否则 active=0(F5,消除 MapPage 两调用间的窗口);`library::set_active_book`:先查目标书有无 plan,无 → `Conflict("目标书籍尚无学习计划")`,有 → 同一事务内更新 book.status 与 plan.active(F4);
   - `SCHEMA_V3`:对 daily_task / feynman_session / weak_point / review_schedule / artifact 五表执行 `CREATE TABLE <t>_v3(… REFERENCES …)` → `INSERT INTO <t>_v3 SELECT … FROM <t>` → `DROP TABLE <t>` → `ALTER TABLE <t>_v3 RENAME TO <t>`;外键:`block_id REFERENCES knowledge_block(id) ON DELETE CASCADE`、`book_id REFERENCES book(id) ON DELETE CASCADE`、`daily_task.ref_id` 不加 FK(多态引用,注释说明);全部在既有 IMMEDIATE 事务内,`foreign_keys=ON` 使 INSERT…SELECT 遇孤儿即失败并回滚(即测试 3 的机制);`user_version=3`。
   - 注意 SQLite 在事务内无法切换 `PRAGMA foreign_keys`,因此**不用** OFF/ON 重建法;RENAME 时 SQLite ≥3.26 会自动更新引用方,本项目无表引用这五张表,安全。
-- [ ] **Step 9.4** GREEN(db + library + planning + sched + foundation 集成测试;`core/tests/foundation.rs` 若断言旧的 insert_book 默认 active,按新语义更新并 DEVLOG 说明)+ clippy + `cargo fmt --check` → **Step 9.5** 拆两个 commit:`fix(core): busy_timeout 与 v2/v3 迁移数据收敛、子表外键 (H-T9a)`、`fix(core): 主攻书与活跃计划唯一性:insert_book/set_plan/set_active_book (H-T9b)`
+- [x] **Step 9.4** GREEN(db + library + planning + sched + foundation 集成测试;`core/tests/foundation.rs` 若断言旧的 insert_book 默认 active,按新语义更新并 DEVLOG 说明)+ clippy + `cargo fmt --check` → **Step 9.5** 拆两个 commit:`fix(core): busy_timeout 与 v2/v3 迁移数据收敛、子表外键 (H-T9a)`、`fix(core): 主攻书与活跃计划唯一性:insert_book/set_plan/set_active_book (H-T9b)`
 
 ### Task 10: 收尾——全量门禁、文档回写、推送准备
 
