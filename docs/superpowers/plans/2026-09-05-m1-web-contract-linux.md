@@ -148,7 +148,7 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
 - 确认:`confirmSessionVerdict(sessionId, version, 'verdict', pass, today)` 成功 → `navigate('/')`;**不再调用 completeTask、不再设置 pendingNotice**。
 - 放弃:Confirm 确认后 `abandonOp.run('abandon')` → `abandonSession(sessionId, version)` → 成功 `navigate('/')`;失败在 header 下方 `AsyncError`(可重试)。
 
-- [ ] **Step B3.1 失败测试**(改写 feynman.test.tsx,沿用 fireEvent+act;删除 `completeTask` 相关 3 条,替换为):
+- [x] **Step B3.1 失败测试**(改写 feynman.test.tsx,沿用 fireEvent+act;删除 `completeTask` 相关 3 条,替换为):
   1. 发送 → 学生第 1 条渐显(spy `submitTurn` 第 1 参 sessionId、第 2 参 0、第 3 参匹配 id 正则、第 4 参文本);`startOrResumeSession` 第 3 参为 `YYYY-MM-DD`;
   2. 4 轮 → ready → 结束讲授(`requestEvaluation(sessionId,'eval')`)→ 评估卡 → 确认通过:`confirmSessionVerdict(sessionId, 5, 'verdict', true, <today>)`(4 回合 +1 评估 = 5)→ 回今日;
   3. 重挂载水合:发送 1 轮后 unmount → 再 render 同路由 → 立即可见 2 条消息、`startOrResumeSession` 第二次调用返回同 sessionId,Mock 会话数不变;
@@ -159,7 +159,7 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
   8. 放弃:确认放弃 → `abandonSession(sessionId, 当前版本)` 被调 → 回今日;`abandonSession` 失败 → 留在页面、错误可见可重试;
   9. 初始化失败可重试(含 `startOrResumeSession` 失败后重试同一 `clientRequestId`);
   10. 保留:卸载后晚到回复不处理、写操作进行中禁用"放弃"、回读原文跳转、双击不重复发送(改 spy 到 `submitTurn`)。
-- [ ] **Step B3.2** RED → **Step B3.3 实现** → **Step B3.4** GREEN(vitest 全量、tsc、lint 0、build)→ **Step B3.5** commit `feat(web): 费曼页接会话契约 v2——服务端水合、同 id 重试、原子判定 (B-T3)`
+- [x] **Step B3.2** RED → **Step B3.3 实现** → **Step B3.4** GREEN(vitest 全量、tsc、lint 0、build)→ **Step B3.5** commit `feat(web): 费曼页接会话契约 v2——服务端水合、同 id 重试、原子判定 (B-T3)`
 
 ### Task B4: MapPage 接操作集 + expectedRevision;confirmMap 签名切换
 

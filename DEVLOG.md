@@ -283,3 +283,18 @@
 - Plan B(`docs/superpowers/plans/2026-09-05-m1-web-contract-linux.md`)独立评审两轮:第一轮 2 条 Issue(unsupported 列表重复 confirmMap;无改动定稿必须仍打开目标设定)+ 6 条建议(评估/判定 id 用每会话常量 `'eval'`/`'verdict'`、契约加 `date`、tauri fixture 补字段、往返还原用 EpubCFI.toRange、门控用例用拒绝型假 invoke、bundle 显式列 tag)全部并入后 **Approved**;末轮 2 条 advisory(evaluating 态禁用输入、放弃用水合版本)亦已写入。
 - 范围:契约 v2(追加式演进,B7 删旧)、MockBackend v2 语义、TauriBackend 门控解码器、费曼页/地图页/导入向导接新契约、EPUB JS 侧抽取与多段 CFI 锚定(Playwright)、回写与 tag `m1-linux-b` + bundle。
 - 基线(独立复跑):web vitest 186 passed / 2 skipped(16 files)、oxlint 0 warnings、build 181 modules、Playwright 1 passed(需 `PLAYWRIGHT_BROWSERS_PATH=/bigtemp/fzv6en/book-learner/playwright-browsers`,浏览器不在 ~/.cache——计划已更新命令);core gate 126+27+1+1。
+
+## 2026-09-05 · B-T1 契约 v2 追加、MockBackend v2 语义、Tauri 门控存根完成(补记:本条与 B-T2 条目在各自 commit 时未成功追加,于 B-T3 补入)
+- core:`KnowledgeBlock.skipped`(BLOCK_COLS/RawBlock/parse + 用例)。web:`types.ts` 增 SpineChapter/AnchorSegment/MapProgress/MapEditOp/SessionState/SessionKind/TurnView/SessionView/TurnResult/EvaluationView/VerdictOutcome,`Book.mapRevision`、`KnowledgeBlock.skipped`;`Backend` 接口追加 9 个 v2 方法(confirmMap 旧签名保留到 B4);wire 契约追加 10 条 command、unsupported 列表 11+9;`lib/ids.ts`(`newClientId`,规则同 core `validate_client_id`,randomUUID 回退)。
+- MockBackend v2:一任务一未确认会话 + clientRequestId 重放;`submitTurn` 同 clientTurnId 重放/版本冲突/空文本拒绝;`requestEvaluation` 同 id 重放、异 id 冲突;`confirmSessionVerdict` 原子(new:pass→passed+scores+passedAt=date+task done,relearn→learning;weak/review 不改块)、同 requestId 重放、outboxOps 4/3;`abandonSession`;`storeSpine`/`runMapJob`(进度 chapter×N→merging→done、块由章标题生成、每块一段 chapter_fallback 锚点、同 jobId 幂等、jobId 跨书冲突)/`setAnchorSegments`/`listAnchors`(blockSource 取段文本)。错误码/文案与 tauri.ts IPC_ERRORS 一致。
+- TauriBackend:`decodeBook.mapRevision`/`decodeBlock.skipped` 缺省时默认 0/false(Mac DTO 待补,接线清单);9 个 v2 方法显式 `unsupported`。传输用例的"受支持命令"过滤改为排除 unsupportedCapabilities 门控项。
+- RED:vitest 15 failed(含 ids 模块缺失)、core 编译错;GREEN:web 199 passed / 2 skipped(17 files)、tsc、oxlint 0、build;core gate 127+27+1+1。
+
+## 2026-09-05 · B-T2 TauriBackend v2 解码器与契约门控完成(补记)
+- `TauriBackend(invokeFn, { contract?, listen? })`:`gated(method, run)` 按契约 `unsupportedCapabilities` 门控(在列 → 显式 `not_implemented`;Mac 接线后移除条目即启用);9 个 v2 方法落地 command 名/payload/出站校验(`outboundClientId` 规则同 core、chapters/segments/pass/date)与解码器(SessionView/TurnView/Eval/TurnResult/EvaluationView/VerdictOutcome/AnchorSegment/MapProgress,路径化 `invalid_response`);`runMapJob` 经注入的 `listen` 订阅 `map_job_progress`(按 jobId 过滤、畸形事件忽略、invoke 结束/失败后 unlisten;无回调不订阅),默认动态加载 `@tauri-apps/api/event`。
+- RED:25 failed;GREEN:web 225 passed / 2 skipped(17 files)、tsc、oxlint 0、build。实现修正:`gated` 须为 async,出站校验的同步 throw 才成为 rejection。
+
+## 2026-09-05 · B-T3 费曼页接会话契约 v2 完成
+- `FeynmanPage`:初始化管线末步 `startOrResumeSession(taskId, clientRequestId(挂载一次), today)`,幂等故允许重试初始化(删除单次守卫);`TeachingRoom` 以 sessionId 为 key 从服务端视图水合(done 回合 → 对话流、version、readyToEnd、evaluated → 直接评估卡、pending 用户回合 → 显示 + "上次发送未完成" 重试、evaluating → 输入禁用 + "继续评估")。发送:`clientTurnId` 触发时生成一次进入 args,重试复用(同 id、同旧版本);评估/判定 id 为每会话常量 `'eval'`/`'verdict'`;确认走 `confirmSessionVerdict(sessionId, version, 'verdict', pass, today)` 单步原子(不再 completeTask/pendingNotice);放弃走 `abandonSession(sessionId, version)`,失败留在页面可重试。
+- 测试重写 20 条(fireEvent+act):契约参数、4 轮→评估→原子判定回今日(版本 5)、重挂载水合同会话、已评估/评估中/pending 回合水合、失败重试参数完全相同、版本冲突、放弃成功/失败、初始化失败重试沿用同一 clientRequestId、既有错误隔离用例。
+- GREEN:web **228 passed / 2 skipped(17 files)**、tsc、oxlint 0、build。
