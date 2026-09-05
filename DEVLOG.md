@@ -187,3 +187,12 @@
 - 必须先修的高风险边界:当前 schema 只有单段 `spine_href/cfi_start/cfi_end`,无 spine 文本缓存/多段锚点/地图版本;地图定稿 DTO 无 stable block ID/version;Feynman 传整段客户端 transcript 且 send/end/confirm 尚无错误恢复与幂等 key;SQLite→Markdown→Git 测试只是两段顺序调用,不具备跨存储原子性。
 - Codex provider 在子进程退出前不消费 piped stderr,大量输出可填满 pipe 并被误判为超时;只 kill 直接 child 也需要验证不留后代进程。MemoryStore 直接 `join(slug)` 且原地覆写,生产接线前必须限定内部 slug、使用 temp+rename 投影并以 operation ID 幂等重放。
 - 新基线文档:`docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md`;保留 `IMPLEMENTATION_PLAN.md` 的产品验收,但用 12 个可审计节点取代已过时的粗粒度实施顺序。
+
+## 2026-09-05 · M1 加固切片启动(Linux,分支 feat/m1-hardening)
+- 触发:对 Mac Foundation(远端 main 74830ac)+ 本机 8 个未推送提交(linux-local d23ab9f)的 review,含 code-review 自动化排查 10 条(F1–F10,清单与处置见 docs/superpowers/plans/2026-09-05-m1-hardening-linux.md)。
+- 范围:不含产品行为、不预设 ADR 结论的加固——前端两公共异步 hook 并迁移七页、费曼页三处裸 await 错误态、Today conflict 永久禁用/stats 不刷新、Settings 空输入、EpubView lint、IPC transport_error;core busy_timeout、v2/v3 迁移收敛与子表外键、主攻书/活跃计划唯一性、Codex stderr 死锁与进程组、记忆库 slug 消毒与原子写。
+- 范围外:ADR 四份及其 schema 扩展、MapEditBlock 稳定 id(Node 6)、会话幂等(Node 8)、原生 EPUB(Node 2/3/7)、F3 Tauri setup panic(本机不可编译 Tauri crate,交 Mac)、Apple Silicon 门禁(Node 0)。
+- 基线(独立复跑,非自述):web vitest 158 passed/2 skipped(14 files);core 66 passed/1 ignored(40 单测 + 25 foundation + 1 lifecycle);oxlint 6 warnings(Library/Today/Map 各 1 set-state-in-effect,EpubView 3 refs)。
+- 环境:/p 卷群组配额 100%,工作仓库改为 /bigtemp/fzv6en/book-learner/review-clone;CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target。
+- 推送:本机 PAT 已撤销(push:false)。每 Task 本地 commit;凭证恢复后 `git push origin linux-local:feat/mac-m1 feat/m1-hardening`,补记 CI URL。
+- 远端 CI 现状:main/feat/mac-m1 各 run 均在 `pnpm install --frozen-lockfile` 失败(corepack pnpm 版本漂移);本地 980e83e 已修(`corepack prepare pnpm@11.24.0 --activate`),随上述推送生效。
