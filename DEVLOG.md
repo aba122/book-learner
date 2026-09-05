@@ -265,3 +265,8 @@
 - `verdict_request_id` 存命名空间化的 `verdict:{sid}:{rid}`(全局唯一索引下避免跨会话的客户端 id 碰撞)。
 - RED:16 处编译错误;GREEN 后 core 121 单测 + 27 + 1,门禁全绿。修正一处测试预期:人为把 state 置回 evaluating 后同 id 续跑会重做事务 B(版本再 +1),这是真实崩溃语义,不是缺陷。
 - 偏差:`request_evaluation` 多 `workdir` 参数(同前)。
+
+## 2026-09-05 · A-T9 投影 outbox 重放完成
+- `projection::run_pending(conn, memory)`:按 id 顺序处理 pending/failed 行(attempts+1),处理器 init_book(ensure_book)/ block_eval(先 ensure_book 防御,再 apply_eval 带 passed 与 entry_key)/ sync_weakpoints / sync_map / git_commit,slug/标题/块列表重放时从 SQLite 读取;成功 done、失败 failed+error 并停止本轮;返回成功条数;非 autocommit 拒绝。
+- 用例:完整链路(草图落库 → 会话 → 评估 → 确认)后重放 5 行 → 目录/块 md/薄弱点/地图镜像/INDEX/git 一致,二次重放 0;用户判定覆盖到 md;"文件已写、done 未落库"重放不重复历史行;.git 权限 000 → 前 4 行 done、git 行 failed,恢复后仅重试该行且 git 只多一提交;同 op_id 二次入队忽略;未知 kind failed 且不越过。
+- RED:8 处编译错误;GREEN 后 core 126 单测 + 27 + 1,门禁全绿。

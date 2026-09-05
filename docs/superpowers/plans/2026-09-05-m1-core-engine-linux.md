@@ -364,8 +364,8 @@ pub fn enqueue(tx: &Connection, op_id: &str, kind: &str, payload: &serde_json::V
 pub fn run_pending(conn, memory: &MemoryStore) -> Result<usize>;
 ```
 
-- [ ] **Step A9.1 失败测试**:apply_draft_map + confirm 后 run_pending(不手工 ensure_book)→ books/<slug>/ 目录、块 md `{block_id:04}-{slug}.md` 存在且含终稿、_weakpoints.md 含待考、_map.md 状态行、git log 含 message;再次 run_pending → 0 条(幂等);**用户判定覆盖**:AI relearn + confirm(pass=true) 后块 md `status: passed` 且含终稿;**跨崩溃重放**:第一次 run_pending 后把 block_eval 行手工改回 pending(模拟"文件已写、done 未落库")再 run_pending → 评估历史恰 1 行、观察笔记恰 1 条;模拟 git 失败(把 memory root 的 .git 目录权限置 0o000,root 跳过)→ 前面各条 done、git 条 failed、error 非空;恢复权限后 run_pending → 恰一条被处理(failed 行重试)且 git log 只多一条提交;enqueue 同 op_id 二次 → 仍一行。
-- [ ] **Step A9.2** RED → **Step A9.3 实现** → **Step A9.4** GREEN → **Step A9.5** commit `feat(core): 投影 outbox 重放——md 与 git 成为可重放投影 (A-T9)`
+- [x] **Step A9.1 失败测试**:apply_draft_map + confirm 后 run_pending(不手工 ensure_book)→ books/<slug>/ 目录、块 md `{block_id:04}-{slug}.md` 存在且含终稿、_weakpoints.md 含待考、_map.md 状态行、git log 含 message;再次 run_pending → 0 条(幂等);**用户判定覆盖**:AI relearn + confirm(pass=true) 后块 md `status: passed` 且含终稿;**跨崩溃重放**:第一次 run_pending 后把 block_eval 行手工改回 pending(模拟"文件已写、done 未落库")再 run_pending → 评估历史恰 1 行、观察笔记恰 1 条;模拟 git 失败(把 memory root 的 .git 目录权限置 0o000,root 跳过)→ 前面各条 done、git 条 failed、error 非空;恢复权限后 run_pending → 恰一条被处理(failed 行重试)且 git log 只多一条提交;enqueue 同 op_id 二次 → 仍一行。
+- [x] **Step A9.2** RED → **Step A9.3 实现** → **Step A9.4** GREEN → **Step A9.5** commit `feat(core): 投影 outbox 重放——md 与 git 成为可重放投影 (A-T9)`
 
 ### Task A10: 端到端集成、文档回写、收尾
 
