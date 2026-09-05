@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
@@ -24,6 +24,11 @@ export default function TodayPage() {
   // 挂载时固定队列日期:跨午夜重试仍使用同一日期
   const [today] = useState(localCalendarDate)
   const [focusTask, setFocusTask] = useState<DailyTask | null>(null)
+  // 一次性跨页提示:挂载时取走并清空 store(zustand set 非 React setState)
+  const [notice] = useState(() => useSession.getState().pendingNotice)
+  useEffect(() => {
+    if (notice) useSession.getState().setPendingNotice(null)
+  }, [notice])
 
   // 队列与其 blocks hydration 为单一原子 pipeline:全部成功后才发布;失败保留旧快照
   const loadQueueBundle = useCallback(async (isCurrent: () => boolean): Promise<QueueBundle> => {
@@ -100,6 +105,12 @@ export default function TodayPage() {
           )
         }
       />
+
+      {notice && (
+        <Card role="status" className="mb-6 border-review/40 bg-review-soft/40 p-4 text-sm text-ink-2">
+          {notice}
+        </Card>
+      )}
 
       {stats.error && (
         <div className="mb-6">

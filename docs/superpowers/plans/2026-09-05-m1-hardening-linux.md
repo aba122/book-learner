@@ -193,7 +193,7 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `web/src/features/feynman/FeynmanPage.tsx`;Test `feynman.test.tsx`(**新增**用例,不改旧断言)
 
-- [ ] **Step 5.1 失败测试**(遵循文件头 fireEvent+act 约定):
+- [x] **Step 5.1 失败测试**(遵循文件头 fireEvent+act 约定):
   1. `studentReply` reject(可重试)→ 出现 AsyncError(role=alert)含重试按钮,`thinking` 结束(无"思考中"永驻),用户草稿**保留在 transcript**(已发送的用户消息不丢),重试成功后学生回复正常渐显;
   2. `studentReply` reject 期间再点发送 → 'ignored'(无第二次调用);
   3. `endSession` reject → 错误显示于评估区,"结束讲授"按钮可重试,不导航;
@@ -201,8 +201,8 @@ export function useBackendOperation<A extends unknown[]>(
   5. `confirmVerdict` 成功但 `completeTask` reject → **不再回滚也不重发 verdict**(基线 §Node 10):`'confirm'` 操作函数**内部** try/catch `completeTask`,失败时 `useSession().setPendingNotice('评估已保存,任务状态稍后同步')` 并正常 resolve(hook 得 `'ok'`),随后导航 `/`;Today 页顶部显示一次性提示条并在挂载后清除。若把失败抛给 hook,评估卡会显示错误而不导航——这是错误实现;
   6. 卸载后晚到的 reply 不 setState(无 act 警告);
   7. 放弃(abandon)在 pending 期间禁用。
-- [ ] **Step 5.2** RED → **Step 5.3** 实现:`send`/`endTeaching`/`confirmVerdict` 各为 `useBackendOperation` 的 key('send'/'end'/'confirm');store 增 `pendingNotice`;Today 顶部渲染并在挂载后清除。
-- [ ] **Step 5.4** GREEN(feynman 焦点 + today 焦点)→ **Step 5.5** commit `feat(web): 费曼页 send/end/confirm 错误隔离与守卫 (H-T5)`
+- [x] **Step 5.2** RED → **Step 5.3** 实现:`send`/`endTeaching`/`confirmVerdict` 各为 `useBackendOperation` 的 key('send'/'end'/'confirm');store 增 `pendingNotice`;Today 顶部渲染并在挂载后清除。
+- [x] **Step 5.4** GREEN(feynman 焦点 + today 焦点)→ **Step 5.5** commit `feat(web): 费曼页 send/end/confirm 错误隔离与守卫 (H-T5)`
 
 ### Task 6: EpubView refs-in-render 修复
 

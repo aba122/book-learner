@@ -8,6 +8,7 @@ import { BackendError } from '../../backend/errors'
 import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
+import { useSession } from '../../store'
 import FeynmanPage from './FeynmanPage'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
@@ -220,5 +221,118 @@ describe('费曼对话页', () => {
 
     expect(startSession).toHaveBeenCalledTimes(1)
     expect(normalize).not.toHaveBeenCalled()
+  })
+})
+
+describe('写操作错误隔离(H-T5 / F7)', () => {
+  const retryable = (message: string) => new BackendError({ code: 'io_failure', message, retryable: true })
+  const fatal = (message: string) => new BackendError({ code: 'conflict', message, retryable: false })
+
+  it('studentReply 失败:错误可见可重试,无永久"思考中",已发送消息保留;重试后正常渐显', async () => {
+    const reply = vi.spyOn(backendModule.backend, 'studentReply').mockRejectedValueOnce(retryable('学生走神了'))
+    await renderFeynman()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '需求曲线向右下方倾斜' } })
+    await click(screen.getByRole('button', { name: '发送' }))
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('学生走神了')
+    expect(screen.queryByText(/学生思考中/)).not.toBeInTheDocument()
+    expect(screen.getByText('需求曲线向右下方倾斜')).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeEnabled()
+
+    await click(within(alert).getByRole('button', { name: '重试' }))
+    await act(async () => { vi.advanceTimersByTime(8000) })
+    expect(screen.getByText(/降价反而能增加总收入/)).toBeInTheDocument()
+    expect(reply).toHaveBeenCalledTimes(2)
+    expect(reply.mock.calls[1][1]).toEqual(reply.mock.calls[0][1]) // 重试重发同一 transcript
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('studentReply 进行中再点发送不会产生第二次调用', async () => {
+    const pending = deferred<{ text: string; readyToEnd: boolean }>()
+    const reply = vi.spyOn(backendModule.backend, 'studentReply').mockReturnValue(pending.promise)
+    await renderFeynman()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '第一段' } })
+    await click(screen.getByRole('button', { name: '发送' }))
+    expect(screen.getByText(/学生思考中/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(reply).toHaveBeenCalledTimes(1)
+    await act(async () => pending.resolve({ text: '哦', readyToEnd: false }))
+  })
+
+  it('endSession 失败:错误显示、"结束讲授"可重试、不导航;重试成功出现评估卡', async () => {
+    vi.spyOn(backendModule.backend, 'endSession').mockRejectedValueOnce(retryable('评估服务暂不可用'))
+    await renderFeynman()
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('评估服务暂不可用')
+    expect(screen.queryByRole('dialog', { name: '讲授评估' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/3')
+    expect(screen.getByRole('button', { name: '结束讲授' })).toBeEnabled()
+    await click(within(alert).getByRole('button', { name: '重试' }))
+    expect(screen.getByRole('dialog', { name: '讲授评估' })).toBeInTheDocument()
+  })
+
+  it('confirmVerdict 失败:错误在评估卡内、不导航、不调 completeTask;不可重试则禁用确认', async () => {
+    const completeTask = vi.spyOn(backendModule.backend, 'completeTask')
+    const confirm = vi.spyOn(backendModule.backend, 'confirmVerdict')
+      .mockRejectedValueOnce(retryable('判定写入超时'))
+      .mockRejectedValueOnce(fatal('判定与服务端状态冲突'))
+    await renderFeynman()
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const card = screen.getByRole('dialog', { name: '讲授评估' })
+
+    await click(within(card).getByRole('button', { name: '确认通过' }))
+    expect(within(card).getByRole('alert')).toHaveTextContent('判定写入超时')
+    expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/3')
+    expect(completeTask).not.toHaveBeenCalled()
+    expect(within(card).getByRole('button', { name: '确认通过' })).toBeEnabled()
+
+    await click(within(card).getByRole('button', { name: '重试' }))
+    expect(within(card).getByRole('alert')).toHaveTextContent('判定与服务端状态冲突')
+    expect(within(card).getByRole('button', { name: '确认暂不可用' })).toBeDisabled()
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(completeTask).not.toHaveBeenCalled()
+  })
+
+  it('confirmVerdict 成功但 completeTask 失败:不回滚不重发,回今日并留下后台同步提示', async () => {
+    const confirm = vi.spyOn(backendModule.backend, 'confirmVerdict')
+    vi.spyOn(backendModule.backend, 'completeTask').mockRejectedValue(retryable('任务状态同步失败'))
+    await renderFeynman()
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const card = screen.getByRole('dialog', { name: '讲授评估' })
+    await click(within(card).getByRole('button', { name: '确认通过' }))
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+    expect(useSession.getState().pendingNotice).toBe('评估已保存,任务状态稍后同步')
+    useSession.getState().setPendingNotice(null)
+  })
+
+  it('卸载后晚到的学生回复不再处理(无 setState、不归一化)', async () => {
+    const pending = deferred<{ text: string; readyToEnd: boolean }>()
+    vi.spyOn(backendModule.backend, 'studentReply').mockReturnValue(pending.promise)
+    const normalize = vi.spyOn(errorModule, 'normalizeBackendError')
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const view = await renderFeynman()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '讲一段' } })
+    await click(screen.getByRole('button', { name: '发送' }))
+    view.unmount()
+    await act(async () => pending.reject(retryable('晚到失败')))
+    expect(normalize).not.toHaveBeenCalled()
+    expect(errSpy).not.toHaveBeenCalled()
+  })
+
+  it('写操作进行中"放弃本次"被禁用', async () => {
+    const pending = deferred<{ text: string; readyToEnd: boolean }>()
+    vi.spyOn(backendModule.backend, 'studentReply').mockReturnValue(pending.promise)
+    await renderFeynman()
+    expect(screen.getByRole('button', { name: '放弃本次' })).toBeEnabled()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '讲一段' } })
+    await click(screen.getByRole('button', { name: '发送' }))
+    expect(screen.getByRole('button', { name: '放弃本次' })).toBeDisabled()
+    await act(async () => pending.resolve({ text: '哦', readyToEnd: false }))
+    await act(async () => { vi.advanceTimersByTime(8000) })
+    expect(screen.getByRole('button', { name: '放弃本次' })).toBeEnabled()
   })
 })

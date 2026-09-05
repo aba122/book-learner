@@ -10,6 +10,7 @@ import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import { KIND_LABEL, POMODORO_DEFAULT, TASK_EST_MINUTES } from '../../config'
 import type { DailyTask, Stats } from '../../types'
+import { useSession } from '../../store'
 import TodayPage from './TodayPage'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
@@ -577,5 +578,14 @@ describe('今日学习页', () => {
       vi.advanceTimersByTime(60_000)
     })
     expect(screen.getByText('24:00')).toBeInTheDocument()
+  })
+})
+
+describe('跨页一次性提示(H-T5)', () => {
+  it('展示 pendingNotice 一次并清空 store', async () => {
+    useSession.getState().setPendingNotice('评估已保存,任务状态稍后同步')
+    renderToday()
+    expect(await screen.findByRole('status')).toHaveTextContent('评估已保存,任务状态稍后同步')
+    expect(useSession.getState().pendingNotice).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
-import { BackendError, normalizeBackendError } from '../../backend/errors'
+import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
@@ -9,22 +9,61 @@ import Confirm from '../../components/Confirm'
 import Tag from '../../components/Tag'
 import { KIND_LABEL, TYPEWRITER_CHAR_MS } from '../../config'
 import { localCalendarDate } from '../../lib/localDate'
+import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
+import { useBackendOperation } from '../../lib/useBackendOperation'
+import { useSession } from '../../store'
 import type { ChatMessage, DailyTask, EvalResult, KnowledgeBlock } from '../../types'
 import EvalCard from './EvalCard'
+
+interface TeachingSession {
+  task: DailyTask
+  block: KnowledgeBlock
+  source: { href: string; text: string }
+  sessionId: number
+}
+
+const NO_SESSION = () =>
+  new BackendError({ code: 'invalid_request', message: '会话尚未建立', retryable: false })
 
 export default function FeynmanPage() {
   const { taskId: taskIdParam } = useParams()
   const taskId = Number(taskIdParam)
   const navigate = useNavigate()
+  const setPendingNotice = useSession(s => s.setPendingNotice)
   const [today] = useState(localCalendarDate)
 
-  const [task, setTask] = useState<DailyTask | null>(null)
-  const [block, setBlock] = useState<KnowledgeBlock | null>(null)
-  const [source, setSource] = useState<{ href: string; text: string } | null>(null)
-  const [sessionId, setSessionId] = useState<number | null>(null)
+  // 一旦尝试过 startSession(付费会话),即使失败也不再允许重试初始化,只提供安全返回
+  const [startAttempted, setStartAttempted] = useState(false)
+
+  // 初始化管线:队列→块→原文→会话,任一步失败均为只读失败;卸载/重载后不继续后续步骤
+  const init = useAsyncResource(useCallback(async (isCurrent: () => boolean): Promise<TeachingSession> => {
+    const queue = await backend.todayQueue(today)
+    if (!isCurrent()) throw new StaleResult()
+    const task = queue.find(x => x.id === taskId)
+    if (!task) {
+      throw new BackendError({
+        code: 'not_found',
+        message: '今天的队列中没有找到这项学习任务',
+        retryable: false,
+      })
+    }
+    const block = await backend.getBlock(task.blockId)
+    if (!isCurrent()) throw new StaleResult()
+    const source = await backend.blockSource(task.blockId)
+    if (!isCurrent()) throw new StaleResult()
+    setStartAttempted(true)
+    const s = await backend.startSession(task.blockId, task.kind)
+    if (!isCurrent()) throw new StaleResult()
+    return { task, block, source, sessionId: s.sessionId }
+  }, [taskId, today]))
+  const session = init.data
+  const sessionId = session?.sessionId ?? null
+  const task = session?.task ?? null
+  const block = session?.block ?? null
+  const source = session?.source ?? null
+
   const [transcript, setTranscript] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
-  const [thinking, setThinking] = useState(false)
   const [typing, setTyping] = useState<string | null>(null)
   const [typingKey, setTypingKey] = useState(0)
   const typingFull = useRef('')
@@ -32,72 +71,59 @@ export default function FeynmanPage() {
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null)
   const [abandonOpen, setAbandonOpen] = useState(false)
   const [sourceOpen, setSourceOpen] = useState(true)
-  const [initError, setInitError] = useState<BackendError | null>(null)
-  const [canRetryInitialization, setCanRetryInitialization] = useState(true)
   const scrollAnchor = useRef<HTMLDivElement>(null)
-  const mounted = useRef(false)
-  const initGeneration = useRef(0)
-  const initGuard = useRef(false)
-  const startAttempted = useRef(false)
 
-  const initialize = useCallback(async () => {
-    if (!mounted.current || initGuard.current || startAttempted.current) return
-    const generation = ++initGeneration.current
-    initGuard.current = true
-    setCanRetryInitialization(true)
-    setInitError(null)
-    setTask(null)
-    setBlock(null)
-    setSource(null)
-    setSessionId(null)
-    setTranscript([])
-    setDraft('')
-    setThinking(false)
-    setTyping(null)
-    setReadyToEnd(false)
-    setEvalResult(null)
-    try {
-      const queue = await backend.todayQueue(today)
-      if (!mounted.current || generation !== initGeneration.current) return
-      const t = queue.find(x => x.id === taskId)
-      if (!t) {
-        throw new BackendError({
-          code: 'not_found',
-          message: '今天的队列中没有找到这项学习任务',
-          retryable: false,
-        })
+  // 发送:失败保留已发送的用户消息,重试重发同一 transcript;成功后学生回复渐显
+  const lastReply = useRef<{ text: string; readyToEnd: boolean } | null>(null)
+  const sendOp = useBackendOperation(
+    async (next: ChatMessage[]) => {
+      if (sessionId === null) throw NO_SESSION()
+      lastReply.current = await backend.studentReply(sessionId, next)
+    },
+    {
+      onCommitted: async () => {
+        const reply = lastReply.current
+        if (!reply) return
+        typingFull.current = reply.text
+        setTyping('')
+        setTypingKey(k => k + 1)
+        if (reply.readyToEnd) setReadyToEnd(true)
+      },
+    },
+  )
+  const thinking = sendOp.pending.has('send')
+  const sendError = sendOp.errors.get('send')
+
+  // 结束讲授:失败留在对话页可重试,不导航
+  const lastEval = useRef<EvalResult | null>(null)
+  const endOp = useBackendOperation(
+    async () => {
+      if (sessionId === null) throw NO_SESSION()
+      lastEval.current = await backend.endSession(sessionId)
+    },
+    { onCommitted: async () => { if (lastEval.current) setEvalResult(lastEval.current) } },
+  )
+  const ending = endOp.pending.has('end')
+  const endError = endOp.errors.get('end')
+
+  // 确认判定:confirmVerdict 失败在卡内显示;判定已落库而 completeTask 失败 → 不回滚不重发,回今日并提示后台同步
+  const confirmOp = useBackendOperation(
+    async (pass: boolean) => {
+      if (sessionId === null || !task) throw NO_SESSION()
+      await backend.confirmVerdict(sessionId, pass)
+      if (pass) {
+        try {
+          await backend.completeTask(task.id)
+        } catch {
+          setPendingNotice('评估已保存,任务状态稍后同步')
+        }
       }
-      const b = await backend.getBlock(t.blockId)
-      if (!mounted.current || generation !== initGeneration.current) return
-      const nextSource = await backend.blockSource(t.blockId)
-      if (!mounted.current || generation !== initGeneration.current) return
-      startAttempted.current = true
-      setCanRetryInitialization(false)
-      const s = await backend.startSession(t.blockId, t.kind)
-      if (!mounted.current || generation !== initGeneration.current) return
-      setTask(t)
-      setBlock(b)
-      setSource(nextSource)
-      setSessionId(s.sessionId)
-    } catch (error) {
-      if (!mounted.current || generation !== initGeneration.current) return
-      setInitError(normalizeBackendError(error))
-    } finally {
-      if (generation === initGeneration.current) initGuard.current = false
-    }
-  }, [taskId, today])
-
-  useEffect(() => {
-    mounted.current = true
-    startAttempted.current = false
-    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend pipeline.
-    void initialize()
-    return () => {
-      mounted.current = false
-      initGeneration.current += 1
-      initGuard.current = false
-    }
-  }, [initialize])
+    },
+    { onCommitted: async () => navigate('/') },
+  )
+  const confirming = confirmOp.pending.has('confirm')
+  const confirmError = confirmOp.errors.get('confirm')
+  const anyPending = thinking || ending || confirming
 
   // 打字机:interval 单独按轮次启动,批量推进也能整段渐显
   useEffect(() => {
@@ -125,34 +151,28 @@ export default function FeynmanPage() {
 
   const busy = thinking || typing !== null
 
-  const send = async () => {
+  const send = () => {
     const text = draft.trim()
-    if (!text || !sessionId || busy) return
+    if (!text || sessionId === null || busy) return
     const next: ChatMessage[] = [...transcript, { role: 'user', text }]
     setTranscript(next)
     setDraft('')
-    setThinking(true)
-    const reply = await backend.studentReply(sessionId, next)
-    setThinking(false)
-    typingFull.current = reply.text
-    setTyping('')
-    setTypingKey(k => k + 1)
-    if (reply.readyToEnd) setReadyToEnd(true)
+    sendOp.clearError('send')
+    void sendOp.run('send', next)
   }
 
-  const endTeaching = async () => {
-    if (!sessionId) return
-    setEvalResult(await backend.endSession(sessionId))
+  const endTeaching = () => {
+    if (sessionId === null) return
+    endOp.clearError('end')
+    void endOp.run('end')
   }
 
-  const confirmVerdict = async (pass: boolean) => {
-    if (!sessionId || !task) return
-    await backend.confirmVerdict(sessionId, pass)
-    if (pass) await backend.completeTask(task.id)
-    navigate('/')
+  const confirmVerdict = (pass: boolean) => {
+    confirmOp.clearError('confirm')
+    void confirmOp.run('confirm', pass)
   }
 
-  if (sessionId === null) {
+  if (session === null) {
     return (
       <div className="flex h-full items-center justify-center px-8 py-12">
         <Card className="w-full max-w-xl p-8">
@@ -161,10 +181,10 @@ export default function FeynmanPage() {
             正在读取今日任务、原文和讲授上下文。会话创建后才会开放输入。
           </p>
           <div className="mt-6">
-            {initError ? (
+            {init.error ? (
               <AsyncError
-                error={initError}
-                onRetry={canRetryInitialization ? initialize : undefined}
+                error={init.error}
+                onRetry={startAttempted ? undefined : init.reload}
               />
             ) : (
               <p className="text-sm text-ink-3">正在准备讲授…</p>
@@ -227,14 +247,25 @@ export default function FeynmanPage() {
             variant={readyToEnd ? 'primary' : 'ghost'}
             data-ready={readyToEnd ? 'true' : 'false'}
             className="px-3 py-1.5 text-xs"
+            disabled={ending}
             onClick={endTeaching}
           >
-            结束讲授
+            {ending ? '评估中…' : '结束讲授'}
           </Button>
-          <Button className="px-3 py-1.5 text-xs" onClick={() => setAbandonOpen(true)}>
+          <Button
+            className="px-3 py-1.5 text-xs"
+            disabled={anyPending}
+            onClick={() => setAbandonOpen(true)}
+          >
             放弃本次
           </Button>
         </header>
+
+        {endError && (
+          <div className="border-b border-line bg-paper-2/70 px-6 py-3">
+            <AsyncError error={endError} onRetry={() => void endOp.retry('end')} variant="compact" />
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -290,6 +321,11 @@ export default function FeynmanPage() {
                 </div>
               </div>
             )}
+            {sendError && (
+              <div className="self-start">
+                <AsyncError error={sendError} onRetry={() => void sendOp.retry('send')} variant="compact" />
+              </div>
+            )}
             <div ref={scrollAnchor} />
           </div>
         </div>
@@ -325,7 +361,16 @@ export default function FeynmanPage() {
         </div>
       </div>
 
-      {evalResult && <EvalCard result={evalResult} onConfirm={confirmVerdict} />}
+      {evalResult && (
+        <EvalCard
+          result={evalResult}
+          onConfirm={confirmVerdict}
+          error={confirmError ?? null}
+          onRetry={() => void confirmOp.retry('confirm')}
+          busy={confirming}
+          confirmDisabled={confirmError?.retryable === false}
+        />
+      )}
       <Confirm
         open={abandonOpen}
         title="放弃这次讲授?"
