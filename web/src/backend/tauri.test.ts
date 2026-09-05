@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { BackendError } from './errors'
 import { TauriBackend, type InvokeFn } from './tauri'
@@ -241,27 +241,44 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     expect(`${error.message} ${JSON.stringify(error.details)}`).not.toContain(secret)
   })
 
+  // H-T6b(F8):非契约拒绝不再坍缩为 unknown,而是 transport_error + 脱敏摘要(类型/长度/键名),
+  // 让 Tauri 参数反序列化失败等契约破坏在前端可见、可诊断;隐私断言保持。
   it.each([
-    ['native Error', new Error('/Users/alice/private/app.db')],
-    ['plain string', 'token=top-secret'],
-    ['unknown object', { path: '/Users/alice/private/app.db', token: 'top-secret' }],
+    ['native Error', new Error('/Users/alice/private/app.db'), { actualType: 'object', errorName: 'Error', keys: [] }],
+    ['plain string', 'token=top-secret', { actualType: 'string', length: 16 }],
+    ['unknown object', { path: '/Users/alice/private/app.db', token: 'top-secret' }, { actualType: 'object', keys: ['path', 'token'] }],
     ['unknown structured code', {
       code: 'raw_native_failure', message: '/Users/alice/private/app.db', retryable: true,
       details: { token: 'top-secret' },
-    }],
-  ])('uses a fixed safe error for an unknown invoke rejection: %s', async (_name, rejection) => {
+    }, { actualType: 'object', keys: ['code', 'message', 'retryable', 'details'] }],
+    ['null', null, { actualType: 'null' }],
+  ])('classifies an unknown invoke rejection as transport_error with redacted details: %s', async (_name, rejection, expectedDetails) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const backend = new TauriBackend(async () => { throw rejection })
 
     const error = await backend.listBooks().catch(reason => reason as BackendError)
 
+    expect(error).toBeInstanceOf(BackendError)
     expect(error).toMatchObject({
-      code: 'unknown',
-      message: '原生后端调用失败',
+      code: 'transport_error',
+      message: '与本地后端通信失败',
       retryable: false,
-      details: undefined,
+      details: expectedDetails,
     })
     const visible = `${error.message} ${JSON.stringify(error.details)}`
     expect(visible).not.toMatch(/alice|top-secret/)
+    expect(consoleError).toHaveBeenCalledWith('[ipc] transport_error', expectedDetails)
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/alice|top-secret/)
+    consoleError.mockRestore()
+  })
+
+  it('caps redacted key summary at 10 keys', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wide = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`k${i}`, i]))
+    const backend = new TauriBackend(async () => { throw wide })
+    const error = await backend.listBooks().catch(reason => reason as BackendError)
+    expect((error.details as { keys: string[] }).keys).toHaveLength(10)
+    vi.restoreAllMocks()
   })
 
   it('drops raw details from a known structured native error', async () => {

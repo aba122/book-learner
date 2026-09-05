@@ -216,8 +216,8 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `web/src/backend/tauri.ts:40`(normalizeInvokeError);Test `web/src/backend/tauri.test.ts`(新增)
 
-- [ ] **Step 6b.1 失败测试**:invoke reject 为纯字符串(Tauri 参数反序列化失败形态)→ `BackendError.code === 'transport_error'`、`retryable=false`、message 固定"与本地后端通信失败"、**details 仅含脱敏摘要 `{ actualType: 'string', length: n }`**(绝不带原文——既有用例 `tauri.test.ts:245-262` 断言 message+details 不含 `/Users/alice`/`top-secret`,必须继续成立);reject 为非契约对象 → `transport_error`,details `{ actualType: 'object', keys: <键名数组,≤10> }`(键名不是用户内容)。**有意更新**该既有 `it.each` 用例:code `'unknown'`→`'transport_error'`,message 随之改,隐私断言保留。
-- [ ] **Step 6b.2** RED → **Step 6b.3** 实现(只改 fallback 分支;`console.error('[ipc] transport_error', details)` 只输出脱敏摘要,符合基线 §3 日志策略)→ **Step 6b.4** GREEN → commit `fix(web): IPC 非契约错误显式归类为 transport_error 并保留脱敏摘要 (H-T6b)`
+- [x] **Step 6b.1 失败测试**:invoke reject 为纯字符串(Tauri 参数反序列化失败形态)→ `BackendError.code === 'transport_error'`、`retryable=false`、message 固定"与本地后端通信失败"、**details 仅含脱敏摘要 `{ actualType: 'string', length: n }`**(绝不带原文——既有用例 `tauri.test.ts:245-262` 断言 message+details 不含 `/Users/alice`/`top-secret`,必须继续成立);reject 为非契约对象 → `transport_error`,details `{ actualType: 'object', keys: <键名数组,≤10> }`(键名不是用户内容)。**有意更新**该既有 `it.each` 用例:code `'unknown'`→`'transport_error'`,message 随之改,隐私断言保留。
+- [x] **Step 6b.2** RED → **Step 6b.3** 实现(只改 fallback 分支;`console.error('[ipc] transport_error', details)` 只输出脱敏摘要,符合基线 §3 日志策略)→ **Step 6b.4** GREEN → commit `fix(web): IPC 非契约错误显式归类为 transport_error 并保留脱敏摘要 (H-T6b)`
 
 ### Task 7: core `ai.rs` — stderr 并发排空与进程组清理(基线 Node 4 子集)
 
