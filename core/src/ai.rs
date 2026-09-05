@@ -10,12 +10,29 @@ pub enum Role {
     Assistant,
 }
 
+#[derive(Debug, Clone)]
 pub struct CompletionRequest {
     pub system: String,
     pub messages: Vec<(Role, String)>,
     pub workdir: PathBuf,
     pub read_only: bool,
+    /// 幂等请求 id(ADR-0002 命名空间);由 orchestrate 填入,CodexCliProvider 不使用,Mock 用它分发应答
+    pub request_id: String,
     pub timeout_secs: u64,
+}
+
+/// 渲染后 prompt 的字节上限:prompt 经单个 argv 传入,Linux MAX_ARG_STRLEN=128 KiB(macOS 更严),
+/// 取 100 KiB 留余量;超限为 InvalidInput(不重试)。
+pub const MAX_PROMPT_BYTES: usize = 100 * 1024;
+/// `--output-last-message` 文件的字节上限(先看 metadata 再读)
+pub const MAX_OUTPUT_BYTES: u64 = 1024 * 1024;
+/// `test_connection` 的超时
+const TEST_CONNECTION_TIMEOUT_SECS: u64 = 10;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConnectionReport {
+    pub version: String,
+    pub latency_ms: u64,
 }
 
 pub trait AiProvider {
@@ -62,8 +79,8 @@ fn kill_process_group(leader_pid: u32) {
 #[cfg(not(unix))]
 fn kill_process_group(_leader_pid: u32) {}
 
-/// 在独立线程持续读取 stderr 到有界尾部缓冲,避免子进程因管道写满而阻塞(被误判为超时)。
-fn spawn_stderr_drain(stderr: Option<std::process::ChildStderr>) -> mpsc::Receiver<Vec<u8>> {
+/// 在独立线程持续读取管道到有界尾部缓冲,避免子进程因管道写满而阻塞(被误判为超时)。
+fn spawn_stderr_drain<R: Read + Send + 'static>(stderr: Option<R>) -> mpsc::Receiver<Vec<u8>> {
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
         let mut tail: Vec<u8> = Vec::new();
@@ -92,8 +109,106 @@ fn last_chars(text: &str, n: usize) -> String {
     text.chars().skip(total.saturating_sub(n)).collect()
 }
 
+/// 轮询等待子进程,超时则整组 SIGKILL 并回收;正常退出后同样补杀进程组(不留孙进程)。
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout_secs: u64,
+) -> Result<std::process::ExitStatus> {
+    let leader = child.id();
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    let status = loop {
+        match child.try_wait().map_err(CoreError::Io)? {
+            Some(st) => break st,
+            None if Instant::now() >= deadline => {
+                kill_process_group(leader);
+                let _ = child.wait();
+                return Err(CoreError::Ai(format!("timeout after {timeout_secs}s")));
+            }
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    };
+    // 正常退出也补杀进程组:codex 若留下孙进程,管道不会关闭,排空线程永不 EOF
+    kill_process_group(leader);
+    Ok(status)
+}
+
+fn resolve_binary(bin: &std::path::Path) -> Option<PathBuf> {
+    if bin.components().count() > 1 {
+        return bin.is_file().then(|| bin.to_path_buf());
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(bin))
+        .find(|candidate| candidate.is_file())
+}
+
+impl CodexCliProvider {
+    /// 配置校验:可执行文件可解析(绝对/相对路径须存在;裸名在 PATH 中查找)、工作目录存在。
+    pub fn validate(&self, workdir: &std::path::Path) -> Result<()> {
+        if resolve_binary(&self.bin).is_none() {
+            return Err(CoreError::InvalidInput(format!(
+                "codex binary not found: {}",
+                self.bin.display()
+            )));
+        }
+        if !workdir.is_dir() {
+            return Err(CoreError::InvalidInput(format!(
+                "workdir not found: {}",
+                workdir.display()
+            )));
+        }
+        Ok(())
+    }
+
+    /// 连接测试:`bin --version`,10s 超时,同样的进程组处理;返回首行版本与耗时。
+    pub fn test_connection(&self) -> Result<ConnectionReport> {
+        let started = Instant::now();
+        let mut cmd = std::process::Command::new(&self.bin);
+        cmd.arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| CoreError::Ai(format!("spawn {}: {e}", self.bin.display())))?;
+        let out_rx = spawn_stderr_drain(child.stdout.take());
+        let err_rx = spawn_stderr_drain(child.stderr.take());
+        let status = wait_with_timeout(&mut child, TEST_CONNECTION_TIMEOUT_SECS)?;
+        let stdout = out_rx.recv_timeout(DRAIN_JOIN_TIMEOUT).unwrap_or_default();
+        let stderr = err_rx.recv_timeout(DRAIN_JOIN_TIMEOUT).unwrap_or_default();
+        if !status.success() {
+            let text = String::from_utf8_lossy(&stderr);
+            return Err(CoreError::Ai(format!(
+                "codex --version exit {status}: {}",
+                last_chars(&text, ERROR_TAIL_CHARS)
+            )));
+        }
+        let text = String::from_utf8_lossy(&stdout);
+        let version = text.lines().next().unwrap_or("").trim().to_string();
+        if version.is_empty() {
+            return Err(CoreError::Ai("codex --version printed nothing".into()));
+        }
+        Ok(ConnectionReport {
+            version,
+            latency_ms: started.elapsed().as_millis() as u64,
+        })
+    }
+}
+
 impl AiProvider for CodexCliProvider {
     fn complete(&self, req: &CompletionRequest) -> Result<String> {
+        let prompt = render_prompt(req);
+        if prompt.len() > MAX_PROMPT_BYTES {
+            return Err(CoreError::InvalidInput(format!(
+                "prompt exceeds {MAX_PROMPT_BYTES} bytes: {}",
+                prompt.len()
+            )));
+        }
         // NamedTempFile 在所有返回路径上 drop 即删除,临时输出不残留
         let tmp = tempfile::NamedTempFile::new().map_err(CoreError::Io)?;
         let sandbox = if req.read_only {
@@ -111,7 +226,7 @@ impl AiProvider for CodexCliProvider {
             .arg("--output-last-message")
             .arg(tmp.path())
             .args(&self.extra_args)
-            .arg(render_prompt(req))
+            .arg(prompt)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped());
         #[cfg(unix)]
@@ -122,26 +237,8 @@ impl AiProvider for CodexCliProvider {
         let mut child = cmd
             .spawn()
             .map_err(|e| CoreError::Ai(format!("spawn {}: {e}", self.bin.display())))?;
-        let leader = child.id();
         let tail_rx = spawn_stderr_drain(child.stderr.take());
-
-        let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
-        let status = loop {
-            match child.try_wait().map_err(CoreError::Io)? {
-                Some(st) => break st,
-                None if Instant::now() >= deadline => {
-                    kill_process_group(leader);
-                    let _ = child.wait();
-                    return Err(CoreError::Ai(format!(
-                        "timeout after {}s",
-                        req.timeout_secs
-                    )));
-                }
-                None => std::thread::sleep(Duration::from_millis(100)),
-            }
-        };
-        // 正常退出也补杀进程组:codex 若留下孙进程,stderr 管道不会关闭,排空线程永不 EOF
-        kill_process_group(leader);
+        let status = wait_with_timeout(&mut child, req.timeout_secs)?;
         let tail = tail_rx.recv_timeout(DRAIN_JOIN_TIMEOUT).unwrap_or_default();
 
         if !status.success() {
@@ -149,6 +246,12 @@ impl AiProvider for CodexCliProvider {
             return Err(CoreError::Ai(format!(
                 "codex exit {status}: {}",
                 last_chars(&text, ERROR_TAIL_CHARS)
+            )));
+        }
+        let size = std::fs::metadata(tmp.path()).map_err(CoreError::Io)?.len();
+        if size > MAX_OUTPUT_BYTES {
+            return Err(CoreError::Ai(format!(
+                "output exceeds {MAX_OUTPUT_BYTES} bytes: {size}"
             )));
         }
         let reply = std::fs::read_to_string(tmp.path()).map_err(CoreError::Io)?;
@@ -195,6 +298,7 @@ printf '%s' '{reply}' > \"$out\"
             messages: vec![(super::Role::User, "讲弹性".into())],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 10,
         };
         assert_eq!(
@@ -231,6 +335,7 @@ printf '%s' 'ok' > "$out"
             messages: vec![],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 10,
         };
 
@@ -252,6 +357,7 @@ printf '%s' 'ok' > "$out"
             messages: vec![],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 1,
         };
         let t0 = std::time::Instant::now();
@@ -271,6 +377,7 @@ printf '%s' 'ok' > "$out"
             messages: vec![(super::Role::User, "1+1=?".into())],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 120,
         };
         let out = super::AiProvider::complete(&p, &req).unwrap();
@@ -299,6 +406,7 @@ printf '%s' 'ok' > "$out"
             messages: vec![],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 20,
         };
         let t0 = std::time::Instant::now();
@@ -326,6 +434,7 @@ printf '%s' 'ok' > "$out"
             messages: vec![],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 1,
         };
         assert!(super::AiProvider::complete(&prov, &req).is_err());
@@ -372,9 +481,131 @@ printf '%s' 'ok' > "$out"
             messages: vec![],
             workdir: dir.path().to_path_buf(),
             read_only: true,
+            request_id: String::new(),
             timeout_secs: 10,
         };
         let err = super::AiProvider::complete(&prov, &req).unwrap_err();
         assert!(read_tail(&err).chars().count() < 600);
+    }
+
+    #[test]
+    fn rejects_oversized_prompt_before_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "marker-codex",
+            "#!/bin/bash\ntouch \"$(dirname \"$0\")/called\"\nwhile [[ $# -gt 0 ]]; do if [[ \"$1\" == \"--output-last-message\" ]]; then out=\"$2\"; shift; fi; shift; done\nprintf ok > \"$out\"\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "a".repeat(super::MAX_PROMPT_BYTES + 1),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            request_id: String::new(),
+            timeout_secs: 10,
+        };
+        let err = super::AiProvider::complete(&prov, &req).unwrap_err();
+        assert!(matches!(err, crate::CoreError::InvalidInput(_)), "{err}");
+        assert!(
+            !dir.path().join("called").exists(),
+            "超限 prompt 不得 spawn"
+        );
+    }
+
+    #[test]
+    fn prompt_exactly_at_limit_spawns() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_codex(dir.path(), "ok");
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "a".repeat(super::MAX_PROMPT_BYTES),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            request_id: String::new(),
+            timeout_secs: 10,
+        };
+        assert_eq!(super::AiProvider::complete(&prov, &req).unwrap(), "ok");
+    }
+
+    #[test]
+    fn rejects_oversized_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "flood-codex",
+            "#!/bin/bash\nwhile [[ $# -gt 0 ]]; do if [[ \"$1\" == \"--output-last-message\" ]]; then out=\"$2\"; shift; fi; shift; done\nhead -c 2097152 /dev/zero | tr '\\0' 'x' > \"$out\"\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "s".into(),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            request_id: String::new(),
+            timeout_secs: 10,
+        };
+        let err = super::AiProvider::complete(&prov, &req).unwrap_err();
+        assert!(
+            matches!(&err, crate::CoreError::Ai(m) if m.contains("output exceeds")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn validate_reports_missing_binary_and_workdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = super::CodexCliProvider {
+            bin: dir.path().join("no-such-codex"),
+            extra_args: vec![],
+        };
+        let err = missing.validate(dir.path()).unwrap_err();
+        assert!(
+            matches!(&err, crate::CoreError::InvalidInput(m) if m.contains("binary")),
+            "{err}"
+        );
+        let ok_bin = fake_codex(dir.path(), "ok");
+        let prov = super::CodexCliProvider {
+            bin: ok_bin,
+            extra_args: vec![],
+        };
+        let err = prov.validate(&dir.path().join("nowhere")).unwrap_err();
+        assert!(
+            matches!(&err, crate::CoreError::InvalidInput(m) if m.contains("workdir")),
+            "{err}"
+        );
+        prov.validate(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn test_connection_reports_version_and_latency() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "version-codex",
+            "#!/bin/bash\nif [[ \"$1\" == \"--version\" ]]; then echo 'codex-cli 9.9.9'; exit 0; fi\nexit 1\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let report = prov.test_connection().unwrap();
+        assert_eq!(report.version, "codex-cli 9.9.9");
+        assert!(report.latency_ms < 10_000);
+        let bad = super::CodexCliProvider {
+            bin: dir.path().join("missing"),
+            extra_args: vec![],
+        };
+        assert!(bad.test_connection().is_err());
     }
 }

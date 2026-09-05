@@ -126,14 +126,14 @@ CREATE TABLE projection_outbox(
 
 **Files:** Modify `core/src/ai.rs`、`core/tests/lifecycle.rs`(结构体字面量补 `request_id`)
 
-- [ ] **Step A2.1 失败测试**:
+- [x] **Step A2.1 失败测试**:
   1. `rejects_oversized_prompt_before_spawn`:渲染后 prompt 为 100 KiB + 1 字节 → `Err(InvalidInput)`,fake codex 未被调用(脚本写 marker 文件,断言不存在);
   2. `prompt_exactly_at_limit_spawns`:渲染后 prompt **恰为 100 KiB**(ASCII)→ fake codex 被调用并返回 Ok(证明限额低于 Linux `MAX_ARG_STRLEN` 128 KiB);
   3. `rejects_oversized_output`:脚本向输出文件写 2 MiB → `Err(Ai("output exceeds …"))`;
   4. `validate_reports_missing_binary_and_workdir`:`CodexCliProvider::validate(&workdir)`:bin 不存在 → InvalidInput 含 "binary";workdir 不存在 → InvalidInput 含 "workdir";
   5. `test_connection_reports_version_and_latency`:fake 脚本对 `--version` 输出 `codex-cli 9.9.9` → `ConnectionReport { version: "codex-cli 9.9.9", latency_ms: >=0 }`。
-- [ ] **Step A2.2** RED → **Step A2.3 实现**:`CompletionRequest` 增 `pub request_id: String` 并 `#[derive(Clone)]`(ai.rs 7 处测试字面量 + lifecycle.rs 1 处补字段;`CodexCliProvider` 不使用该字段,仅供编排/Mock 分发);常量 `MAX_PROMPT_BYTES = 100 * 1024`(对 `render_prompt` 结果计 UTF-8 字节)、`MAX_OUTPUT_BYTES = 1024 * 1024`(`complete` 内校验;输出用 `File::metadata().len()` 先判后读);`pub fn validate(&self, workdir: &Path) -> Result<()>`;`pub fn test_connection(&self) -> Result<ConnectionReport>`(`bin --version`,10s 超时,同样进程组处理)。
-- [ ] **Step A2.4** GREEN → **Step A2.5** commit `feat(core): Codex provider request_id、限额、配置校验与连接测试 (A-T2)`
+- [x] **Step A2.2** RED → **Step A2.3 实现**:`CompletionRequest` 增 `pub request_id: String` 并 `#[derive(Clone)]`(ai.rs 7 处测试字面量 + lifecycle.rs 1 处补字段;`CodexCliProvider` 不使用该字段,仅供编排/Mock 分发);常量 `MAX_PROMPT_BYTES = 100 * 1024`(对 `render_prompt` 结果计 UTF-8 字节)、`MAX_OUTPUT_BYTES = 1024 * 1024`(`complete` 内校验;输出用 `File::metadata().len()` 先判后读);`pub fn validate(&self, workdir: &Path) -> Result<()>`;`pub fn test_connection(&self) -> Result<ConnectionReport>`(`bin --version`,10s 超时,同样进程组处理)。
+- [x] **Step A2.4** GREEN → **Step A2.5** commit `feat(core): Codex provider request_id、限额、配置校验与连接测试 (A-T2)`
 
 ### Task A3: `orchestrate.rs` — 幂等 AI 请求与重试
 

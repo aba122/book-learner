@@ -79,6 +79,7 @@ fn full_block_lifecycle() {
         messages: vec![],
         workdir: mem_root.clone(),
         read_only: true,
+        request_id: String::new(),
         timeout_secs: 10,
     };
     let raw = ai::AiProvider::complete(&provider, &req).unwrap();

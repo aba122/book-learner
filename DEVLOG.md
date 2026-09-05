@@ -224,3 +224,7 @@
 - 追加式迁移 v3→v4:`book.map_revision/import_state`,新表 `spine_item`(不对 href 唯一)/`block_anchor`(含 `hint`/`text`)/`map_job`/`ai_request`/`session_turn`/`projection_outbox`,`feynman_session` 增 `task_id/state/version/client_request_id/verdict_request_id/verdict_json` 与三条部分唯一索引(每任务一未确认会话、请求 id、判定 id)。
 - RED:4 条新用例 + 3 条既有版本断言失败(7 failed);GREEN 后 core 57 单测 + 27 foundation + 1 lifecycle,clippy -D warnings 干净,fmt 通过。
 - 偏差:无。`ai_request` 主键重复的扩展码是 `SQLITE_CONSTRAINT_PRIMARYKEY`(TEXT 主键非 rowid 别名),用例按此断言。
+
+## 2026-09-05 · A-T2 Codex provider request_id、限额、校验与连接测试完成
+- `CompletionRequest` 增 `request_id` 并派生 Clone(ai.rs 7 处 + lifecycle.rs 1 处字面量补齐);`MAX_PROMPT_BYTES=100 KiB`(渲染后 UTF-8 字节,spawn 前拒绝)、`MAX_OUTPUT_BYTES=1 MiB`(metadata 先判);`validate(workdir)`(裸名走 PATH 查找)与 `test_connection()`(`--version`,10s,进程组)。子进程等待/超时/补杀抽为 `wait_with_timeout`,stdout/stderr 排空共用泛型 drain。
+- RED:5 条新用例编译失败(缺字段/常量/方法);GREEN 后 core 62 单测 + 27 + 1,clippy/fmt 通过。恰在 100 KiB 上限的 prompt 实测可 spawn(Linux MAX_ARG_STRLEN 128 KiB)。
