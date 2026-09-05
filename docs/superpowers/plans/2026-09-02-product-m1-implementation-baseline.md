@@ -88,6 +88,8 @@ Each behavioral node uses RED → minimal GREEN → focused/full regression → 
 
 ### Node 1 — ADRs, contract v2, and schema v3
 
+> **2026-09-05 状态**:Linux 加固切片已完成其中不依赖 ADR 的部分:v2 迁移收敛、v3 子表外键重建(孤儿回滚)、`book_single_active`、并发策略(busy_timeout + 读后写 IMMEDIATE)与两连接并发用例(H-T9a)。剩余:spine 缓存/锚点段/会话表/outbox 等仍待 ADR。
+
 Create reviewed ADRs before code for:
 
 1. native EPUB selection/staging transport (path capability versus bounded binary/channel transfer);
@@ -120,6 +122,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 ### Node 4 — harden Codex and add orchestration
 
+> **2026-09-05 状态**:已完成 stderr 并发排空(有界 tail)、进程组终止(超时与正常退出)、错误尾部有界(H-T7)。剩余:二进制/工作目录/字节上限校验、同 ID 重试编排、JSON 纠错重试、测试连接用例。
+
 - Drain stderr concurrently into a bounded tail (or a bounded temporary file) while the child runs.
 - Kill and reap the complete spawned process group on timeout/cancel; remove temporary output deterministically.
 - Validate configured binary, working directory, sandbox, maximum prompt bytes, output bytes, and deadlines.
@@ -138,6 +142,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 **Tests:** malformed/extra JSON, missing dependency, cycle, duplicate title/slug, partial chapter failure/resume, stale event ignored, cancellation/restart, three book-type prompt differences.
 
 ### Node 6 — map confirmation, anchors, and memory initialization
+
+> **2026-09-05 状态**:记忆库写入已改为临时文件 + fsync + rename,slug 白名单校验(H-T8);MapEditBlock 稳定 id / 修订号仍待 ADR4。
 
 - Replace `MapEditBlock[]` with a stable operation request containing `bookId`, expected map revision, stable block IDs, and explicit rename/reorder/skip/merge/split operations.
 - Resolve source section headings into ordered CFI segments. Record whole-chapter fallback precision and expose manual correction; never pretend fallback is exact.
@@ -174,6 +180,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 **Tests:** double confirm, crash/retry, pass/relearn, weak point fixed/open, new/weak/review task semantics, projection/git failure then restart replay, exactly one history entry and git commit.
 
 ### Node 10 — Feynman UI operational recovery
+
+> **2026-09-05 状态**:send/endTeaching/confirmVerdict/abandon 的隔离错误态、同步守卫、卸载失效已完成;confirmVerdict 成功而 completeTask 失败 → 回今日并显示后台同步提示(H-T5)。剩余:服务端会话水合、turn ID 幂等重试、草稿持久化(依赖 Node 8)。
 
 - Hydrate from server session/transcript rather than clearing state on mount.
 - Add isolated, state-preserving errors and synchronous guards for send, evaluation, verdict confirmation, and abandon.

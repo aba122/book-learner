@@ -9,6 +9,8 @@
 
 > 2026-09-02 实施基线:上述 Foundation 代码已本地收口,但 Apple Silicon 原生冒烟、远程 CI/PR/tag 仍是硬门禁。由于 L1/L2/Foundation 已预先完成了部分 M1/M2 基础,后续依赖顺序、当前缺口与每节点验收以 `docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md` 为执行基线;本文的产品范围与最终验收不变。
 
+> 2026-09-05 加固切片(Linux,`docs/superpowers/plans/2026-09-05-m1-hardening-linux.md`):在产品 M1 前完成了 review 判定的 P0 加固——前端异步读写收敛为 `lib/` 两个 hook 并迁移七页、费曼页写操作错误态、IPC transport_error;core 侧 Codex 子进程卫生、记忆库 slug 校验与原子写、schema v3 外键/主攻书唯一/迁移收敛、读后写事务 IMMEDIATE。不含产品行为与 ADR 依赖项。
+
 ## M1 核心闭环 —— 「能导入一本书并完整学完一个知识块」
 
 | # | 任务 | 说明 / 依赖 |

@@ -275,9 +275,9 @@ export function useBackendOperation<A extends unknown[]>(
 
 ### Task 10: 收尾——全量门禁、文档回写、推送准备
 
-- [ ] **Step 10.1** 全量:`pnpm -C web exec vitest --run`(≥158 且新增用例计入)、`pnpm -C web lint`(**0 warnings**)、`pnpm -C web build`、`cargo test`(≥66 + 新增)、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`。
-- [ ] **Step 10.2** 回写:`web/ARCHITECTURE.md` 规则 1 文本补 `backend/errors.ts` 与 `backend/types.ts` 为允许的契约面(code-review 指出的文档漂移),并增第 5 条"异步读写只经 `lib/useAsyncResource` / `lib/useBackendOperation`,页面禁止自持 generation/mounted ref";`TECH_DESIGN.md` §3.3 补"记忆库写入为同目录临时文件 + rename 原子替换;slug 白名单校验",§4 补 schema v3 外键与级联语义,§5.1 补 stderr 并发排空/进程组终止;`IMPLEMENTATION_PLAN.md` M1 行注明本切片完成项;基线文档 Node 4/10 标注已完成子项与剩余。
-- [ ] **Step 10.3** DEVLOG 收尾:收录 code-review F1–F10 及各自处置(本切片修复 / F3 交 Mac),各 Task 数字、偏差、**待推送清单**(`feat/mac-m1` 8 提交 + `feat/m1-hardening` N 提交)、推送后需确认的 CI URL 占位。
+- [x] **Step 10.1** 全量:`pnpm -C web exec vitest --run`(≥158 且新增用例计入)、`pnpm -C web lint`(**0 warnings**)、`pnpm -C web build`、`cargo test`(≥66 + 新增)、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`。
+- [x] **Step 10.2** 回写:`web/ARCHITECTURE.md` 规则 1 文本补 `backend/errors.ts` 与 `backend/types.ts` 为允许的契约面(code-review 指出的文档漂移),并增第 5 条"异步读写只经 `lib/useAsyncResource` / `lib/useBackendOperation`,页面禁止自持 generation/mounted ref";`TECH_DESIGN.md` §3.3 补"记忆库写入为同目录临时文件 + rename 原子替换;slug 白名单校验",§4 补 schema v3 外键与级联语义,§5.1 补 stderr 并发排空/进程组终止;`IMPLEMENTATION_PLAN.md` M1 行注明本切片完成项;基线文档 Node 4/10 标注已完成子项与剩余。
+- [x] **Step 10.3** DEVLOG 收尾:收录 code-review F1–F10 及各自处置(本切片修复 / F3 交 Mac),各 Task 数字、偏差、**待推送清单**(`feat/mac-m1` 8 提交 + `feat/m1-hardening` N 提交)、推送后需确认的 CI URL 占位。
 - [ ] **Step 10.4** commit `docs: M1 加固切片收尾与回写 (H-T10)`;**凭证到位后**:`git push origin linux-local:feat/mac-m1 feat/m1-hardening`(8 个待推提交在本地分支 `linux-local` 上,本地无 `feat/mac-m1` 分支),创建 PR #3(`feat/m1-hardening` → `feat/mac-m1`,堆叠),补 CI URL 到 DEVLOG 并 amend/追加提交。
 
 ## 完成定义(DoD)

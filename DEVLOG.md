@@ -196,3 +196,13 @@
 - 环境:/p 卷群组配额 100%,工作仓库改为 /bigtemp/fzv6en/book-learner/review-clone;CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target。
 - 推送:本机 PAT 已撤销(push:false)。每 Task 本地 commit;凭证恢复后 `git push origin linux-local:feat/mac-m1 feat/m1-hardening`,补记 CI URL。
 - 远端 CI 现状:main/feat/mac-m1 各 run 均在 `pnpm install --frozen-lockfile` 失败(corepack pnpm 版本漂移);本地 980e83e 已修(`corepack prepare pnpm@11.24.0 --activate`),随上述推送生效。
+
+## 2026-09-05 · M1 加固切片完成(feat/m1-hardening,Linux)
+- 前端(T1–T6b):新增 `lib/useAsyncResource`(6 用例)与 `lib/useBackendOperation`(8 用例);七页面全部迁移,features/ 下再无自持 generation/mounted/guard ref;MapPage/ReaderPage 以 key 重挂载处理参数切换。费曼页初始化管线与 send/end/confirm 全部接 hook(F7,+7 用例);Today conflict 刷新后恢复(F6)、完成后刷 stats(F9,有意改动 today.test.tsx:472 断言 1→2)、跨页一次性提示 `store.pendingNotice`;Settings 数字草稿(F10);EpubView 回调 ref 改提交期同步;tauri.ts 非契约拒绝 → `transport_error` + 脱敏摘要(F8,有意更新 it.each 用例,隐私断言保留)。oxlint **0 warnings**(原 6 条全消)。
+- core(T7–T9b):ai.rs stderr 并发排空/进程组终止/有界尾部(+3 用例,libc 依赖);memory.rs slug 白名单 + 原子写(+3 用例);db.rs busy_timeout 显式化、v2 收敛(F2)、v3 外键重建与 book_single_active(+8 用例,删 1 条语义相反旧用例);sched 读后写事务 IMMEDIATE;insert_book 降级 paused、set_active_book 要求有计划(F4/F5,+2 foundation 用例 + 1 Mock 契约用例)。
+- code-review F1–F10 处置:F1 **部分误报**——rusqlite `Connection::open` 默认已设 5s busy_timeout,`open()` 并发实测本就成功;真问题是 `generate_daily` DEFERRED 读后写升级锁(已改 IMMEDIATE 并用并发用例锁定)。F2/F4/F5/F6/F7/F8/F9/F10 已修;**F3(Tauri setup panic)交 Mac 阶段**(本机不可编译 Tauri crate)。
+- 与计划偏差:ReaderPage 迁移为计划外新增(否则 DoD"页面无自持 generation"不成立);T9a 并入 insert_book 降级(唯一索引落地后既有多书用例会撞索引,需同 commit 绿);set_plan 的 1e 语义由既有两条用例已锁定,未新增。
+- 最终门禁:web vitest **186 passed / 2 skipped**(16 files)、tsc、oxlint 0、build 181 modules(单 chunk 604 kB 警告如前);core **53 单测 + 27 foundation + 1 lifecycle** 全绿、1 ignored(真实 codex)、clippy -D warnings 干净、fmt --check 通过。
+- 回写:web/ARCHITECTURE.md(规则 1 契约面、规则 5 单点 hook、目录导览 lib/)、TECH_DESIGN §3.5/§4/§5.1、IMPLEMENTATION_PLAN 加固切片注记、基线文档 Node 1/4/6/10 状态。
+- **待推送清单(本机无凭证,PAT 已撤销)**:`linux-local`(→ origin/feat/mac-m1,8 提交)与 `feat/m1-hardening`(15 提交)。凭证到位后:`git push origin linux-local:feat/mac-m1 feat/m1-hardening`,创建 PR #3(feat/m1-hardening → feat/mac-m1,堆叠),补记 CI URL。
+- 后续建议:为"切换到无计划书籍"增加专用 IPC 错误码/文案(现复用 conflict 通用文案);Reader/Feynman 路由懒加载以压缩 604 kB 主包(基线 P1);F3 在 Mac 上修。

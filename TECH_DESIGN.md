@@ -137,6 +137,11 @@ app 校验 schema(serde 严格解析,失败则带错误信息重试一次)后:
 - 设置页可配置私有远程,commit 后异步 push,失败静默重试不阻塞学习。
 - SQLite 每日首次启动时快照一份 `app.db.bak` 进 memory/(纳入 git)。
 
+### 3.5 写入安全(2026-09-05 加固,core/src/memory.rs)
+
+- 所有拼入路径的 slug 经白名单校验:非空、≤128 字符、仅 Unicode 字母数字与 `._-`、不得全为 `.`;不合法返回 `InvalidInput`,永不触盘。
+- 所有 md 写入为**同目录临时文件 + fsync + rename** 原子替换:中断不会截断上一份好文件,失败不留残片。
+
 ## 4. 数据模型(SQLite 草案)
 
 ```sql
@@ -164,6 +169,12 @@ setting(key, value)
 
 调度引擎(Rust)每日零点/启动时生成 daily_task:先查 open weak_point(≤3)、再查 due review_schedule、再按 study_plan 配额取下一批 unlearned 块。落后重排:连续 2 天新块配额未完成 → 剩余块 ÷ 剩余天数,超 daily_cap 则发前端事件弹确认框(顺延 or 缩减地图)。
 
+**Schema 演进与约束(2026-09-05,user_version=3)**
+- v2 前置收敛:同书多计划留最新、多活跃计划留最新,再建 `study_plan_one_per_book` / `study_plan_single_active` 唯一索引(旧库不再永久迁移失败)。
+- v3:`book_single_active` 唯一索引(恰一本 status='active',迁移时优先保留持有活跃计划的书);`daily_task`/`feynman_session`/`weak_point`/`review_schedule`/`artifact` 重建补外键(`ON DELETE CASCADE`;`artifact.block_id` `SET NULL`;`daily_task.ref_id` 为多态引用不加 FK)。迁移在单个 IMMEDIATE 事务内、`foreign_keys=ON`,孤儿行使整体回滚而非静默通过。
+- 用例层不变量:`insert_book` 在已有主攻书时以 `paused` 入库;`set_plan` 仅对 active 书激活计划;`set_active_book` 要求目标书已有 `study_plan`(否则 `Conflict`),书状态与计划 active 在同一事务切换。
+- **并发策略**:所有连接 `busy_timeout` 5s;**所有读后写事务一律 `BEGIN IMMEDIATE`**——SQLite 对已持 SHARED 的连接做 RESERVED 升级时不调用 busy handler,DEFERRED 会立刻 `database is locked`。
+
 ## 5. Codex 集成
 
 ### 5.1 调用约定
@@ -173,6 +184,7 @@ setting(key, value)
   读取 tmpfile 作为回复(避免解析 stdout 流水);需要结构化时 prompt 要求"最后一条消息只输出 JSON"。
 - 只读型调用(学生追问轮次)用 `--sandbox read-only`;需要 AI 写自由笔记的场景不开放——所有写入统一由 app 程序化完成(§3.3),保证格式。
 - 超时:对话轮次 120s,地图生成每章 300s;超时/非零退出 → 指数退避重试 2 次 → 仍失败弹前端错误(可手动重试,不丢已有对话)。
+- 子进程卫生(2026-09-05):stderr 由独立线程并发排空到 4 KiB 有界尾部(管道写满不再阻塞子进程/误报超时);子进程以独立进程组启动,超时与正常退出后均整组 SIGKILL,不留孙进程;排空线程有界等待 2s;错误信息附 stderr 末 400 字符。重试编排(同 ID 重放、JSON 纠错一次)属编排层,见基线 Node 4。
 - 多轮对话:app 把完整对话历史(system 设定 + 逐轮 user/assistant)拼进每次 prompt;无跨进程状态。
 - 前端体验:非流式,等待期显示"学生思考中…",回复用打字机动画渲染。
 
