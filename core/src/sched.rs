@@ -1,5 +1,5 @@
 use crate::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 #[derive(Debug, Clone)]
 pub struct DailyTask {
@@ -42,7 +42,7 @@ pub fn generate_daily(conn: &Connection, date: &str) -> Result<Vec<DailyTask>> {
         return Ok(existing);
     }
 
-    let tx = conn.unchecked_transaction()?;
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?; // 读后写:IMMEDIATE 才能等锁
     let mut seq = 0i64;
     let mut insert =
         |book_id: i64, block_id: i64, kind: &str, est: i64, ref_id: Option<i64>| -> Result<()> {
@@ -214,7 +214,7 @@ pub fn apply_eval_to_db(
     date: &str,
 ) -> Result<()> {
     use crate::eval::Verdict;
-    let tx = conn.unchecked_transaction()?;
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?; // 读后写:IMMEDIATE 才能等锁
     tx.execute(
         "UPDATE knowledge_block SET scores_json=?2 WHERE id=?1",
         rusqlite::params![block_id, serde_json::to_string(&eval.scores).unwrap()],

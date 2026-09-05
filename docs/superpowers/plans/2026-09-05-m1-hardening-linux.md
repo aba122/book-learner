@@ -252,7 +252,7 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `core/src/db.rs`, `core/src/sched.rs`(generate_daily 事务模式), `core/src/library.rs`, `core/src/planning.rs`, `core/src/models.rs`, `web/src/backend/mock.ts`
 
-- [ ] **Step 9.1 失败测试**:
+- [x] **Step 9.1 失败测试**:
   0. **F1** `open_installs_busy_timeout_in_production_path`:两连接 A、B 打开同一文件库(不安装任何测试 handler);A 开 IMMEDIATE 事务持有 100ms 后提交;B 在此期间 `open()` **必须成功**而非 `SQLITE_BUSY`(断言 `PRAGMA busy_timeout` ≥ 5000);另一用例:`sched::generate_daily` 在另一连接持写锁 100ms 时不失败——**前提是把 `generate_daily` 的 `unchecked_transaction()`(DEFERRED)改为 `Transaction::new_unchecked(conn, TransactionBehavior::Immediate)`**:SQLite 对已持 SHARED 读事务的连接做 RESERVED 升级时**不调用 busy handler**(死锁规避),DEFERRED 读后写会立刻 `database is locked`。并发策略正式记为:**所有读后写事务一律 BEGIN IMMEDIATE**(library/planning 已如此;`apply_eval_to_db` 先写故不受影响,也统一改)。
   1. `v1_with_two_active_plans_migrates_to_single_active`:手工建 v1 库,插两本书各一计划均 active=1 → `open()` 成功,user_version=3,仅 id 最大者 active=1;
   1b. **F2** `v1_with_two_plans_same_book_keeps_latest`:同一 book 两条 plan → 迁移后仅 id 最大者保留(另一条删除),不再是永久死锁;
@@ -264,7 +264,7 @@ export function useBackendOperation<A extends unknown[]>(
   3. `v2_with_orphan_rows_fails_migration_and_rolls_back`:手工建 v2 库(执行 V1+V2),插一条 `weak_point(block_id=999)` → `open()` 返回 Err,重新只读打开检查 user_version 仍为 2 且旧表结构完整(`PRAGMA table_info(weak_point)` 无变化);
   4. 既有 db 测试处置(**明确改动,非全部保持**):`open_creates_schema_v2` → 断言 v3;`conflicting_v1_study_plans_abort_v2_migration_without_data_loss`(`db.rs:327-360`,断言 open 失败且两计划保留)与新语义**相反,删除并由 1/1b 取代**;db.rs 测试助手 `insert_book`(`db.rs:123-130`)默认插 `status='active'`,第二本起会撞新唯一索引——改为显式传 status,`study_plan_allows_only_one_active_plan` 用 `'paused'` 插第二本;并发迁移测试保持 GREEN(见 busy_timeout 放置)。`core/tests/foundation.rs` 与 `web/src/backend/mock.ts` 若依赖"新书默认 active",按新语义更新并 DEVLOG 说明。
   5. **F4 Mock 对齐**:`MockBackend.setActiveBook` 对无计划书籍同样抛 `BackendError({code:'conflict', retryable:false})`,并加 mock 契约测试,保证浏览器与原生行为一致(LibraryPage 切换主攻的错误态在两侧一致可见)。
-- [ ] **Step 9.2** RED → **Step 9.3** 实现:
+- [x] **Step 9.2** RED → **Step 9.3** 实现:
   - **`open()` 与 `open_in_memory()` 中、调用 `configure()` 之前**执行 `conn.busy_timeout(Duration::from_secs(5))`(F1)。**不要放进 `configure()`**:`busy_timeout` 与 `busy_handler` 互斥,既有测试 `concurrent_open_waits_before_reading_migration_version`(`db.rs:179-218`)先自装 handler 再直接调 `configure()`,放进去会覆盖它导致该测试超时失败;
   - `SCHEMA_V2` 步骤前插入两条收敛:`DELETE FROM study_plan WHERE id NOT IN (SELECT max(id) FROM study_plan GROUP BY book_id)`(F2 同书多计划留最新)与 `UPDATE study_plan SET active=0 WHERE active=1 AND id NOT IN (SELECT max(id) FROM study_plan WHERE active=1)`(对已在 v2+ 的库不执行——步骤按版本跳过);
   - `SCHEMA_V3` 增 book 收敛:优先保留**持有 active 计划的那本书**为 active(`UPDATE book SET status='paused' WHERE status='active' AND id <> COALESCE((SELECT sp.book_id FROM study_plan sp JOIN book b ON b.id=sp.book_id WHERE sp.active=1 AND b.status='active'), (SELECT max(id) FROM book WHERE status='active'))`——JOIN 限定活跃计划所属书本身 active,否则遗留数据会把所有书降级为零活跃),再 `CREATE UNIQUE INDEX book_single_active ON book(status) WHERE status='active'`(F5;避免 v2 步骤保留的活跃计划与 v3 选出的活跃书不一致);
