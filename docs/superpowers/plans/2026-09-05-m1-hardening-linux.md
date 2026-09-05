@@ -240,13 +240,13 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `core/src/memory.rs`
 
-- [ ] **Step 8.1 失败测试**:
+- [x] **Step 8.1 失败测试**:
   1. `ensure_book("../evil", …)`、`"a/b"`、`""`、含 `\0` 或控制字符 → `Err(CoreError::InvalidInput)` 且 `root/..` 下未创建任何目录;
   2. `apply_eval` 传 `block_slug = "../x"` → InvalidInput;
   3. `atomic_write_leaves_no_temp`:apply_eval 成功后 `blocks/` 目录内不存在 `*.tmp*` 文件;
   4. `atomic_write_replaces_whole_file`:先写好原始块文件,再把 `blocks/` 目录 `chmod 0o555` 使临时文件创建失败 → `apply_eval` 返回 Err 且原文件内容逐字节未变、目录内无残留临时文件;测试开头 `if unsafe { libc::geteuid() } == 0 { return }`(root 不受目录权限约束);断言后把 `blocks/` 恢复 0o755,否则 TempDir 清理会静默失败留下目录。
-- [ ] **Step 8.2** RED → **Step 8.3** 实现:`fn validate_slug(s: &str) -> Result<&str>`(规则:非空、长度 ≤ 128、**允许 Unicode 字母数字及 `._-`**、拒绝 `/` `\\` 与控制字符、拒绝全为 `.` 的值(`.`、`..`、`...`)——否则 `ensure_book(".")` 会把镜像文件写进 `books/` 本身);所有 `join(slug)` 前调用;`fn atomic_write(path, content)`:同目录 `NamedTempFile::new_in(parent)` 写入 + `flush` + `persist(path)`(rename)。ensure_book/apply_eval/sync_weakpoints/sync_map/INDEX 追加全部改用。
-- [ ] **Step 8.4** GREEN(memory 焦点 + lifecycle 集成)→ **Step 8.5** commit `fix(core): 记忆库 slug 校验与原子落盘 (H-T8)`
+- [x] **Step 8.2** RED → **Step 8.3** 实现:`fn validate_slug(s: &str) -> Result<&str>`(规则:非空、长度 ≤ 128、**允许 Unicode 字母数字及 `._-`**、拒绝 `/` `\\` 与控制字符、拒绝全为 `.` 的值(`.`、`..`、`...`)——否则 `ensure_book(".")` 会把镜像文件写进 `books/` 本身);所有 `join(slug)` 前调用;`fn atomic_write(path, content)`:同目录 `NamedTempFile::new_in(parent)` 写入 + `flush` + `persist(path)`(rename)。ensure_book/apply_eval/sync_weakpoints/sync_map/INDEX 追加全部改用。
+- [x] **Step 8.4** GREEN(memory 焦点 + lifecycle 集成)→ **Step 8.5** commit `fix(core): 记忆库 slug 校验与原子落盘 (H-T8)`
 
 ### Task 9: core `db.rs` — v2 active 收敛 + SCHEMA_V3 子表外键重建
 

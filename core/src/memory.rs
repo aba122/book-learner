@@ -1,4 +1,5 @@
 use crate::{CoreError, Result};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub struct MemoryStore {
@@ -24,11 +25,11 @@ impl MemoryStore {
         };
         let index = root.join("INDEX.md");
         if !index.exists() {
-            std::fs::write(&index, INDEX_TEMPLATE)?;
+            atomic_write(&index, INDEX_TEMPLATE)?;
         }
         let profile = root.join("profile.md");
         if !profile.exists() {
-            std::fs::write(&profile, PROFILE_TEMPLATE)?;
+            atomic_write(&profile, PROFILE_TEMPLATE)?;
         }
         if !root.join(".git").exists() {
             store.git(&["init", "-b", "main"])?;
@@ -45,21 +46,22 @@ impl MemoryStore {
     }
 
     pub fn ensure_book(&self, slug: &str, title: &str) -> Result<()> {
+        let slug = validate_slug(slug)?;
         let dir = self.root.join("books").join(slug);
         std::fs::create_dir_all(dir.join("blocks"))?;
         let map = dir.join("_map.md");
         if !map.exists() {
-            std::fs::write(&map, format!("# 知识地图 — {title}\n\n(待生成)\n"))?;
+            atomic_write(&map, &format!("# 知识地图 — {title}\n\n(待生成)\n"))?;
         }
         let wp = dir.join("_weakpoints.md");
         if !wp.exists() {
-            std::fs::write(&wp, "# 薄弱点清单\n\n## 待考\n\n## 已修复\n")?;
+            atomic_write(&wp, "# 薄弱点清单\n\n## 待考\n\n## 已修复\n")?;
         }
         let index_path = self.root.join("INDEX.md");
         let idx = std::fs::read_to_string(&index_path)?;
         let line = format!("| {title} | books/{slug}/ |\n");
         if !idx.contains(&line) {
-            std::fs::write(&index_path, idx + &line)?;
+            atomic_write(&index_path, &(idx + &line))?;
         }
         Ok(())
     }
@@ -74,6 +76,8 @@ impl MemoryStore {
         date: &str,
     ) -> Result<()> {
         use crate::eval::Verdict;
+        let book_slug = validate_slug(book_slug)?;
+        let block_slug = validate_slug(block_slug)?;
         let path = self
             .root
             .join("books")
@@ -141,7 +145,7 @@ impl MemoryStore {
 ## AI 观察笔记\n\n{notes}\n",
             eval.scores.accuracy, eval.scores.completeness, eval.scores.clarity,
             if old_history.is_empty() { String::new() } else { format!("{old_history}\n") });
-        std::fs::write(&path, content)?;
+        atomic_write(&path, &content)?;
         Ok(())
     }
 
@@ -152,6 +156,7 @@ impl MemoryStore {
         open: &[(String, String, String)],
         fixed: &[(String, String, String)],
     ) -> Result<()> {
+        let book_slug = validate_slug(book_slug)?;
         let fmt = |items: &[(String, String, String)]| {
             items
                 .iter()
@@ -164,12 +169,13 @@ impl MemoryStore {
             fmt(open),
             fmt(fixed)
         );
-        std::fs::write(
-            self.root
+        atomic_write(
+            &self
+                .root
                 .join("books")
                 .join(book_slug)
                 .join("_weakpoints.md"),
-            content,
+            &content,
         )?;
         Ok(())
     }
@@ -181,15 +187,16 @@ impl MemoryStore {
         title: &str,
         blocks: &[(String, String)],
     ) -> Result<()> {
+        let book_slug = validate_slug(book_slug)?;
         let rows = blocks
             .iter()
             .map(|(t, s)| format!("| {t} | {s} |"))
             .collect::<Vec<_>>()
             .join("\n");
         let content = format!("# 知识地图 — {title}\n\n| 知识块 | 状态 |\n|---|---|\n{rows}\n");
-        std::fs::write(
-            self.root.join("books").join(book_slug).join("_map.md"),
-            content,
+        atomic_write(
+            &self.root.join("books").join(book_slug).join("_map.md"),
+            &content,
         )?;
         Ok(())
     }
@@ -220,6 +227,35 @@ impl MemoryStore {
             .output()?;
         Ok(out)
     }
+}
+
+/// slug 白名单:非空、≤128 字符、仅 Unicode 字母数字与 `._-`(天然排除路径分隔符与控制字符),
+/// 且不得全为 `.`(`.`/`..` 会把文件写到 books/ 本身或其上级)。所有拼接进路径的 slug 必经此处。
+fn validate_slug(slug: &str) -> Result<&str> {
+    let ok = !slug.is_empty()
+        && slug.chars().count() <= 128
+        && slug
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && !slug.chars().all(|c| c == '.');
+    if ok {
+        Ok(slug)
+    } else {
+        Err(CoreError::InvalidInput(format!("unsafe slug {slug:?}")))
+    }
+}
+
+/// 原子写:同目录临时文件 + fsync + rename。中断不会截断上一份好文件;失败不留残片
+/// (NamedTempFile 在 persist 失败/创建失败路径上 drop 即删除)。
+fn atomic_write(path: &Path, content: &str) -> Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| CoreError::Other(format!("no parent dir for {}", path.display())))?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path).map_err(|e| CoreError::Io(e.error))?;
+    Ok(())
 }
 
 /// 取 `heading` 之后到下一个 `## ` 或文件尾的内容(去首尾空白)。
@@ -359,5 +395,109 @@ mod tests {
             .output()
             .unwrap();
         assert!(String::from_utf8_lossy(&log.stdout).contains("供需弹性"));
+    }
+
+    #[test]
+    fn rejects_unsafe_slugs() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        for bad in [
+            "../evil", "a/b", "a\\b", "", ".", "..", "...", "x\u{0}y", "tab\tx",
+        ] {
+            let err = m.ensure_book(bad, "T").unwrap_err();
+            assert!(
+                matches!(err, crate::CoreError::InvalidInput(_)),
+                "{bad:?} -> {err}"
+            );
+        }
+        assert!(!dir.path().join("../evil").exists());
+        assert!(!dir.path().join("books/a").exists());
+        let e = m
+            .apply_eval("ok", 1, "T", "../x", &sample_eval(true), "2026-09-05")
+            .unwrap_err();
+        assert!(matches!(e, crate::CoreError::InvalidInput(_)));
+        assert!(matches!(
+            m.sync_map("../x", "T", &[]).unwrap_err(),
+            crate::CoreError::InvalidInput(_)
+        ));
+        assert!(matches!(
+            m.sync_weakpoints("a/b", &[], &[]).unwrap_err(),
+            crate::CoreError::InvalidInput(_)
+        ));
+        // 合法:Unicode 字母数字与 ._-
+        m.ensure_book("微观经济学-2nd_ed.v1", "T").unwrap();
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("microecon", "微观经济学").unwrap();
+        m.apply_eval(
+            "microecon",
+            3,
+            "供需弹性",
+            "elasticity",
+            &sample_eval(true),
+            "2026-09-05",
+        )
+        .unwrap();
+        m.sync_map(
+            "microecon",
+            "微观经济学",
+            &[("供需弹性".into(), "passed".into())],
+        )
+        .unwrap();
+        for entry in std::fs::read_dir(dir.path().join("books/microecon/blocks")).unwrap() {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            assert!(name.ends_with(".md"), "残留临时文件: {name}");
+        }
+        for entry in std::fs::read_dir(dir.path().join("books/microecon")).unwrap() {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            assert!(name.ends_with(".md") || name == "blocks", "残留: {name}");
+        }
+    }
+
+    #[test]
+    fn atomic_write_keeps_original_when_write_fails() {
+        // root 不受目录权限约束,无法模拟写失败
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("microecon", "微观经济学").unwrap();
+        m.apply_eval(
+            "microecon",
+            3,
+            "供需弹性",
+            "elasticity",
+            &sample_eval(false),
+            "2026-09-04",
+        )
+        .unwrap();
+        let path = dir.path().join("books/microecon/blocks/03-elasticity.md");
+        let original = std::fs::read(&path).unwrap();
+        let blocks = dir.path().join("books/microecon/blocks");
+        std::fs::set_permissions(&blocks, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = m.apply_eval(
+            "microecon",
+            3,
+            "供需弹性",
+            "elasticity",
+            &sample_eval(true),
+            "2026-09-05",
+        );
+        let after = std::fs::read(&path).unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(&blocks)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| !n.ends_with(".md"))
+            .collect();
+        std::fs::set_permissions(&blocks, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(after, original, "原文件必须逐字节不变");
+        assert!(leftovers.is_empty(), "残留: {leftovers:?}");
     }
 }
