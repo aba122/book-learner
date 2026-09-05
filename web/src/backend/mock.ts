@@ -2,11 +2,11 @@ import { APP_DEFAULTS, KIND_ORDER, TASK_EST_MINUTES } from '../config'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorSegment, AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapProgress, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
+  KnowledgeBlock, MapEditOp, MapProgress, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
   TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
-import type { Backend, MapEditBlock } from './types'
+import type { Backend } from './types'
 
 /** v1 会话(B7 删除) */
 interface Session { blockId: number; scriptIdx: number }
@@ -155,23 +155,74 @@ export class MockBackend implements Backend {
     return this.blocks.filter(b => b.bookId === bookId)
   }
 
-  async confirmMap(bookId: number, blocks: MapEditBlock[]): Promise<void> {
-    const existing = this.blocks.filter(b => b.bookId === bookId)
-    const rebuilt = blocks
-      .filter(e => !e.skipped)
-      .map((e, i) => {
-        const prev = existing.find(b => b.title === e.title)
-        return prev
-          ? { ...prev, moduleName: e.moduleName, seq: i + 1 }
-          : {
-              id: this.nextBlockId++, bookId, moduleName: e.moduleName, seq: i + 1,
-              title: e.title, slug: `block-${bookId}-${this.nextBlockId - 1}`, prereqIds: [], status: 'unlearned' as const,
-              skipped: false,
-            }
-      })
-    this.blocks = this.blocks.filter(b => b.bookId !== bookId).concat(rebuilt)
+  /** 与 core map::confirm_map 同语义:修订号不符 conflict;操作在工作副本上按序应用,全部合法才提交(原子) */
+  async confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }> {
     const book = this.books.find(b => b.id === bookId)
-    if (book) book.mapRevision += 1
+    if (!book) throw notFound()
+    if (book.mapRevision !== expectedRevision) throw conflict()
+    const working = this.blocks.filter(b => b.bookId === bookId).map(b => ({ ...b, prereqIds: [...b.prereqIds] }))
+    const anchorsWorking = new Map<number, AnchorSegment[]>()
+    const inBook = (id: number) => {
+      const b = working.find(k => k.id === id)
+      if (!b) throw notFound()
+      return b
+    }
+    for (const op of ops) {
+      switch (op.op) {
+        case 'rename': {
+          const title = op.title.trim()
+          if (!title) throw invalidRequest()
+          inBook(op.blockId).title = title
+          break
+        }
+        case 'renameModule': {
+          const to = op.to.trim()
+          if (!to) throw invalidRequest()
+          const targets = working.filter(b => b.moduleName === op.from)
+          if (targets.length === 0) throw notFound()
+          for (const b of targets) b.moduleName = to
+          break
+        }
+        case 'reorder': {
+          const want = new Set(op.blockIds)
+          if (op.blockIds.length !== working.length || want.size !== working.length || !working.every(b => want.has(b.id))) {
+            throw invalidRequest()
+          }
+          op.blockIds.forEach((id, i) => { inBook(id).seq = i + 1 })
+          break
+        }
+        case 'setSkipped':
+          inBook(op.blockId).skipped = op.skipped
+          break
+        case 'merge': {
+          if (op.from.length === 0 || op.from.includes(op.into)) throw invalidRequest()
+          inBook(op.into)
+          const merged = anchorsWorking.get(op.into) ?? (this.anchors.get(op.into) ?? []).map(s => ({ ...s }))
+          for (const f of op.from) {
+            inBook(f).skipped = true
+            for (const seg of this.anchors.get(f) ?? []) merged.push({ ...seg })
+          }
+          anchorsWorking.set(op.into, merged)
+          for (const b of working) {
+            const next: number[] = []
+            for (const p of b.prereqIds) {
+              const mapped = op.from.includes(p) ? op.into : p
+              if (mapped !== b.id && !next.includes(mapped)) next.push(mapped)
+            }
+            b.prereqIds = next
+          }
+          break
+        }
+        case 'split':
+          throw invalidRequest()
+        default:
+          throw invalidRequest()
+      }
+    }
+    this.blocks = this.blocks.filter(b => b.bookId !== bookId).concat(working.sort((a, z) => a.seq - z.seq))
+    for (const [id, segs] of anchorsWorking) this.anchors.set(id, segs)
+    book.mapRevision += 1
+    return { revision: book.mapRevision }
   }
 
   async setActiveBook(bookId: number): Promise<void> {

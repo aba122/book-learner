@@ -172,11 +172,11 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
 - `confirmMap(bookId, expectedRevision, ops)` 成功 → 退出编辑、重载块与书(新修订号)、打开目标设定;失败保留编辑,`conflict` 不可重试(文案要求刷新)。
 - 既有用例调整:"地图定稿写入进行中同步阻止重复提交"须先做一个编辑(如跳过 `items[3]`)再点定稿(否则无差异不会调用后端);"定稿后目标设定"保持无编辑直接定稿 → 对话框打开、`confirmMap` **不**被调用。
 
-- [ ] **Step B4.1 失败测试**:
+- [x] **Step B4.1 失败测试**:
   - Mock/契约:`confirmMap(1, 0, [])` → `conflict`(种子修订号 1);`confirmMap(1, 1, [{op:'setSkipped',blockId:4,skipped:true},{op:'reorder',blockIds:[2,1,3,…12]}])` → `{revision:2}`,`listBlocks` 中块 4 `skipped=true`、块 2 `seq=1`、块 1 `seq=2`,已通过块的 `scores/passedAt/status` 不变;`reorder` 缺 id → `invalid_request` 且无变更;`split` → `invalid_request`;`merge{into:1,from:[2]}` → 块 2 `skipped=true` 且块 3 的 `prereqIds` 由 `[2]` 变 `[1]`;`renameModule` 改名;`listBooks` 修订号随之 +1。
   - tauri:`confirmMap` 门控解码(`map_confirm[bookId,expectedRevision,ops]` → `{revision}`);unsupported 用例改为新签名。
   - MapPage:跳过 + 上移后定稿 → `confirmMap(1, 1, [ {op:'setSkipped',blockId:4,skipped:true}, {op:'reorder',blockIds:[2,1,3,4,…,12]} ])`;改模块名 → 首条为 `renameModule{from:'供给与需求',to:'新模块'}`;无改动定稿 → 不调用后端、退出编辑态、目标设定对话框打开;`conflict` 拒绝 → 错误可见、无重试、编辑保留;成功后书修订号刷新(第二次定稿 `expectedRevision=2`);浏览模式种子块 `skipped` 显示"已跳过"(把种子块 4 置 skipped 后渲染);保留:加载失败/晚到/卸载/进行中双击(先做一个编辑)/目标设定用例。
-- [ ] **Step B4.2** RED → **Step B4.3 实现** → **Step B4.4** GREEN(vitest、tsc、lint 0、build)→ **Step B4.5** commit `feat(web): 地图页接稳定 id 操作集与修订号乐观并发 (B-T4)`
+- [x] **Step B4.2** RED → **Step B4.3 实现** → **Step B4.4** GREEN(vitest、tsc、lint 0、build)→ **Step B4.5** commit `feat(web): 地图页接稳定 id 操作集与修订号乐观并发 (B-T4)`
 
 ### Task B5: EPUB JS 侧——spine 抽取、小节标题 → 多段 CFI、Playwright 覆盖
 

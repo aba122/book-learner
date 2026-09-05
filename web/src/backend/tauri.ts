@@ -3,11 +3,11 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapProgress, Scores, SessionKind, SessionState,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Scores, SessionKind, SessionState,
   SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
-import type { Backend, MapEditBlock } from './types'
+import type { Backend } from './types'
 
 export type InvokeFn = typeof invoke
 export type UnlistenFn = () => void
@@ -244,6 +244,47 @@ function outboundChapters(value: unknown): void {
   })
 }
 
+function outboundOps(value: unknown): void {
+  if (!Array.isArray(value)) invalidShape('ops', 'array', value, 'invalid_request')
+  ;(value as unknown[]).forEach((item, index) => {
+    const path = `ops[${index}]`
+    const wire = objectAt(item, path, 'invalid_request')
+    switch (wire.op) {
+      case 'rename':
+        outboundInteger(wire.blockId, `${path}.blockId`)
+        outboundString(wire.title, `${path}.title`)
+        break
+      case 'renameModule':
+        outboundString(wire.from, `${path}.from`)
+        outboundString(wire.to, `${path}.to`)
+        break
+      case 'reorder':
+        if (!Array.isArray(wire.blockIds)) invalidShape(`${path}.blockIds`, 'array', wire.blockIds, 'invalid_request')
+        ;(wire.blockIds as unknown[]).forEach((id, i) => outboundInteger(id, `${path}.blockIds[${i}]`))
+        break
+      case 'setSkipped':
+        outboundInteger(wire.blockId, `${path}.blockId`)
+        outboundBoolean(wire.skipped, `${path}.skipped`)
+        break
+      case 'merge':
+        outboundInteger(wire.into, `${path}.into`)
+        if (!Array.isArray(wire.from)) invalidShape(`${path}.from`, 'array', wire.from, 'invalid_request')
+        ;(wire.from as unknown[]).forEach((id, i) => outboundInteger(id, `${path}.from[${i}]`))
+        break
+      case 'split':
+        outboundInteger(wire.blockId, `${path}.blockId`)
+        break
+      default:
+        invalidShape(`${path}.op`, MAP_OPS.join(' | '), wire.op, 'invalid_request')
+    }
+  })
+}
+
+function decodeRevision(value: unknown): { revision: number } {
+  const wire = objectAt(value, 'map_confirm')
+  return { revision: safeIntegerAt(wire.revision, 'map_confirm.revision') }
+}
+
 function outboundSegments(value: unknown): void {
   if (!Array.isArray(value)) invalidShape('segments', 'array', value, 'invalid_request')
   ;(value as unknown[]).forEach((item, index) => {
@@ -363,7 +404,7 @@ function decodeMapProgress(value: unknown, path: string): MapProgress {
   }
 }
 
-export { MAP_OPS }
+
 
 function outboundString(value: unknown, path: string): void {
   if (typeof value !== 'string') invalidShape(path, 'string', value, 'invalid_request')
@@ -460,7 +501,14 @@ export class TauriBackend implements Backend {
 
   importEpub(_file: File, _type: BookType): Promise<{ bookId: number }> { return this.unsupported('importEpub') }
   generateMap(_bookId: number, _onProgress?: (msg: string) => void): Promise<KnowledgeBlock[]> { return this.unsupported('generateMap') }
-  confirmMap(_bookId: number, _blocks: MapEditBlock[]): Promise<void> { return this.unsupported('confirmMap') }
+  confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }> {
+    return this.gated('confirmMap', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundInteger(expectedRevision, 'expectedRevision')
+      outboundOps(ops)
+      return this.decode('map_confirm', { bookId, expectedRevision, ops }, decodeRevision)
+    })
+  }
   completeTask(_taskId: number): Promise<void> { return this.unsupported('completeTask') }
   blockSource(_blockId: number): Promise<{ href: string; text: string }> { return this.unsupported('blockSource') }
   epubUrl(_bookId: number): Promise<string> { return this.unsupported('epubUrl') }

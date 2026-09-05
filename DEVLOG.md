@@ -298,3 +298,9 @@
 - `FeynmanPage`:初始化管线末步 `startOrResumeSession(taskId, clientRequestId(挂载一次), today)`,幂等故允许重试初始化(删除单次守卫);`TeachingRoom` 以 sessionId 为 key 从服务端视图水合(done 回合 → 对话流、version、readyToEnd、evaluated → 直接评估卡、pending 用户回合 → 显示 + "上次发送未完成" 重试、evaluating → 输入禁用 + "继续评估")。发送:`clientTurnId` 触发时生成一次进入 args,重试复用(同 id、同旧版本);评估/判定 id 为每会话常量 `'eval'`/`'verdict'`;确认走 `confirmSessionVerdict(sessionId, version, 'verdict', pass, today)` 单步原子(不再 completeTask/pendingNotice);放弃走 `abandonSession(sessionId, version)`,失败留在页面可重试。
 - 测试重写 20 条(fireEvent+act):契约参数、4 轮→评估→原子判定回今日(版本 5)、重挂载水合同会话、已评估/评估中/pending 回合水合、失败重试参数完全相同、版本冲突、放弃成功/失败、初始化失败重试沿用同一 clientRequestId、既有错误隔离用例。
 - GREEN:web **228 passed / 2 skipped(17 files)**、tsc、oxlint 0、build。
+
+## 2026-09-05 · B-T4 地图页接稳定 id 操作集与修订号乐观并发完成
+- 契约:`confirmMap(bookId, expectedRevision, ops) → { revision }`(删 `MapEditBlock`);Mock 在工作副本上按序应用 rename/renameModule/reorder(须全排列)/setSkipped/merge(来源 skipped、锚点段复制、prereq 重映射)/split(invalid_request),全部合法才提交,修订号不符 conflict、成功 +1;TauriBackend `map_confirm` 门控 + `outboundOps` 逐变体校验 + `decodeRevision`。
+- MapPage:`listBooks` 资源改为 `{title, mapRevision}`;编辑初值沿用 `block.skipped`,浏览模式显示"已跳过",目标换算只计未跳过块;`finalize` 用 `features/map/mapOps.ts` 的 `diffMapOps`(renameModule → setSkipped → reorder)差分,无差异不调后端但仍退出编辑并打开目标设定;成功后重载块与修订号(第二次定稿带新修订号);conflict 不可重试、编辑保留。
+- 测试:Mock confirmMap 3 条(操作集生效且不触碰已通过块、非法操作原子拒绝、merge);Tauri 命令/出站/入站各补 confirmMap;地图页 5 条新用例 + 2 条既有用例按计划调整("进行中双击"先做一个编辑;"定稿后目标设定"断言不调后端)。
+- GREEN:web **239 passed / 2 skipped(17 files)**、tsc、oxlint 0(`diffMapOps` 从页面文件移到 `mapOps.ts` 以满足 only-export-components)、build。

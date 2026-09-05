@@ -1,16 +1,15 @@
 import type {
   AnchorSegment, AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapProgress, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, VerdictOutcome,
+  KnowledgeBlock, MapEditOp, MapProgress, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, VerdictOutcome,
 } from '../types'
-
-export interface MapEditBlock { title: string; moduleName: string; seq: number; skipped: boolean }
 
 export interface Backend {
   // 书架与导入
   listBooks(): Promise<Book[]>
   importEpub(file: File, type: BookType): Promise<{ bookId: number }>
   generateMap(bookId: number, onProgress?: (msg: string) => void): Promise<KnowledgeBlock[]>
-  confirmMap(bookId: number, blocks: MapEditBlock[]): Promise<void>
+  /** 稳定 block id 操作集 + 乐观修订号(不符 → conflict);成功返回新修订号(ADR-0003) */
+  confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }>
   setActiveBook(bookId: number): Promise<void>
   // 计划与队列
   setPlan(plan: StudyPlan): Promise<void>

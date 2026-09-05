@@ -346,7 +346,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     const operations = [
       () => backend.importEpub(new File([], 'book.epub'), 'textbook'),
       () => backend.generateMap(1, () => { progressCalls += 1 }),
-      () => backend.confirmMap(1, []),
+      () => backend.confirmMap(1, 1, []),
       () => backend.completeTask(1),
       () => backend.blockSource(1),
       () => backend.epubUrl(1),
@@ -398,7 +398,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 
 // ---- 契约 v2 传输(Plan B B2):按 unsupportedCapabilities 门控;解码器用假 invoke 验证 ----
 const V2_METHODS = [
-  'storeSpine', 'runMapJob', 'setAnchorSegments', 'listAnchors', 'startOrResumeSession',
+  'storeSpine', 'runMapJob', 'confirmMap', 'setAnchorSegments', 'listAnchors', 'startOrResumeSession',
   'submitTurn', 'requestEvaluation', 'confirmSessionVerdict', 'abandonSession',
 ]
 const enabledContract = {
@@ -433,6 +433,7 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     const replies: Record<string, unknown> = {
       map_store_spine: null,
       map_run_job: [block],
+      map_confirm: { revision: 2 },
       map_set_anchor_segments: null,
       map_list_anchors: [segment],
       session_start_or_resume: sessionView,
@@ -449,6 +450,7 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
 
     await backend.storeSpine(1, chapters)
     expect(await backend.runMapJob(1, 'job-1')).toEqual([block])
+    expect(await backend.confirmMap(1, 1, [{ op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] }])).toEqual({ revision: 2 })
     await backend.setAnchorSegments(2, [segment])
     expect(await backend.listAnchors(2)).toEqual([segment])
     expect(await backend.startOrResumeSession(3, 'req-1', '2026-09-05')).toEqual(sessionView)
@@ -464,8 +466,9 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
       command,
       payloadKeys: Object.keys(payload),
     }))).toEqual(expected)
-    expect(calls[4].payload).toEqual({ taskId: 3, clientRequestId: 'req-1', date: '2026-09-05' })
-    expect(calls[7].payload).toEqual({ sessionId: 7, expectedVersion: 4, requestId: 'verdict', pass: true, date: '2026-09-05' })
+    expect(calls[2].payload).toEqual({ bookId: 1, expectedRevision: 1, ops: [{ op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] }] })
+    expect(calls[5].payload).toEqual({ taskId: 3, clientRequestId: 'req-1', date: '2026-09-05' })
+    expect(calls[8].payload).toEqual({ sessionId: 7, expectedVersion: 4, requestId: 'verdict', pass: true, date: '2026-09-05' })
   })
 
   it('decodes an evaluated session view with its eval', async () => {
@@ -484,6 +487,9 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     ['segment precision unknown', (backend: TauriBackend) => backend.setAnchorSegments(1, [{ ...segment, precision: 'fuzzy' as never }])],
     ['pass not boolean', (backend: TauriBackend) => backend.confirmSessionVerdict(1, 0, 'verdict', 'yes' as never, '2026-09-05')],
     ['date not string', (backend: TauriBackend) => backend.startOrResumeSession(1, 'req', 20260905 as never)],
+    ['unknown map op', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'explode', blockId: 1 } as never])],
+    ['reorder ids not integers', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'reorder', blockIds: [1.5] }])],
+    ['expectedRevision not integer', (backend: TauriBackend) => backend.confirmMap(1, 1.5, [])],
   ])('rejects unsafe outbound v2 values before invoking: %s', async (_name, operation) => {
     let invoked = false
     const backend = new TauriBackend(async <T>() => {
@@ -507,6 +513,7 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     ['verdict blockStatus is exact', { passed: true, blockStatus: 'done', taskDone: true, outboxOps: 4, version: 5 }, (backend: TauriBackend) => backend.confirmSessionVerdict(1, 4, 'verdict', true, '2026-09-05'), 'verdict.blockStatus'],
     ['anchor precision is exact', [{ ...segment, precision: 'rough' }], (backend: TauriBackend) => backend.listAnchors(1), 'anchors[0].precision'],
     ['abandon requires unit', 'ok', (backend: TauriBackend) => backend.abandonSession(1, 0), 'session_abandon'],
+    ['confirmMap revision is a safe integer', { revision: 'two' }, (backend: TauriBackend) => backend.confirmMap(1, 1, []), 'map_confirm.revision'],
   ])('rejects malformed v2 wire data: %s', async (_name, reply, operation, path) => {
     const backend = new TauriBackend(async <T>() => reply as T, { contract: enabledContract })
     const error = await operation(backend).catch(reason => reason as BackendError)

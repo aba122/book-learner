@@ -265,3 +265,51 @@ describe('MockBackend 地图契约 v2(修订号 / 作业 / 锚点)', () => {
     expect(await b.listAnchors(6)).toEqual([])
   })
 })
+
+describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
+  it('修订号不符 conflict;操作集按序生效且不触碰已通过块的状态/评分', async () => {
+    const b = new MockBackend()
+    await expect(b.confirmMap(1, 0, [])).rejects.toMatchObject({ code: 'conflict' })
+    const order = [2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    expect(await b.confirmMap(1, 1, [
+      { op: 'setSkipped', blockId: 4, skipped: true },
+      { op: 'reorder', blockIds: order },
+      { op: 'renameModule', from: '生产与成本', to: '生产' },
+      { op: 'rename', blockId: 5, title: '效用' },
+    ])).toEqual({ revision: 2 })
+    const blocks = await b.listBlocks(1)
+    const byId = (id: number) => blocks.find(k => k.id === id)!
+    expect(byId(4).skipped).toBe(true)
+    expect([byId(2).seq, byId(1).seq, byId(3).seq]).toEqual([1, 2, 3])
+    expect(byId(9).moduleName).toBe('生产')
+    expect(byId(5).title).toBe('效用')
+    expect(byId(1)).toMatchObject({ status: 'passed', passedAt: '2026-08-28', scores: { accuracy: 5, completeness: 4, clarity: 5 } })
+    expect((await b.listBooks())[0].mapRevision).toBe(2)
+  })
+
+  it('reorder 非全排列 / split / 坏参数 → invalid_request 且无变更', async () => {
+    const b = new MockBackend()
+    const before = JSON.stringify(await b.listBlocks(1))
+    await expect(b.confirmMap(1, 1, [{ op: 'reorder', blockIds: [1, 2] }])).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.confirmMap(1, 1, [{ op: 'split', blockId: 1 }])).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.confirmMap(1, 1, [{ op: 'rename', blockId: 1, title: '   ' }])).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.confirmMap(1, 1, [{ op: 'setSkipped', blockId: 999, skipped: true }])).rejects.toMatchObject({ code: 'not_found' })
+    await expect(b.confirmMap(999, 0, [])).rejects.toMatchObject({ code: 'not_found' })
+    expect(JSON.stringify(await b.listBlocks(1))).toBe(before)
+    expect((await b.listBooks())[0].mapRevision).toBe(1)
+  })
+
+  it('merge:来源块 skipped、锚点段复制到目标块、其他块 prereq 重映射', async () => {
+    const b = new MockBackend()
+    const seg = { spineHref: 'chap1.xhtml', cfiStart: 'a', cfiEnd: 'b', precision: 'exact' as const, hint: '供给', text: '供给原文' }
+    await b.setAnchorSegments(2, [seg])
+    await b.setAnchorSegments(1, [{ ...seg, hint: '需求', text: '需求原文' }])
+    expect(await b.confirmMap(1, 1, [{ op: 'merge', into: 1, from: [2] }])).toEqual({ revision: 2 })
+    const blocks = await b.listBlocks(1)
+    expect(blocks.find(k => k.id === 2)?.skipped).toBe(true)
+    expect(blocks.find(k => k.id === 3)?.prereqIds).toEqual([1])
+    expect((await b.listAnchors(1)).map(a => a.hint)).toEqual(['需求', '供给'])
+    expect(await b.listAnchors(2)).toHaveLength(1)
+    await expect(b.confirmMap(1, 2, [{ op: 'merge', into: 1, from: [1] }])).rejects.toMatchObject({ code: 'invalid_request' })
+  })
+})
