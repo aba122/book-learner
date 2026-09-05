@@ -304,3 +304,10 @@
 - MapPage:`listBooks` 资源改为 `{title, mapRevision}`;编辑初值沿用 `block.skipped`,浏览模式显示"已跳过",目标换算只计未跳过块;`finalize` 用 `features/map/mapOps.ts` 的 `diffMapOps`(renameModule → setSkipped → reorder)差分,无差异不调后端但仍退出编辑并打开目标设定;成功后重载块与修订号(第二次定稿带新修订号);conflict 不可重试、编辑保留。
 - 测试:Mock confirmMap 3 条(操作集生效且不触碰已通过块、非法操作原子拒绝、merge);Tauri 命令/出站/入站各补 confirmMap;地图页 5 条新用例 + 2 条既有用例按计划调整("进行中双击"先做一个编辑;"定稿后目标设定"断言不调后端)。
 - GREEN:web **239 passed / 2 skipped(17 files)**、tsc、oxlint 0(`diffMapOps` 从页面文件移到 `mapOps.ts` 以满足 only-export-components)、build。
+
+## 2026-09-05 · B-T5 EPUB spine 抽取与小节标题多段 CFI 锚定完成(Playwright 真浏览器覆盖)
+- fixture:`make-fixture-epub.mjs` 每章增 h2 小节(chap1 "小结"×2 章内重复、chap2 "小结" 跨章重复、chap3 `机会<em>成本</em>` 嵌套节点),h1/href 不变,重生成 `public/fixtures/sample.epub`(3823 B);既有 cfi-smoke 仍通过。
+- `epub/headings.ts`(纯逻辑,vitest 6 条):`normalizeHeading`(NFKC、去"第X章/节/1.2/一、/(三)"编号、折叠空白、小写)、`normalizeText`(行内折叠、空行去除、段落 "\n\n" 分隔——与 core Stage A 切片边界一致)、`pickHeading`(精确 > 包含;重复标题按 used 依次消费;空 hint → null)、`segmentEnd`(下一个 level ≤ 本级的标题)。
+- `epub/extract.ts`:`openEpub`、`spineSections`(spine.each)、`loadSection`、`chapterMarkdownText`(标题层级 "# "/"## " 标记 + 块级分段)、`chapterPlainText`(无标记,fallback 段用)、`extractSpine`(TOC label 匹配 href ?? 首个 h1..h3 ?? href;href 去重;每章 unload)。`epub/anchors.ts`:`resolveBlockAnchors`(命中 → [标题首个文本节点起, 下一同级/更高级标题首个文本节点起) exact 段,两个**点** CFI + 归一化文本;未命中/空 hint → 整章 chapter_fallback)、`restoreSegmentText`(EpubCFI.toRange 两点组合 Range)。
+- harness `anchors-smoke.html`/`src/anchors-smoke.ts` + `e2e/anchors-smoke.spec.ts`:spine 3 章/标题/标记文本、精确段在下一小节前结束、章内重复标题 CFI 不同且按序、跨章同名独立、嵌套节点可匹配、缺失/空 hint 回退整章且文本等于 chapterPlainText(≠ 带标记的 spine 文本)、7 段中 5 个 exact 段往返还原相等、多段顺序保持。
+- GREEN:vitest **245 passed / 2 skipped(18 files)**、tsc、oxlint 0、build、Playwright 2/2(`PLAYWRIGHT_BROWSERS_PATH=/bigtemp/fzv6en/book-learner/playwright-browsers`)。
