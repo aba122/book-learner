@@ -243,3 +243,8 @@
 - 新模块 `mapgen.rs`:`store_spine`/`list_spine`(替换式缓存,`import_state='extracted'`,同 href 允许重复)、`resolve_source_section`(href / 章标题 / 文件名尾 → (href, hint))、`compact_candidates`、`validate_draft`(块数 1..=200、标题唯一、prereq 存在且三色 DFS 无环、source_sections 可解析、每模块 ≥1 块)、`run_map_job`(job 建/续:Stage A 逐章,>60 KiB 章按段落/字符边界切片 `:p{k}`;每章短事务存 next_chapter/candidates_json;Stage B 经 `run_ai_json` 且 parse 闭包含 validate_draft;候选超限先去 summary 压缩、仍超则 `too large` 失败;done 作业直接返回草图;失败记 stage/error)。
 - RED:7 条用例编译失败;GREEN 后 core 88 单测 + 27 + 1,clippy/fmt 通过。
 - 偏差:`run_map_job` 比计划多一个 `workdir: &Path` 参数(codex `-C` 需要记忆库根,计划签名漏列;后续 session/verdict 同样处理)。
+
+## 2026-09-05 · 并行测试偶发 ETXTBSY 修复(A-T5 门禁复跑)
+- A-T5 提交时的全量运行中 `ai::tests::codex_provider_returns_last_message` 偶发失败,复跑 5 次抓到根因:`spawn …: Text file busy (os error 26)`——并行测试写入可执行脚本时,另一测试 fork 出的子进程在 exec 前短暂继承了该写 fd。这是 L1 起就存在的测试设计隐患,新增的 5 个 spawn 用例让概率上升。
+- 修复:`CodexCliProvider` 的两处 spawn 改经 `spawn_with_retry`(`ErrorKind::ExecutableFileBusy` 有界重试 20×10ms;生产中二进制被替换时同样受益)。门禁脚本 `/bigtemp/fzv6en/book-learner/gate.sh`(test + clippy + fmt --check,任一失败非零)连续 6 次全绿。
+- 流程修正:此前 commit 命令未以门禁退出码串联,A-T5 提交时未拦住偶发失败(提交内容本身与该失败无关);此后所有 commit 一律 `gate.sh && git commit`。

@@ -109,6 +109,22 @@ fn last_chars(text: &str, n: usize) -> String {
     text.chars().skip(total.saturating_sub(n)).collect()
 }
 
+/// spawn 遇 ETXTBSY(可执行文件正被写入/被并行 fork 的子进程短暂持有写 fd)时有界重试。
+fn spawn_with_retry(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    const ATTEMPTS: usize = 20;
+    let mut last = None;
+    for _ in 0..ATTEMPTS {
+        match cmd.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                last = Some(e);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            other => return other,
+        }
+    }
+    Err(last.expect("at least one attempt"))
+}
+
 /// 轮询等待子进程,超时则整组 SIGKILL 并回收;正常退出后同样补杀进程组(不留孙进程)。
 fn wait_with_timeout(
     child: &mut std::process::Child,
@@ -173,8 +189,7 @@ impl CodexCliProvider {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
         }
-        let mut child = cmd
-            .spawn()
+        let mut child = spawn_with_retry(&mut cmd)
             .map_err(|e| CoreError::Ai(format!("spawn {}: {e}", self.bin.display())))?;
         let out_rx = spawn_stderr_drain(child.stdout.take());
         let err_rx = spawn_stderr_drain(child.stderr.take());
@@ -234,8 +249,7 @@ impl AiProvider for CodexCliProvider {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0); // 独立进程组:超时/收尾可整组终止,不留孙进程
         }
-        let mut child = cmd
-            .spawn()
+        let mut child = spawn_with_retry(&mut cmd)
             .map_err(|e| CoreError::Ai(format!("spawn {}: {e}", self.bin.display())))?;
         let tail_rx = spawn_stderr_drain(child.stderr.take());
         let status = wait_with_timeout(&mut child, req.timeout_secs)?;
