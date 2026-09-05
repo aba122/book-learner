@@ -166,7 +166,7 @@ pub fn validate_request_id(id: &str) -> Result<()>  // 非空、≤128、仅 [A-
 pub fn validate_client_id(id: &str) -> Result<()>   // 非空、≤64、仅 [A-Za-z0-9._-]
 ```
 
-- [ ] **Step A3.1 失败测试**(`CountingProvider`:预设应答序列 `Vec<Result<String>>`,记录调用次数与每次 system):
+- [x] **Step A3.1 失败测试**(`CountingProvider`:预设应答序列 `Vec<Result<String>>`,记录调用次数与每次 system):
   1. `transport_failures_retry_with_same_id`:序列 [Err(Ai timeout), Err(Ai exit 1), Ok("x")] → Ok(Fresh("x")),provider 调用 3 次,`ai_request.attempts=3,status='done'`;
   2. `exhausted_retries_mark_failed`:三次 Err(Ai) → Err,`status='failed'`,`error` 非空;
   3. `same_id_replays_without_calling_provider`:先成功,再用同 id 调用 → Replayed,provider 调用计数不变;
@@ -178,7 +178,7 @@ pub fn validate_client_id(id: &str) -> Result<()>   // 非空、≤64、仅 [A-Z
   8. `failed_request_can_be_resumed_by_same_id`:先耗尽失败,再同 id 调用且 provider 成功 → Fresh,attempts 累加;
   9. `rejects_call_inside_transaction`:`conn.unchecked_transaction()` 内调用 → Err(Other),provider 未被调;
   10. `request_id_validation`:空/129 字符/含空格 → InvalidInput;client id 65 字符/含冒号 → InvalidInput。
-- [ ] **Step A3.2** RED → **Step A3.3 实现** → **Step A3.4** GREEN → **Step A3.5** commit `feat(core): 幂等 AI 请求编排——同 ID 重放、accept 校验、传输重试、JSON 纠错一次 (A-T3)`
+- [x] **Step A3.2** RED → **Step A3.3 实现** → **Step A3.4** GREEN → **Step A3.5** commit `feat(core): 幂等 AI 请求编排——同 ID 重放、accept 校验、传输重试、JSON 纠错一次 (A-T3)`
 
 ### Task A4: prompts 6.1A/6.1B/6.4/6.5/6.6/6.8 + 严格 schema
 

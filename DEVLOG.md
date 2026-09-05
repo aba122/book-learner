@@ -228,3 +228,8 @@
 ## 2026-09-05 · A-T2 Codex provider request_id、限额、校验与连接测试完成
 - `CompletionRequest` 增 `request_id` 并派生 Clone(ai.rs 7 处 + lifecycle.rs 1 处字面量补齐);`MAX_PROMPT_BYTES=100 KiB`(渲染后 UTF-8 字节,spawn 前拒绝)、`MAX_OUTPUT_BYTES=1 MiB`(metadata 先判);`validate(workdir)`(裸名走 PATH 查找)与 `test_connection()`(`--version`,10s,进程组)。子进程等待/超时/补杀抽为 `wait_with_timeout`,stdout/stderr 排空共用泛型 drain。
 - RED:5 条新用例编译失败(缺字段/常量/方法);GREEN 后 core 62 单测 + 27 + 1,clippy/fmt 通过。恰在 100 KiB 上限的 prompt 实测可 spawn(Linux MAX_ARG_STRLEN 128 KiB)。
+
+## 2026-09-05 · A-T3 幂等 AI 请求编排完成
+- 新模块 `orchestrate.rs`:`AiPolicy`(传输重试 2、纠错 1、退避 500ms 起,测试置 0)、`run_ai_request`(非 autocommit 直接拒绝;done 重放;pending/failed 续跑;accept 通过才记 done;`Ai|Io` 重试,其它不重试)、`run_ai_json`(parse 闭包兼 accept;失败恰纠错一次并把摘要追加到 system;Replayed 结果不再通过时作废重调)、`validate_request_id`/`validate_client_id`。
+- RED:13 条用例编译失败;GREEN 后 core 75 单测 + 27 + 1,clippy/fmt 通过。
+- 偏差:策略结构体多一个 `retry_backoff_ms` 字段(计划未列,用于让测试不等待退避)。

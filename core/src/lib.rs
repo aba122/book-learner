@@ -4,6 +4,7 @@ pub mod eval;
 pub mod library;
 pub mod memory;
 pub mod models;
+pub mod orchestrate;
 pub mod planning;
 pub mod prompts;
 pub mod sched;
