@@ -169,8 +169,8 @@ export function useBackendOperation<A extends unknown[]>(
 - `retry(key)`:无 lastArgs → `'ignored'`;否则 `run(key, ...lastArgs)`。
 - 卸载:清 pending/lastArgs、generation 全部失效。
 
-- [ ] **Step 2.1 失败测试**:双击同 key 第二次 'ignored';不同 key 独立;失败记录逐 key 错误并释放;成功清错误;onCommitted reject 保持 pending、releaseCommitted 释放;晚到结果 'ignored';卸载后 'ignored' 且无 setState;retry 用上次 args。
-- [ ] **Step 2.2** RED → **Step 2.3** 实现 → **Step 2.4** GREEN → **Step 2.5** commit `feat(web): useBackendOperation 写操作 hook (H-T2)`
+- [x] **Step 2.1 失败测试**:双击同 key 第二次 'ignored';不同 key 独立;失败记录逐 key 错误并释放;成功清错误;onCommitted reject 保持 pending、releaseCommitted 释放;晚到结果 'ignored';卸载后 'ignored' 且无 setState;retry 用上次 args。
+- [x] **Step 2.2** RED → **Step 2.3** 实现 → **Step 2.4** GREEN → **Step 2.5** commit `feat(web): useBackendOperation 写操作 hook (H-T2)`
 
 ### Task 3: TodayPage 迁移到两 hook
 
