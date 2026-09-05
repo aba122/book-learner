@@ -216,10 +216,10 @@ export async function restoreSegmentText(book: Book, seg: AnchorSegment): Promis
 // 返回 normalizeText(range.toString())。
 ```
 
-- [ ] **Step B5.1 fixture**:`make-fixture-epub.mjs` 每章增 `sections:[{heading, paras}]` 渲染为 `<h2>`;chap1:`需求定律`、`均衡与弹性`、`小结`、`练习`、`小结`(章内重复);chap2:`效用与边际`、`小结`(跨章重复);chap3:`生产函数`、`机会<em>成本</em>`(嵌套节点)、`规模经济`;h1 与 href 不变(reader 测试与 cfi-smoke 不受影响)。运行 `node web/scripts/make-fixture-epub.mjs` 重生成;`pnpm -C web exec playwright test e2e/cfi-smoke.spec.ts` 仍 1 passed。
-- [ ] **Step B5.2 失败测试(vitest,headings.test.ts)**:`normalizeHeading('第一节 需求定律')==='需求定律'`、`'1.2  均衡与弹性'→'均衡与弹性'`、全角冒号/空白折叠;`pickHeading` 精确优先于包含、重复标题按 used 依次消费、无匹配 null;`segmentEnd`:h2 的终点是下一个 h2 或 h1,h3 的终点是下一个 h3/h2/h1,末尾 null;`normalizeText` 折叠与段落分隔。
-- [ ] **Step B5.3** RED → 实现 `headings.ts` → GREEN。
-- [ ] **Step B5.4 失败测试(Playwright,anchors-smoke.spec.ts)**:harness `anchors-smoke.ts` 打开 `/fixtures/sample.epub`,执行 `extractSpine` 与 `resolveBlockAnchors(book, [chap1#需求定律, chap1#小结, chap1#小结, chap2#小结, chap3#机会成本, chap3#不存在的小节, chap1#(空)])`,对每个 exact 段调用 `restoreSegmentText`,把结果挂到 `window.__ANCHORS_SMOKE__`;spec 断言:
+- [x] **Step B5.1 fixture**:`make-fixture-epub.mjs` 每章增 `sections:[{heading, paras}]` 渲染为 `<h2>`;chap1:`需求定律`、`均衡与弹性`、`小结`、`练习`、`小结`(章内重复);chap2:`效用与边际`、`小结`(跨章重复);chap3:`生产函数`、`机会<em>成本</em>`(嵌套节点)、`规模经济`;h1 与 href 不变(reader 测试与 cfi-smoke 不受影响)。运行 `node web/scripts/make-fixture-epub.mjs` 重生成;`pnpm -C web exec playwright test e2e/cfi-smoke.spec.ts` 仍 1 passed。
+- [x] **Step B5.2 失败测试(vitest,headings.test.ts)**:`normalizeHeading('第一节 需求定律')==='需求定律'`、`'1.2  均衡与弹性'→'均衡与弹性'`、全角冒号/空白折叠;`pickHeading` 精确优先于包含、重复标题按 used 依次消费、无匹配 null;`segmentEnd`:h2 的终点是下一个 h2 或 h1,h3 的终点是下一个 h3/h2/h1,末尾 null;`normalizeText` 折叠与段落分隔。
+- [x] **Step B5.3** RED → 实现 `headings.ts` → GREEN。
+- [x] **Step B5.4 失败测试(Playwright,anchors-smoke.spec.ts)**:harness `anchors-smoke.ts` 打开 `/fixtures/sample.epub`,执行 `extractSpine` 与 `resolveBlockAnchors(book, [chap1#需求定律, chap1#小结, chap1#小结, chap2#小结, chap3#机会成本, chap3#不存在的小节, chap1#(空)])`,对每个 exact 段调用 `restoreSegmentText`,把结果挂到 `window.__ANCHORS_SMOKE__`;spec 断言:
   1. spine 3 章、href 为 chap1..3、title 为 h1 文本、chap1 文本含 `## 需求定律` 与 `弹性衡量`;
   2. `chap1#需求定律` exact,text 以"需求定律"起且不含"均衡与弹性"(段在下一 h2 前结束);
   3. 两个 `chap1#小结` 均 exact 且 `cfiStart` **不同**(重复标题按顺序消费),第二个 text 含"练习"之后的内容;`chap2#小结` 与 chap1 的不同 href;
@@ -227,8 +227,8 @@ export async function restoreSegmentText(book: Book, seg: AnchorSegment): Promis
   5. `chap3#不存在的小节` 与 `chap1#(空)` 为 `chapter_fallback`,text 等于 `chapterPlainText(该章 document)`(harness 同时导出该值供比较;不含 "# " 标记,因此**不等于** spine 抽取文本)且 cfiStart/cfiEnd 非空;
   6. 往返:每个 exact 段 `restored` 归一化后等于 `seg.text`;
   7. 多段:同一块传 `[chap1#需求定律, chap2#小结]` 得 2 段顺序保持。
-- [ ] **Step B5.5** RED(harness 页面 `__ANCHORS_SMOKE__` 为空/断言失败)→ **Step B5.6 实现** `extract.ts`/`anchors.ts`/harness → **Step B5.7** GREEN:`pnpm -C web exec playwright test`(2 files passed)、vitest 全量、tsc、lint 0、build。
-- [ ] **Step B5.8** commit `feat(web): EPUB spine 抽取与小节标题多段 CFI 锚定,Playwright 真浏览器覆盖 (B-T5)`
+- [x] **Step B5.5** RED(harness 页面 `__ANCHORS_SMOKE__` 为空/断言失败)→ **Step B5.6 实现** `extract.ts`/`anchors.ts`/harness → **Step B5.7** GREEN:`pnpm -C web exec playwright test`(2 files passed)、vitest 全量、tsc、lint 0、build。
+- [x] **Step B5.8** commit `feat(web): EPUB spine 抽取与小节标题多段 CFI 锚定,Playwright 真浏览器覆盖 (B-T5)`
 
 ### Task B6: 导入向导接 JS 抽取 + storeSpine + runMapJob 进度
 

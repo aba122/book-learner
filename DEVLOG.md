@@ -335,3 +335,6 @@
   9. `session_abandon[sessionId, expectedVersion]` → `session::abandon_session` → unit。
   10. DTO 补字段:`Book.mapRevision`(core `book.map_revision`)、`KnowledgeBlock.skipped`(core `KnowledgeBlock.skipped`)——TS 解码器目前缺省 0/false,接线后视为必填。错误码映射:core `Conflict→conflict`、`InvalidInput→invalid_request`、`NotFound→not_found`(前端文案已就位)。
   接线步骤:实现 command → 从 `shared/tauri-wire-contract.json` 的 `unsupportedCapabilities` 移除该方法名 → `contract.test.ts` 精确列表同步 → TauriBackend 自动走真实 command。所有慢调用不得持 `Mutex<Connection>`(core 已保证 AI 期无事务,壳层需在调用期间释放连接守卫或用独立连接);启动恢复调用 `projection::run_pending`。
+
+## 2026-09-05 · Plan B 复选框补勾与 bundle 重建
+- B-T5 的计划复选框在当时的 commit 中未勾上(同前述 && 链中断问题),本条补勾;Plan A/Plan B 现无未勾选步骤。tag `m1-linux-b` 重指向本提交(tag 从未推送),bundle `/bigtemp/fzv6en/book-learner/m1-linux-pending.bundle` 重建并重新 `verify`(结果见同目录 `.verify.txt`)。
