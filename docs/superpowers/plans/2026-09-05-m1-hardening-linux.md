@@ -56,10 +56,10 @@ web/ARCHITECTURE.md / TECH_DESIGN.md / DEVLOG.md ← T10 回写
 
 ### Task 0: 分支与基线
 
-- [ ] **Step 0.1** `cd /bigtemp/fzv6en/book-learner/review-clone && git checkout -b feat/m1-hardening linux-local`
-- [ ] **Step 0.2** 基线确认(必须与 review 数字一致):`pnpm -C web exec vitest --run`(158 passed / 2 skipped)、`pnpm -C web lint`(6 warnings)、`CARGO_TARGET_DIR=… cargo test --manifest-path core/Cargo.toml`(66 passed / 1 ignored)。
-- [ ] **Step 0.3** DEVLOG 追加"2026-09-05 · M1 加固切片启动":范围、范围外与原因、推送策略、基线数字。
-- [ ] **Step 0.4** commit:`docs: M1 加固切片计划与基线 (H-T0)`(含本计划文件)
+- [x] **Step 0.1** `cd /bigtemp/fzv6en/book-learner/review-clone && git checkout -b feat/m1-hardening linux-local`
+- [x] **Step 0.2** 基线确认(必须与 review 数字一致):`pnpm -C web exec vitest --run`(158 passed / 2 skipped)、`pnpm -C web lint`(6 warnings)、`CARGO_TARGET_DIR=… cargo test --manifest-path core/Cargo.toml`(66 passed / 1 ignored)。
+- [x] **Step 0.3** DEVLOG 追加"2026-09-05 · M1 加固切片启动":范围、范围外与原因、推送策略、基线数字。
+- [x] **Step 0.4** commit:`docs: M1 加固切片计划与基线 (H-T0)`(含本计划文件)
 
 ### Task 1: `useAsyncResource`(读资源 hook)
 
@@ -122,14 +122,14 @@ export function useAsyncResource<T>(fetcher: (isCurrent: () => boolean) => Promi
 }
 ```
 
-- [ ] **Step 1.1 失败测试**(`useAsyncResource.test.ts`,用 `renderHook` + deferred):
+- [x] **Step 1.1 失败测试**(`useAsyncResource.test.ts`,用 `renderHook` + deferred):
   1. 成功:data 发布、loading=false、error=null;
   2. 失败:error 为 BackendError(非 BackendError 输入被归一化 code='unknown')、data 保持旧值;
   3. 竞态:reload 两次,先发后至的旧结果被丢弃(第一次 deferred 后 resolve,data 应为第二次结果);
   4. 卸载:unmount 后 resolve 不抛、不再 setState(无 act 警告);
   5. reload 失败保留旧 data 且返回 false;成功返回 true;
   6. 多步 fetcher:第一步 resolve 前 unmount,fetcher 内 `if (!isCurrent()) return` 后第二步 spy **未被调用**(对应 Today 既有断言)。
-- [ ] **Step 1.2** RED → **Step 1.3** 实现如上 → **Step 1.4** GREEN → **Step 1.5** commit `feat(web): useAsyncResource 读资源 hook (H-T1)`
+- [x] **Step 1.2** RED → **Step 1.3** 实现如上 → **Step 1.4** GREEN → **Step 1.5** commit `feat(web): useAsyncResource 读资源 hook (H-T1)`
 
 ### Task 2: `useBackendOperation`(写操作 hook)
 
