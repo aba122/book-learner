@@ -345,15 +345,10 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     let progressCalls = 0
     const operations = [
       () => backend.importEpub(new File([], 'book.epub'), 'textbook'),
-      () => backend.generateMap(1, () => { progressCalls += 1 }),
       () => backend.confirmMap(1, 1, []),
       () => backend.completeTask(1),
       () => backend.blockSource(1),
       () => backend.epubUrl(1),
-      () => backend.startSession(1, 'new'),
-      () => backend.studentReply(1, []),
-      () => backend.endSession(1),
-      () => backend.confirmVerdict(1, true),
       () => backend.stats(),
       () => backend.storeSpine(1, []),
       () => backend.runMapJob(1, 'job-1', () => { progressCalls += 1 }),

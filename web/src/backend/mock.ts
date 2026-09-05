@@ -1,15 +1,12 @@
 import { APP_DEFAULTS, KIND_ORDER, TASK_EST_MINUTES } from '../config'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult, EvaluationView,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
   KnowledgeBlock, MapEditOp, MapProgress, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
   TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
-
-/** v1 会话(B7 删除) */
-interface Session { blockId: number; scriptIdx: number }
 
 /** v2 会话:服务端权威 transcript、版本、幂等 id(镜像 core feynman_session + session_turn) */
 interface MockSession {
@@ -78,7 +75,6 @@ export class MockBackend implements Backend {
   private blocks: KnowledgeBlock[] = []
   private tasks: DailyTask[] = []
   private plans: StudyPlan[] = []
-  private sessions = new Map<number, Session>()
   private v2Sessions = new Map<number, MockSession>()
   private jobs = new Map<string, number>()
   private spines = new Map<number, SpineChapter[]>()
@@ -134,25 +130,6 @@ export class MockBackend implements Backend {
     const title = file.name.replace(/\.epub$/i, '') || '未命名书籍'
     this.books.push({ id, title, author: '待识别', type, slug: `book-${id}`, status: 'paused', mapRevision: 0 })
     return { bookId: id }
-  }
-
-  async generateMap(bookId: number, onProgress?: (msg: string) => void): Promise<KnowledgeBlock[]> {
-    onProgress?.('正在解析 EPUB 目录…')
-    onProgress?.('正在按章节拆分知识块…')
-    onProgress?.('正在标注前置依赖…')
-    if (!this.blocks.some(b => b.bookId === bookId)) {
-      const book = this.books.find(b => b.id === bookId)
-      const modules = ['基础概念', '进阶应用']
-      for (let i = 0; i < 6; i++) {
-        this.blocks.push({
-          id: this.nextBlockId++, bookId, moduleName: modules[Math.floor(i / 3)], seq: i + 1,
-          title: `${book?.title ?? '新书'}:知识块 ${i + 1}`, slug: `block-${bookId}-${i + 1}`,
-          prereqIds: i % 3 === 0 ? [] : [this.nextBlockId - 2], status: 'unlearned', skipped: false,
-        })
-      }
-      if (book) book.mapRevision = Math.max(book.mapRevision, 1)
-    }
-    return this.blocks.filter(b => b.bookId === bookId)
   }
 
   /** 与 core map::confirm_map 同语义:修订号不符 conflict;操作在工作副本上按序应用,全部合法才提交(原子) */
@@ -278,39 +255,6 @@ export class MockBackend implements Backend {
 
   async epubUrl(_bookId: number): Promise<string> {
     return '/fixtures/sample.epub'
-  }
-
-  async startSession(blockId: number, _kind: TaskKind): Promise<{ sessionId: number }> {
-    const sessionId = this.nextSessionId++
-    this.sessions.set(sessionId, { blockId, scriptIdx: 0 })
-    return { sessionId }
-  }
-
-  async studentReply(sessionId: number, _transcript: ChatMessage[]): Promise<{ text: string; readyToEnd: boolean }> {
-    const s = this.sessions.get(sessionId)
-    if (!s) throw new Error(`session ${sessionId} 不存在`)
-    const reply = STUDENT_SCRIPT[Math.min(s.scriptIdx, STUDENT_SCRIPT.length - 1)]
-    s.scriptIdx += 1
-    return reply
-  }
-
-  async endSession(sessionId: number): Promise<EvalResult> {
-    if (!this.sessions.has(sessionId)) throw new Error(`session ${sessionId} 不存在`)
-    return EVAL_FIXTURE
-  }
-
-  async confirmVerdict(sessionId: number, pass: boolean): Promise<void> {
-    const s = this.sessions.get(sessionId)
-    if (!s) throw new Error(`session ${sessionId} 不存在`)
-    const block = this.blocks.find(b => b.id === s.blockId)
-    if (!block) return
-    if (pass) {
-      block.status = 'passed'
-      block.scores = EVAL_FIXTURE.scores
-      block.passedAt = '2026-08-30'
-    } else {
-      block.status = 'learning'
-    }
   }
 
   async stats(): Promise<Stats> {

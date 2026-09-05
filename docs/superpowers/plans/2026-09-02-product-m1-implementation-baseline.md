@@ -144,11 +144,13 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 **Tests:** malformed/extra JSON, missing dependency, cycle, duplicate title/slug, partial chapter failure/resume, stale event ignored, cancellation/restart, three book-type prompt differences.
 
 > **2026-09-05 Plan A(A-T4/A-T5)**:core 侧完成——三类书 Stage A/B prompt、严格 schema、`mapgen::run_map_job`(断点续跑、长章分片、草图校验、语义无效不记 done、候选压缩)。进度事件经 `MapProgress` 回调,Tauri event 发射与取消留 Mac;stale event 由前端 generation 处理(Plan B)。
+> **2026-09-05 Plan B(B-T1/B-T2/B-T6)**:web 侧完成——契约 `runMapJob(bookId, jobId, onProgress)`(Mock 进度 chapter→merging→done;TauriBackend 订阅 `map_job_progress` 事件按 jobId 过滤)、导入向导 importEpub → JS 抽取 → storeSpine → runMapJob 进度文案、重试同 jobId。剩余:Rust command 接线与取消(Mac)。
 
 ### Node 6 — map confirmation, anchors, and memory initialization
 
 > **2026-09-05 状态**:记忆库写入已改为临时文件 + fsync + rename,slug 白名单校验(H-T8)。
 > **2026-09-05 Plan A(A-T6/A-T9)**:`map::apply_draft_map`/`confirm_map`(稳定 id、`expected_revision`、操作集 Rename/RenameModule/Reorder/SetSkipped/Merge,Split 留 Mac)、`slugify`、`set_anchor_segments`/`list_anchors`;`init_book`/`sync_map` 经 outbox 重放。剩余:小节标题 → CFI 解析(Plan B,JS)、手动校正 UI、Split。
+> **2026-09-05 Plan B(B-T4/B-T5)**:web 侧完成——`confirmMap(bookId, expectedRevision, ops)` 差分操作集(renameModule/setSkipped/reorder;merge/split 留 Mac UI)、conflict 不可重试、skipped 可见;`epub/anchors.ts` 小节标题 → 多段点 CFI(重复标题/嵌套节点/缺失回退,Playwright)。剩余:阅读器接 `listAnchors` 多段高亮与手动校正(Node 7)。
 
 - Replace `MapEditBlock[]` with a stable operation request containing `bookId`, expected map revision, stable block IDs, and explicit rename/reorder/skip/merge/split operations.
 - Resolve source section headings into ordered CFI segments. Record whole-chapter fallback precision and expose manual correction; never pretend fallback is exact.
@@ -176,6 +178,7 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 **Tests:** double start, remount/resume, double send, concurrent version conflict, timeout/retry after persisted user turn, crash before/after Codex reply persistence, abandon/reopen, no raw client transcript trust.
 
 > **2026-09-05 Plan A(A-T7)**:core 侧完成——`session::start_or_resume_session`/`get_session`/`submit_turn`/`abandon_session`/`fixed_context_for_block`,回合协议与重启续跑用例齐备。Tauri command 接线与前端水合在 Mac/Plan B。
+> **2026-09-05 Plan B(B-T3)**:web 侧完成——FeynmanPage 以 `startOrResumeSession(taskId, clientRequestId, today)` 水合服务端视图(done/pending 回合、evaluated/evaluating 态),`submitTurn` 同 clientTurnId/同版本重试,`abandonSession` 显式迁移。剩余:Rust command 接线(Mac)。
 
 ### Node 9 — evaluation, verdict, task transition, and outbox
 
@@ -187,10 +190,12 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 **Tests:** double confirm, crash/retry, pass/relearn, weak point fixed/open, new/weak/review task semantics, projection/git failure then restart replay, exactly one history entry and git commit.
 
 > **2026-09-05 Plan A(A-T8/A-T9/A-T10)**:core 侧完成——`verdict::request_evaluation`/`confirm_session_verdict`(单事务、用户判定覆盖、任务类型分流、确认幂等)与 `projection::run_pending`(顺序重放、失败即停、failed 重试、跨崩溃幂等);端到端集成 `core/tests/m1_engine.rs`。前端去掉 confirmVerdict+completeTask 两调用与 `completeTask` 保持 unsupported 在 Plan B/Mac。
+> **2026-09-05 Plan B(B-T3/B-T7)**:web 侧完成——费曼页只调一次 `confirmSessionVerdict(sessionId, version, 'verdict', pass, today)`,`confirmVerdict + completeTask` 两调用序列已删除;`completeTask` 仅保留给今日页复习直接完成且原生仍 unsupported。
 
 ### Node 10 — Feynman UI operational recovery
 
 > **2026-09-05 状态**:send/endTeaching/confirmVerdict/abandon 的隔离错误态、同步守卫、卸载失效已完成;confirmVerdict 成功而 completeTask 失败 → 回今日并显示后台同步提示(H-T5)。剩余:服务端会话水合、turn ID 幂等重试、草稿持久化(依赖 Node 8)。
+> **2026-09-05 Plan B(B-T3)**:服务端会话水合、同 turn id 重试、pending 回合续跑、evaluating 续评估已完成(Mock 可跑);草稿持久化(未发送文本跨重启)仍未做——Node 8 的 pending 回合已覆盖"已发送未回复",纯草稿留 Mac/M2。
 
 - Hydrate from server session/transcript rather than clearing state on mount.
 - Add isolated, state-preserving errors and synchronous guards for send, evaluation, verdict confirmation, and abandon.

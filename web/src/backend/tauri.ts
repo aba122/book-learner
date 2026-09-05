@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
+  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
   DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Scores, SessionKind, SessionState,
   SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
@@ -500,7 +500,6 @@ export class TauriBackend implements Backend {
   }
 
   importEpub(_file: File, _type: BookType): Promise<{ bookId: number }> { return this.unsupported('importEpub') }
-  generateMap(_bookId: number, _onProgress?: (msg: string) => void): Promise<KnowledgeBlock[]> { return this.unsupported('generateMap') }
   confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }> {
     return this.gated('confirmMap', () => {
       outboundInteger(bookId, 'bookId')
@@ -512,10 +511,6 @@ export class TauriBackend implements Backend {
   completeTask(_taskId: number): Promise<void> { return this.unsupported('completeTask') }
   blockSource(_blockId: number): Promise<{ href: string; text: string }> { return this.unsupported('blockSource') }
   epubUrl(_bookId: number): Promise<string> { return this.unsupported('epubUrl') }
-  startSession(_blockId: number, _kind: TaskKind): Promise<{ sessionId: number }> { return this.unsupported('startSession') }
-  studentReply(_sessionId: number, _transcript: ChatMessage[]): Promise<{ text: string; readyToEnd: boolean }> { return this.unsupported('studentReply') }
-  endSession(_sessionId: number): Promise<EvalResult> { return this.unsupported('endSession') }
-  confirmVerdict(_sessionId: number, _pass: boolean): Promise<void> { return this.unsupported('confirmVerdict') }
   stats(): Promise<Stats> { return this.unsupported('stats') }
 
   // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----

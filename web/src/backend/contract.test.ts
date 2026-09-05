@@ -23,18 +23,19 @@ describe('MockBackend 契约行为', () => {
   })
   it('学生剧本依次消费且末条 readyToEnd', async () => {
     const b = new MockBackend()
-    const { sessionId } = await b.startSession(1, 'new')
+    const { sessionId } = await b.startOrResumeSession(3, 'script', D)
     const replies = []
-    for (let i = 0; i < 4; i++) replies.push(await b.studentReply(sessionId, []))
+    for (let i = 0; i < 4; i++) replies.push(await b.submitTurn(sessionId, i, `t${i}`, `第${i}轮`))
     expect(replies.at(-1)!.readyToEnd).toBe(true)
-    expect(new Set(replies.map(r => r.text)).size).toBe(4)
+    expect(new Set(replies.map(r => r.studentText)).size).toBe(4)
   })
   it('评估结果分数在 1-5 且确认通过改变块状态', async () => {
     const b = new MockBackend()
-    const { sessionId } = await b.startSession(4, 'new')
-    const ev = await b.endSession(sessionId)
-    for (const s of Object.values(ev.scores)) { expect(s).toBeGreaterThanOrEqual(1); expect(s).toBeLessThanOrEqual(5) }
-    await b.confirmVerdict(sessionId, true)
+    const { sessionId } = await b.startOrResumeSession(3, 'scores', D)
+    await b.submitTurn(sessionId, 0, 't0', '讲一轮')
+    const ev = await b.requestEvaluation(sessionId, 'eval')
+    for (const s of Object.values(ev.eval.scores)) { expect(s).toBeGreaterThanOrEqual(1); expect(s).toBeLessThanOrEqual(5) }
+    await b.confirmSessionVerdict(sessionId, ev.version, 'verdict', true, D)
     expect((await b.getBlock(4)).status).toBe('passed')
   })
   it('设置默认值来自共享配置', async () => {
@@ -75,9 +76,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'confirmSessionVerdict', command: 'session_confirm_verdict', payloadKeys: ['sessionId', 'expectedVersion', 'requestId', 'pass', 'date'] },
       { method: 'abandonSession', command: 'session_abandon', payloadKeys: ['sessionId', 'expectedVersion'] },
     ])
+    // v1 会话/地图方法已删除(B7);confirmMap 已是 v2 签名但原生仍待接线
     expect(tauriWireContract.unsupportedCapabilities).toEqual([
-      'importEpub', 'generateMap', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl',
-      'startSession', 'studentReply', 'endSession', 'confirmVerdict', 'stats',
+      'importEpub', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl', 'stats',
       'storeSpine', 'runMapJob', 'setAnchorSegments', 'listAnchors',
       'startOrResumeSession', 'submitTurn', 'requestEvaluation', 'confirmSessionVerdict', 'abandonSession',
     ])

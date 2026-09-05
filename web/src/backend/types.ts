@@ -1,13 +1,12 @@
 import type {
-  AnchorSegment, AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView,
+  KnowledgeBlock, MapEditOp, MapProgress, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
   // 书架与导入
   listBooks(): Promise<Book[]>
   importEpub(file: File, type: BookType): Promise<{ bookId: number }>
-  generateMap(bookId: number, onProgress?: (msg: string) => void): Promise<KnowledgeBlock[]>
   /** 稳定 block id 操作集 + 乐观修订号(不符 → conflict);成功返回新修订号(ADR-0003) */
   confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }>
   setActiveBook(bookId: number): Promise<void>
@@ -20,17 +19,12 @@ export interface Backend {
   getBlock(blockId: number): Promise<KnowledgeBlock>
   blockSource(blockId: number): Promise<{ href: string; text: string }>
   epubUrl(bookId: number): Promise<string>
-  // 费曼环节(v1,B7 删除)
-  startSession(blockId: number, kind: TaskKind): Promise<{ sessionId: number }>
-  studentReply(sessionId: number, transcript: ChatMessage[]): Promise<{ text: string; readyToEnd: boolean }>
-  endSession(sessionId: number): Promise<EvalResult>
-  confirmVerdict(sessionId: number, pass: boolean): Promise<void>
   // 统计与设置
   stats(): Promise<Stats>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 
-  // ---- 契约 v2(Plan B;与 core 用例同名)----
+  // ---- 契约 v2(Plan B;与 core 用例同名;v1 的会话与地图生成方法已删除)----
   /** 写入已抽取的 spine 文本(替换旧缓存);EPUB 抽取在 JS 侧完成 */
   storeSpine(bookId: number, chapters: SpineChapter[]): Promise<void>
   /** 两阶段地图作业 + 草图落库;同 jobId 幂等;已有地图直接返回 */

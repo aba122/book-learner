@@ -231,7 +231,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
     void endOp.run('end')
   }
 
-  const confirmVerdict = (pass: boolean) => {
+  const decide = (pass: boolean) => {
     confirmOp.clearError('confirm')
     void confirmOp.run('confirm', pass)
   }
@@ -423,7 +423,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
       {evalResult && (
         <EvalCard
           result={evalResult}
-          onConfirm={confirmVerdict}
+          onConfirm={decide}
           error={confirmError ?? null}
           onRetry={() => void confirmOp.retry('confirm')}
           busy={confirming}
