@@ -223,18 +223,18 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `core/src/ai.rs`
 
-- [ ] **Step 7.1 失败测试**(现有 fake-codex 脚本模式):
+- [x] **Step 7.1 失败测试**(现有 fake-codex 脚本模式):
   1. `stderr_larger_than_pipe_does_not_hang`:脚本向 stderr 写 2 MiB 后 `exit 3`(不写输出文件);`complete()` 须在 <10s 内返回 `Err(Ai)`,且错误文本含 `exit status: 3` 与 tail(最后 ≤400 字符);
   2. `timeout_kills_descendants`:脚本 `sleep 60 & echo $! > $MARKER; wait`(子孙进程);timeout_secs=1;返回 timeout 错误后,读取 MARKER 的 pid,**在 3s 内轮询** `/proc/<pid>/stat` 直到文件不存在或状态为 `Z`(SIGKILL 后的僵尸需等 init 回收,`kill -0` 对僵尸仍成功,不能用它判定);
   3. `stderr_tail_is_bounded`:非零退出 + 5000 字符 stderr → 错误消息长度 < 600;
   4. 现有 4 个 ai 测试保持 GREEN。
-- [ ] **Step 7.2** RED → **Step 7.3** 实现:
+- [x] **Step 7.2** RED → **Step 7.3** 实现:
   - `Command::process_group(0)`(`std::os::unix::process::CommandExt`,unix-only;cfg 保护)使子进程成为独立进程组;
   - spawn 后 `take()` stderr,起一个线程持续 `read` 到环形/有界缓冲(保留最后 4 KiB),线程在 EOF 结束;
   - 超时:`libc::kill(-pid, SIGKILL)`(引入 `libc` 依赖,unix)再 `child.wait()`;**正常退出路径也在 `wait()` 后对进程组补发 SIGKILL**(注释说明:leader 被回收后 pgid 理论上可被复用,Linux 上窗口可忽略,勿"修复"掉)(codex 留下的孙进程会让 stderr 管道不关闭、drain 线程 join 永挂);join 用 `recv_timeout(2s)` 有界等待,超时则放弃 join(线程为 detached,读到 EOF 自行结束);
   - 非零退出:tail 取缓冲末 400 字符(chars 边界安全)。
   - 临时输出文件:`NamedTempFile` 在所有返回路径 drop 即删除(现状已满足,加注释断言)。
-- [ ] **Step 7.4** GREEN + `cargo clippy --all-targets -- -D warnings` → **Step 7.5** commit `fix(core): Codex 子进程 stderr 并发排空与进程组终止 (H-T7)`
+- [x] **Step 7.4** GREEN + `cargo clippy --all-targets -- -D warnings` → **Step 7.5** commit `fix(core): Codex 子进程 stderr 并发排空与进程组终止 (H-T7)`
 
 ### Task 8: core `memory.rs` — slug 校验与原子写
 

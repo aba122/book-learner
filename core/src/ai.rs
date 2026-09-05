@@ -1,5 +1,8 @@
 use crate::{CoreError, Result};
+use std::io::Read;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Role {
@@ -24,6 +27,13 @@ pub struct CodexCliProvider {
     pub extra_args: Vec<String>,
 }
 
+/// stderr 只保留末尾这么多字节(有界缓冲,防止噪声子进程撑爆内存)
+const STDERR_TAIL_BYTES: usize = 4096;
+/// 错误信息里附带的 stderr 尾部字符数
+const ERROR_TAIL_CHARS: usize = 400;
+/// 等待 stderr 排空线程收尾的上限;超过则放弃(线程读到 EOF 会自行结束)
+const DRAIN_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
+
 fn render_prompt(req: &CompletionRequest) -> String {
     let mut p = req.system.clone();
     if !req.messages.is_empty() {
@@ -40,16 +50,59 @@ fn render_prompt(req: &CompletionRequest) -> String {
     p
 }
 
+/// 终止整个进程组(子进程经 process_group(0) 成为组长)。
+/// 注:组长被回收后 pgid 理论上可被复用;Linux 上该窗口可忽略,勿"修复"掉此调用。
+#[cfg(unix)]
+fn kill_process_group(leader_pid: u32) {
+    // SAFETY: 纯系统调用,参数为进程组 id 与信号常量;失败(ESRCH 等)忽略即可。
+    unsafe {
+        libc::kill(-(leader_pid as i32), libc::SIGKILL);
+    }
+}
+#[cfg(not(unix))]
+fn kill_process_group(_leader_pid: u32) {}
+
+/// 在独立线程持续读取 stderr 到有界尾部缓冲,避免子进程因管道写满而阻塞(被误判为超时)。
+fn spawn_stderr_drain(stderr: Option<std::process::ChildStderr>) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut tail: Vec<u8> = Vec::new();
+        if let Some(mut se) = stderr {
+            let mut buf = [0u8; 4096];
+            loop {
+                match se.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        tail.extend_from_slice(&buf[..n]);
+                        if tail.len() > STDERR_TAIL_BYTES {
+                            let cut = tail.len() - STDERR_TAIL_BYTES;
+                            tail.drain(..cut);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = tx.send(tail);
+    });
+    rx
+}
+
+fn last_chars(text: &str, n: usize) -> String {
+    let total = text.chars().count();
+    text.chars().skip(total.saturating_sub(n)).collect()
+}
+
 impl AiProvider for CodexCliProvider {
     fn complete(&self, req: &CompletionRequest) -> Result<String> {
+        // NamedTempFile 在所有返回路径上 drop 即删除,临时输出不残留
         let tmp = tempfile::NamedTempFile::new().map_err(CoreError::Io)?;
         let sandbox = if req.read_only {
             "read-only"
         } else {
             "workspace-write"
         };
-        let mut child = std::process::Command::new(&self.bin)
-            .arg("exec")
+        let mut cmd = std::process::Command::new(&self.bin);
+        cmd.arg("exec")
             .arg("--skip-git-repo-check")
             .arg("-C")
             .arg(&req.workdir)
@@ -60,40 +113,43 @@ impl AiProvider for CodexCliProvider {
             .args(&self.extra_args)
             .arg(render_prompt(req))
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0); // 独立进程组:超时/收尾可整组终止,不留孙进程
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| CoreError::Ai(format!("spawn {}: {e}", self.bin.display())))?;
+        let leader = child.id();
+        let tail_rx = spawn_stderr_drain(child.stderr.take());
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(req.timeout_secs);
+        let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
         let status = loop {
             match child.try_wait().map_err(CoreError::Io)? {
                 Some(st) => break st,
-                None if std::time::Instant::now() >= deadline => {
-                    let _ = child.kill();
+                None if Instant::now() >= deadline => {
+                    kill_process_group(leader);
                     let _ = child.wait();
                     return Err(CoreError::Ai(format!(
                         "timeout after {}s",
                         req.timeout_secs
                     )));
                 }
-                None => std::thread::sleep(std::time::Duration::from_millis(100)),
+                None => std::thread::sleep(Duration::from_millis(100)),
             }
         };
+        // 正常退出也补杀进程组:codex 若留下孙进程,stderr 管道不会关闭,排空线程永不 EOF
+        kill_process_group(leader);
+        let tail = tail_rx.recv_timeout(DRAIN_JOIN_TIMEOUT).unwrap_or_default();
+
         if !status.success() {
-            let mut err = String::new();
-            if let Some(mut se) = child.stderr.take() {
-                use std::io::Read;
-                let _ = se.read_to_string(&mut err);
-            }
-            let tail: String = err
-                .chars()
-                .rev()
-                .take(400)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            return Err(CoreError::Ai(format!("codex exit {status}: {tail}")));
+            let text = String::from_utf8_lossy(&tail);
+            return Err(CoreError::Ai(format!(
+                "codex exit {status}: {}",
+                last_chars(&text, ERROR_TAIL_CHARS)
+            )));
         }
         let reply = std::fs::read_to_string(tmp.path()).map_err(CoreError::Io)?;
         if reply.trim().is_empty() {
@@ -220,5 +276,105 @@ printf '%s' 'ok' > "$out"
         let out = super::AiProvider::complete(&p, &req).unwrap();
         println!("codex real reply: {out}");
         assert!(!out.is_empty());
+    }
+
+    fn read_tail(err: &crate::CoreError) -> String {
+        err.to_string()
+    }
+
+    #[test]
+    fn stderr_larger_than_pipe_does_not_hang() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "noisy-codex",
+            "#!/bin/bash\nhead -c 2097152 /dev/zero | tr '\\0' 'e' >&2\nexit 3\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "".into(),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            timeout_secs: 20,
+        };
+        let t0 = std::time::Instant::now();
+        let err = super::AiProvider::complete(&prov, &req).unwrap_err();
+        assert!(t0.elapsed().as_secs() < 10, "stderr 洪泛不得阻塞到超时");
+        let text = read_tail(&err);
+        assert!(text.contains("exit status: 3"), "{text}");
+        assert!(text.ends_with(&"e".repeat(50)), "应含 stderr 尾部: {text}");
+    }
+
+    #[test]
+    fn timeout_kills_descendants() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "forking-codex",
+            "#!/bin/bash\nsleep 60 &\necho $! > \"$(dirname \"$0\")/marker\"\nwait\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "".into(),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            timeout_secs: 1,
+        };
+        assert!(super::AiProvider::complete(&prov, &req).is_err());
+        let pid: i32 = std::fs::read_to_string(dir.path().join("marker"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // SIGKILL 后的孙进程可能短暂为僵尸(等 init 回收),kill -0 对僵尸仍成功,故轮询 /proc 状态
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let gone = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Err(_) => true,
+                Ok(stat) => stat
+                    .split(") ")
+                    .nth(1)
+                    .is_none_or(|rest| rest.starts_with('Z')),
+            };
+            if gone {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "孙进程 {pid} 未被进程组终止"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn stderr_tail_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = write_script(
+            dir.path(),
+            "chatty-codex",
+            "#!/bin/bash\nhead -c 5000 /dev/zero | tr '\\0' 'x' >&2\nexit 2\n",
+        );
+        let prov = super::CodexCliProvider {
+            bin,
+            extra_args: vec![],
+        };
+        let req = super::CompletionRequest {
+            system: "".into(),
+            messages: vec![],
+            workdir: dir.path().to_path_buf(),
+            read_only: true,
+            timeout_secs: 10,
+        };
+        let err = super::AiProvider::complete(&prov, &req).unwrap_err();
+        assert!(read_tail(&err).chars().count() < 600);
     }
 }
