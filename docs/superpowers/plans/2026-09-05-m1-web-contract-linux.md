@@ -127,14 +127,14 @@ wire(`shared/tauri-wire-contract.json` `commands` 追加;全部先进 `unsupport
 
 **Files:** Modify `web/src/backend/tauri.ts`、`web/src/backend/tauri.test.ts`
 
-- [ ] **Step B2.1 失败测试**(构造 `new TauriBackend(invoke, { contract, listen })`,测试用契约 = 正式契约但从 `unsupportedCapabilities` 移除被测方法):
+- [x] **Step B2.1 失败测试**(构造 `new TauriBackend(invoke, { contract, listen })`,测试用契约 = 正式契约但从 `unsupportedCapabilities` 移除被测方法):
   1. 10 个方法各一条"命令名 + payloadKeys 与契约一致 + 完整 fixture 解码相等"(SessionView 含 transcript/eval null、TurnResult、EvaluationView、VerdictOutcome、`{revision}`、AnchorSegment[]、KnowledgeBlock[] 含 `skipped`);
   2. 出站校验:非安全整数 `sessionId`、空 `clientTurnId`、`ops` 中未知 `op` → `invalid_request` 且**不调用** invoke;
   3. 入站校验:`state` 非法枚举、`transcript[0].role` 非法、`version` 非整数、`eval` 非 null 非对象 → `invalid_response` 带 path;
   4. 门控:正式契约下调用 `submitTurn` → `not_implemented`(不调用 `session_submit_turn`);假 invoke 须按既有 unsupported 用例的模式**以结构化错误拒绝** `unsupported_capability`(resolve 的假 invoke 会按设计得到 `invalid_response`);
   5. `runMapJob` 进度:注入的 `listen('map_job_progress', cb)` 在 invoke 期间收到 `{jobId:'j1', progress:{stage:'chapter',index:0,total:3,title:'一'}}` → `onProgress` 被调;不同 jobId 的事件被忽略;invoke 结束后 unlisten 被调用(即使 invoke 拒绝)。
-- [ ] **Step B2.2** RED → **Step B2.3 实现**:`TauriBackend` 构造 `(invokeFn = invoke, options: { contract?: WireContract; listen?: ListenFn } = {})`,`listen` 默认动态 `import('@tauri-apps/api/event').listen`(测试注入假函数);解码器 `decodeSessionView/decodeTurnView/decodeTurnResult/decodeEvaluationView/decodeVerdictOutcome/decodeAnchorSegment/decodeRevision`;出站 `outboundClientId`(正则同 ids.ts)、`outboundOps`;`gated(method, run)`:`contract.unsupportedCapabilities.includes(method) ? this.unsupported(method) : run()`。
-- [ ] **Step B2.4** GREEN → **Step B2.5** commit `feat(web): TauriBackend v2 命令解码器与契约门控,进度事件订阅 (B-T2)`
+- [x] **Step B2.2** RED → **Step B2.3 实现**:`TauriBackend` 构造 `(invokeFn = invoke, options: { contract?: WireContract; listen?: ListenFn } = {})`,`listen` 默认动态 `import('@tauri-apps/api/event').listen`(测试注入假函数);解码器 `decodeSessionView/decodeTurnView/decodeTurnResult/decodeEvaluationView/decodeVerdictOutcome/decodeAnchorSegment/decodeRevision`;出站 `outboundClientId`(正则同 ids.ts)、`outboundOps`;`gated(method, run)`:`contract.unsupportedCapabilities.includes(method) ? this.unsupported(method) : run()`。
+- [x] **Step B2.4** GREEN → **Step B2.5** commit `feat(web): TauriBackend v2 命令解码器与契约门控,进度事件订阅 (B-T2)`
 
 ### Task B3: FeynmanPage 接新契约(服务端水合、同 id 重试、无 completeTask)
 

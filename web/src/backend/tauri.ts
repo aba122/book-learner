@@ -1,14 +1,34 @@
 import { invoke } from '@tauri-apps/api/core'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
+import { CLIENT_ID_RE } from '../lib/ids'
 import type {
-  AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapProgress, Scores, SessionView, SpineChapter,
-  Stats, StudyPlan, TaskKind, TurnResult, VerdictOutcome,
+  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, ChatMessage,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapProgress, Scores, SessionKind, SessionState,
+  SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MapEditBlock } from './types'
 
 export type InvokeFn = typeof invoke
+export type UnlistenFn = () => void
+/** Tauri event 订阅(默认动态加载 @tauri-apps/api/event;测试注入假函数) */
+export type ListenFn = (event: string, handler: (event: { payload: unknown }) => void) => Promise<UnlistenFn>
+export interface WireContract {
+  commands: { method: string; command: string; payloadKeys: string[] }[]
+  unsupportedCapabilities: string[]
+}
+export interface TauriBackendOptions {
+  /** 门控契约:列在 unsupportedCapabilities 的方法一律走 unsupported_capability(Mac 接线后移除条目即生效) */
+  contract?: WireContract
+  listen?: ListenFn
+}
+/** runMapJob 进度事件名与 payload:{ jobId, progress: MapProgress } */
+export const MAP_JOB_PROGRESS_EVENT = 'map_job_progress'
+
+const defaultListen: ListenFn = async (event, handler) => {
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen<unknown>(event, e => handler({ payload: e.payload }))
+}
 
 type WireObject = Record<string, unknown>
 type ErrorCode = 'invalid_request' | 'invalid_response'
@@ -121,6 +141,13 @@ function optionalAt<T>(value: WireObject, key: string, path: string, decode: (it
 const BOOK_TYPES = ['textbook', 'methodology', 'humanities'] as const satisfies readonly BookType[]
 const BOOK_STATUSES = ['active', 'paused', 'finished'] as const satisfies readonly BookStatus[]
 const BLOCK_STATUSES = ['unlearned', 'learning', 'passed', 'weak', 'consolidated'] as const satisfies readonly BlockStatus[]
+const SESSION_STATES = ['open', 'evaluating', 'evaluated', 'confirmed', 'abandoned'] as const satisfies readonly SessionState[]
+const SESSION_KINDS = ['learn', 'retest', 'review', 'final_exam'] as const satisfies readonly SessionKind[]
+const TURN_ROLES = ['user', 'student'] as const
+const TURN_STATUSES = ['pending', 'done', 'failed'] as const
+const VERDICTS = ['pass_suggested', 'relearn_suggested'] as const satisfies readonly Verdict[]
+const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const satisfies readonly AnchorPrecision[]
+const MAP_OPS = ['rename', 'renameModule', 'reorder', 'setSkipped', 'merge', 'split'] as const
 const TASK_KINDS = ['new', 'weak_retest', 'review'] as const satisfies readonly TaskKind[]
 const TASK_STATUSES = ['pending', 'done', 'skipped'] as const
 
@@ -197,6 +224,147 @@ function outboundInteger(value: unknown, path: string): void {
   if (!Number.isSafeInteger(value)) invalidShape(path, 'safe integer', value, 'invalid_request')
 }
 
+function outboundBoolean(value: unknown, path: string): void {
+  if (typeof value !== 'boolean') invalidShape(path, 'boolean', value, 'invalid_request')
+}
+
+/** 客户端 id:与 core validate_client_id 同规则(≤64,仅 [A-Za-z0-9._-]) */
+function outboundClientId(value: unknown, path: string): void {
+  if (typeof value !== 'string' || !CLIENT_ID_RE.test(value)) invalidShape(path, 'client id', value, 'invalid_request')
+}
+
+function outboundChapters(value: unknown): void {
+  if (!Array.isArray(value)) invalidShape('chapters', 'array', value, 'invalid_request')
+  ;(value as unknown[]).forEach((item, index) => {
+    const wire = objectAt(item, `chapters[${index}]`, 'invalid_request')
+    outboundInteger(wire.idx, `chapters[${index}].idx`)
+    outboundString(wire.href, `chapters[${index}].href`)
+    outboundString(wire.title, `chapters[${index}].title`)
+    outboundString(wire.text, `chapters[${index}].text`)
+  })
+}
+
+function outboundSegments(value: unknown): void {
+  if (!Array.isArray(value)) invalidShape('segments', 'array', value, 'invalid_request')
+  ;(value as unknown[]).forEach((item, index) => {
+    const path = `segments[${index}]`
+    const wire = objectAt(item, path, 'invalid_request')
+    for (const key of ['spineHref', 'cfiStart', 'cfiEnd', 'hint', 'text'] as const) outboundString(wire[key], `${path}.${key}`)
+    if (!ANCHOR_PRECISIONS.includes(wire.precision as AnchorPrecision)) {
+      invalidShape(`${path}.precision`, ANCHOR_PRECISIONS.join(' | '), wire.precision, 'invalid_request')
+    }
+  })
+}
+
+// ---- 契约 v2 解码器(camelCase 镜像 core 结构)----
+
+function decodeAnchorSegment(value: unknown, path: string): AnchorSegment {
+  const wire = objectAt(value, path)
+  return {
+    spineHref: stringAt(wire.spineHref, `${path}.spineHref`),
+    cfiStart: stringAt(wire.cfiStart, `${path}.cfiStart`),
+    cfiEnd: stringAt(wire.cfiEnd, `${path}.cfiEnd`),
+    precision: enumAt(wire.precision, `${path}.precision`, ANCHOR_PRECISIONS),
+    hint: stringAt(wire.hint, `${path}.hint`),
+    text: stringAt(wire.text, `${path}.text`),
+  }
+}
+
+function decodeEval(value: unknown, path: string): EvalResult {
+  const wire = objectAt(value, path)
+  return {
+    verdict: enumAt(wire.verdict, `${path}.verdict`, VERDICTS),
+    scores: decodeScores(wire.scores, `${path}.scores`),
+    summary: stringAt(wire.summary, `${path}.summary`),
+    weakPoints: arrayAt(wire.weakPoints, `${path}.weakPoints`, (item, itemPath) => {
+      const wp = objectAt(item, itemPath)
+      return {
+        title: stringAt(wp.title, `${itemPath}.title`),
+        detail: stringAt(wp.detail, `${itemPath}.detail`),
+        fixedInSession: booleanAt(wp.fixedInSession, `${itemPath}.fixedInSession`),
+      }
+    }),
+    finalRestatement: stringAt(wire.finalRestatement, `${path}.finalRestatement`),
+    observationNote: stringAt(wire.observationNote, `${path}.observationNote`),
+  }
+}
+
+function decodeTurnView(value: unknown, path: string): TurnView {
+  const wire = objectAt(value, path)
+  const clientTurnId = wire.clientTurnId === null ? null : stringAt(wire.clientTurnId, `${path}.clientTurnId`)
+  return {
+    role: enumAt(wire.role, `${path}.role`, TURN_ROLES),
+    text: stringAt(wire.text, `${path}.text`),
+    status: enumAt(wire.status, `${path}.status`, TURN_STATUSES),
+    clientTurnId,
+    readyToEnd: booleanAt(wire.readyToEnd, `${path}.readyToEnd`),
+  }
+}
+
+function decodeSessionView(value: unknown): SessionView {
+  const path = 'session'
+  const wire = objectAt(value, path)
+  return {
+    sessionId: safeIntegerAt(wire.sessionId, `${path}.sessionId`),
+    taskId: safeIntegerAt(wire.taskId, `${path}.taskId`),
+    version: safeIntegerAt(wire.version, `${path}.version`),
+    state: enumAt(wire.state, `${path}.state`, SESSION_STATES),
+    blockId: safeIntegerAt(wire.blockId, `${path}.blockId`),
+    kind: enumAt(wire.kind, `${path}.kind`, SESSION_KINDS),
+    transcript: arrayAt(wire.transcript, `${path}.transcript`, decodeTurnView),
+    eval: wire.eval === null ? null : decodeEval(wire.eval, `${path}.eval`),
+  }
+}
+
+function decodeTurnResult(value: unknown): TurnResult {
+  const wire = objectAt(value, 'turn')
+  return {
+    studentText: stringAt(wire.studentText, 'turn.studentText'),
+    readyToEnd: booleanAt(wire.readyToEnd, 'turn.readyToEnd'),
+    version: safeIntegerAt(wire.version, 'turn.version'),
+  }
+}
+
+function decodeEvaluationView(value: unknown): EvaluationView {
+  const wire = objectAt(value, 'evaluation')
+  return {
+    eval: decodeEval(wire.eval, 'evaluation.eval'),
+    version: safeIntegerAt(wire.version, 'evaluation.version'),
+  }
+}
+
+function decodeVerdictOutcome(value: unknown): VerdictOutcome {
+  const wire = objectAt(value, 'verdict')
+  return {
+    passed: booleanAt(wire.passed, 'verdict.passed'),
+    blockStatus: enumAt(wire.blockStatus, 'verdict.blockStatus', BLOCK_STATUSES),
+    taskDone: booleanAt(wire.taskDone, 'verdict.taskDone'),
+    outboxOps: safeIntegerAt(wire.outboxOps, 'verdict.outboxOps'),
+    version: safeIntegerAt(wire.version, 'verdict.version'),
+  }
+}
+
+function decodeMapProgress(value: unknown, path: string): MapProgress {
+  const wire = objectAt(value, path)
+  switch (wire.stage) {
+    case 'chapter':
+      return {
+        stage: 'chapter',
+        index: safeIntegerAt(wire.index, `${path}.index`),
+        total: safeIntegerAt(wire.total, `${path}.total`),
+        title: stringAt(wire.title, `${path}.title`),
+      }
+    case 'merging':
+      return { stage: 'merging' }
+    case 'done':
+      return { stage: 'done', blocks: safeIntegerAt(wire.blocks, `${path}.blocks`) }
+    default:
+      return invalidShape(`${path}.stage`, 'chapter | merging | done', wire.stage)
+  }
+}
+
+export { MAP_OPS }
+
 function outboundString(value: unknown, path: string): void {
   if (typeof value !== 'string') invalidShape(path, 'string', value, 'invalid_request')
 }
@@ -220,9 +388,19 @@ function validateSettings(settings: AppSettings): void {
 
 export class TauriBackend implements Backend {
   private readonly invokeFn: InvokeFn
+  private readonly contract: WireContract
+  private readonly listen: ListenFn
 
-  constructor(invokeFn: InvokeFn = invoke) {
+  constructor(invokeFn: InvokeFn = invoke, options: TauriBackendOptions = {}) {
     this.invokeFn = invokeFn
+    this.contract = options.contract ?? tauriWireContract
+    this.listen = options.listen ?? defaultListen
+  }
+
+  /** 契约门控:未接线的 v2 能力显式 not_implemented,而不是调用不存在的 command 得到 transport_error */
+  private async gated<T>(method: string, run: () => Promise<T>): Promise<T> {
+    if (this.contract.unsupportedCapabilities.includes(method)) return this.unsupported<T>(method)
+    return run() // async 包裹:出站校验的同步 throw 统一变成 rejection
   }
 
   private async call(command: string, payload: WireObject): Promise<unknown> {
@@ -292,14 +470,99 @@ export class TauriBackend implements Backend {
   confirmVerdict(_sessionId: number, _pass: boolean): Promise<void> { return this.unsupported('confirmVerdict') }
   stats(): Promise<Stats> { return this.unsupported('stats') }
 
-  // ---- 契约 v2:解码器与门控在 B2 落地;此前显式 not_implemented ----
-  storeSpine(_bookId: number, _chapters: SpineChapter[]): Promise<void> { return this.unsupported('storeSpine') }
-  runMapJob(_bookId: number, _jobId: string, _onProgress?: (p: MapProgress) => void): Promise<KnowledgeBlock[]> { return this.unsupported('runMapJob') }
-  setAnchorSegments(_blockId: number, _segments: AnchorSegment[]): Promise<void> { return this.unsupported('setAnchorSegments') }
-  listAnchors(_blockId: number): Promise<AnchorSegment[]> { return this.unsupported('listAnchors') }
-  startOrResumeSession(_taskId: number, _clientRequestId: string, _date: string): Promise<SessionView> { return this.unsupported('startOrResumeSession') }
-  submitTurn(_sessionId: number, _expectedVersion: number, _clientTurnId: string, _text: string): Promise<TurnResult> { return this.unsupported('submitTurn') }
-  requestEvaluation(_sessionId: number, _requestId: string): Promise<EvaluationView> { return this.unsupported('requestEvaluation') }
-  confirmSessionVerdict(_sessionId: number, _expectedVersion: number, _requestId: string, _pass: boolean, _date: string): Promise<VerdictOutcome> { return this.unsupported('confirmSessionVerdict') }
-  abandonSession(_sessionId: number, _expectedVersion: number): Promise<void> { return this.unsupported('abandonSession') }
+  // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----
+
+  storeSpine(bookId: number, chapters: SpineChapter[]): Promise<void> {
+    return this.gated('storeSpine', async () => {
+      outboundInteger(bookId, 'bookId')
+      outboundChapters(chapters)
+      await this.decode('map_store_spine', { bookId, chapters }, value => unitAt(value, 'map_store_spine'))
+    })
+  }
+
+  runMapJob(bookId: number, jobId: string, onProgress?: (p: MapProgress) => void): Promise<KnowledgeBlock[]> {
+    return this.gated('runMapJob', async () => {
+      outboundInteger(bookId, 'bookId')
+      outboundClientId(jobId, 'jobId')
+      let unlisten: UnlistenFn | null = null
+      if (onProgress) {
+        unlisten = await this.listen(MAP_JOB_PROGRESS_EVENT, event => {
+          const wire = event.payload
+          if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) return
+          if ((wire as WireObject).jobId !== jobId) return
+          try {
+            onProgress(decodeMapProgress((wire as WireObject).progress, `${MAP_JOB_PROGRESS_EVENT}.progress`))
+          } catch {
+            // 进度只是提示,畸形事件忽略;最终结果仍由 command 返回值决定
+          }
+        })
+      }
+      try {
+        return await this.decode('map_run_job', { bookId, jobId }, value => arrayAt(value, 'blocks', decodeBlock))
+      } finally {
+        unlisten?.()
+      }
+    })
+  }
+
+  setAnchorSegments(blockId: number, segments: AnchorSegment[]): Promise<void> {
+    return this.gated('setAnchorSegments', async () => {
+      outboundInteger(blockId, 'blockId')
+      outboundSegments(segments)
+      await this.decode('map_set_anchor_segments', { blockId, segments }, value => unitAt(value, 'map_set_anchor_segments'))
+    })
+  }
+
+  listAnchors(blockId: number): Promise<AnchorSegment[]> {
+    return this.gated('listAnchors', () => {
+      outboundInteger(blockId, 'blockId')
+      return this.decode('map_list_anchors', { blockId }, value => arrayAt(value, 'anchors', decodeAnchorSegment))
+    })
+  }
+
+  startOrResumeSession(taskId: number, clientRequestId: string, date: string): Promise<SessionView> {
+    return this.gated('startOrResumeSession', () => {
+      outboundInteger(taskId, 'taskId')
+      outboundClientId(clientRequestId, 'clientRequestId')
+      outboundString(date, 'date')
+      return this.decode('session_start_or_resume', { taskId, clientRequestId, date }, decodeSessionView)
+    })
+  }
+
+  submitTurn(sessionId: number, expectedVersion: number, clientTurnId: string, text: string): Promise<TurnResult> {
+    return this.gated('submitTurn', () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundInteger(expectedVersion, 'expectedVersion')
+      outboundClientId(clientTurnId, 'clientTurnId')
+      outboundString(text, 'text')
+      return this.decode('session_submit_turn', { sessionId, expectedVersion, clientTurnId, text }, decodeTurnResult)
+    })
+  }
+
+  requestEvaluation(sessionId: number, requestId: string): Promise<EvaluationView> {
+    return this.gated('requestEvaluation', () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundClientId(requestId, 'requestId')
+      return this.decode('session_request_evaluation', { sessionId, requestId }, decodeEvaluationView)
+    })
+  }
+
+  confirmSessionVerdict(sessionId: number, expectedVersion: number, requestId: string, pass: boolean, date: string): Promise<VerdictOutcome> {
+    return this.gated('confirmSessionVerdict', () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundInteger(expectedVersion, 'expectedVersion')
+      outboundClientId(requestId, 'requestId')
+      outboundBoolean(pass, 'pass')
+      outboundString(date, 'date')
+      return this.decode('session_confirm_verdict', { sessionId, expectedVersion, requestId, pass, date }, decodeVerdictOutcome)
+    })
+  }
+
+  abandonSession(sessionId: number, expectedVersion: number): Promise<void> {
+    return this.gated('abandonSession', async () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundInteger(expectedVersion, 'expectedVersion')
+      await this.decode('session_abandon', { sessionId, expectedVersion }, value => unitAt(value, 'session_abandon'))
+    })
+  }
 }

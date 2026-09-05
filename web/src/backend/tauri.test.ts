@@ -395,3 +395,179 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     })
   })
 })
+
+// ---- 契约 v2 传输(Plan B B2):按 unsupportedCapabilities 门控;解码器用假 invoke 验证 ----
+const V2_METHODS = [
+  'storeSpine', 'runMapJob', 'setAnchorSegments', 'listAnchors', 'startOrResumeSession',
+  'submitTurn', 'requestEvaluation', 'confirmSessionVerdict', 'abandonSession',
+]
+const enabledContract = {
+  ...tauriWireContract,
+  unsupportedCapabilities: tauriWireContract.unsupportedCapabilities.filter(c => !V2_METHODS.includes(c)),
+}
+const evalResult = {
+  verdict: 'pass_suggested',
+  scores: { accuracy: 4, completeness: 4, clarity: 5 },
+  summary: '讲解到位',
+  weakPoints: [{ title: '弹性vs斜率', detail: '未完全修复', fixedInSession: false }],
+  finalRestatement: '弹性是相对变化率',
+  observationNote: '举例能力强',
+}
+const sessionView = {
+  sessionId: 7, taskId: 3, version: 2, state: 'open', blockId: 4, kind: 'learn',
+  transcript: [
+    { role: 'user', text: '弹性是相对变化率', status: 'done', clientTurnId: 't1', readyToEnd: false },
+    { role: 'student', text: '讲清楚了', status: 'done', clientTurnId: null, readyToEnd: true },
+  ],
+  eval: null,
+}
+const segment = {
+  spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/2!/4/2/1:0)', cfiEnd: 'epubcfi(/6/2!/4/6/1:0)',
+  precision: 'exact', hint: '需求定律', text: '需求定律说的是……',
+}
+const chapters = [{ idx: 0, href: 'chap1.xhtml', title: '第一章', text: '正文' }]
+
+describe('TauriBackend v2 transport (contract-gated)', () => {
+  it('uses the v2 wire commands and decodes complete fixtures', async () => {
+    const calls: { command: string; payload: Record<string, unknown> }[] = []
+    const replies: Record<string, unknown> = {
+      map_store_spine: null,
+      map_run_job: [block],
+      map_set_anchor_segments: null,
+      map_list_anchors: [segment],
+      session_start_or_resume: sessionView,
+      session_submit_turn: { studentText: '为什么?', readyToEnd: false, version: 3 },
+      session_request_evaluation: { eval: evalResult, version: 4 },
+      session_confirm_verdict: { passed: true, blockStatus: 'passed', taskDone: true, outboxOps: 4, version: 5 },
+      session_abandon: null,
+    }
+    const invoke: InvokeFn = async <T>(command: string, payload = {}) => {
+      calls.push({ command, payload })
+      return replies[command] as T
+    }
+    const backend = new TauriBackend(invoke, { contract: enabledContract })
+
+    await backend.storeSpine(1, chapters)
+    expect(await backend.runMapJob(1, 'job-1')).toEqual([block])
+    await backend.setAnchorSegments(2, [segment])
+    expect(await backend.listAnchors(2)).toEqual([segment])
+    expect(await backend.startOrResumeSession(3, 'req-1', '2026-09-05')).toEqual(sessionView)
+    expect(await backend.submitTurn(7, 2, 'turn-1', '弹性')).toEqual({ studentText: '为什么?', readyToEnd: false, version: 3 })
+    expect(await backend.requestEvaluation(7, 'eval')).toEqual({ eval: evalResult, version: 4 })
+    expect(await backend.confirmSessionVerdict(7, 4, 'verdict', true, '2026-09-05'))
+      .toEqual({ passed: true, blockStatus: 'passed', taskDone: true, outboxOps: 4, version: 5 })
+    await backend.abandonSession(7, 5)
+
+    const expected = tauriWireContract.commands.filter(entry => V2_METHODS.includes(entry.method))
+    expect(calls.map(({ command, payload }, index) => ({
+      method: expected[index].method,
+      command,
+      payloadKeys: Object.keys(payload),
+    }))).toEqual(expected)
+    expect(calls[4].payload).toEqual({ taskId: 3, clientRequestId: 'req-1', date: '2026-09-05' })
+    expect(calls[7].payload).toEqual({ sessionId: 7, expectedVersion: 4, requestId: 'verdict', pass: true, date: '2026-09-05' })
+  })
+
+  it('decodes an evaluated session view with its eval', async () => {
+    const backend = new TauriBackend(async <T>() => ({ ...sessionView, state: 'evaluated', eval: evalResult }) as T, { contract: enabledContract })
+    expect(await backend.startOrResumeSession(3, 'req-1', '2026-09-05')).toEqual({ ...sessionView, state: 'evaluated', eval: evalResult })
+  })
+
+  it.each([
+    ['sessionId', (backend: TauriBackend) => backend.submitTurn(1.5, 0, 'turn-1', 'x')],
+    ['expectedVersion', (backend: TauriBackend) => backend.submitTurn(1, Number.NaN, 'turn-1', 'x')],
+    ['empty clientTurnId', (backend: TauriBackend) => backend.submitTurn(1, 0, '', 'x')],
+    ['clientTurnId with colon', (backend: TauriBackend) => backend.submitTurn(1, 0, 'a:b', 'x')],
+    ['jobId with space', (backend: TauriBackend) => backend.runMapJob(1, 'job 1')],
+    ['chapters not an array', (backend: TauriBackend) => backend.storeSpine(1, {} as never)],
+    ['chapter idx not integer', (backend: TauriBackend) => backend.storeSpine(1, [{ ...chapters[0], idx: 0.5 }])],
+    ['segment precision unknown', (backend: TauriBackend) => backend.setAnchorSegments(1, [{ ...segment, precision: 'fuzzy' as never }])],
+    ['pass not boolean', (backend: TauriBackend) => backend.confirmSessionVerdict(1, 0, 'verdict', 'yes' as never, '2026-09-05')],
+    ['date not string', (backend: TauriBackend) => backend.startOrResumeSession(1, 'req', 20260905 as never)],
+  ])('rejects unsafe outbound v2 values before invoking: %s', async (_name, operation) => {
+    let invoked = false
+    const backend = new TauriBackend(async <T>() => {
+      invoked = true
+      return null as T
+    }, { contract: enabledContract })
+
+    await expect(operation(backend)).rejects.toMatchObject({ name: 'BackendError', code: 'invalid_request', retryable: false })
+    expect(invoked).toBe(false)
+  })
+
+  it.each([
+    ['session state is exact', { ...sessionView, state: 'paused' }, (backend: TauriBackend) => backend.startOrResumeSession(3, 'r', '2026-09-05'), 'session.state'],
+    ['turn role is exact', { ...sessionView, transcript: [{ ...sessionView.transcript[0], role: 'assistant' }] }, (backend: TauriBackend) => backend.startOrResumeSession(3, 'r', '2026-09-05'), 'session.transcript[0].role'],
+    ['version is a safe integer', { ...sessionView, version: 1.5 }, (backend: TauriBackend) => backend.startOrResumeSession(3, 'r', '2026-09-05'), 'session.version'],
+    ['eval is null or object', { ...sessionView, eval: 'ok' }, (backend: TauriBackend) => backend.startOrResumeSession(3, 'r', '2026-09-05'), 'session.eval'],
+    ['clientTurnId is null or string', { ...sessionView, transcript: [{ ...sessionView.transcript[0], clientTurnId: 5 }] }, (backend: TauriBackend) => backend.startOrResumeSession(3, 'r', '2026-09-05'), 'session.transcript[0].clientTurnId'],
+    ['turn result readyToEnd is boolean', { studentText: 'x', readyToEnd: 'no', version: 1 }, (backend: TauriBackend) => backend.submitTurn(1, 0, 't', 'x'), 'turn.readyToEnd'],
+    ['evaluation verdict is exact', { eval: { ...evalResult, verdict: 'maybe' }, version: 1 }, (backend: TauriBackend) => backend.requestEvaluation(1, 'eval'), 'evaluation.eval.verdict'],
+    ['weak point fixedInSession is boolean', { eval: { ...evalResult, weakPoints: [{ title: 'a', detail: 'b', fixedInSession: 1 }] }, version: 1 }, (backend: TauriBackend) => backend.requestEvaluation(1, 'eval'), 'evaluation.eval.weakPoints[0].fixedInSession'],
+    ['verdict blockStatus is exact', { passed: true, blockStatus: 'done', taskDone: true, outboxOps: 4, version: 5 }, (backend: TauriBackend) => backend.confirmSessionVerdict(1, 4, 'verdict', true, '2026-09-05'), 'verdict.blockStatus'],
+    ['anchor precision is exact', [{ ...segment, precision: 'rough' }], (backend: TauriBackend) => backend.listAnchors(1), 'anchors[0].precision'],
+    ['abandon requires unit', 'ok', (backend: TauriBackend) => backend.abandonSession(1, 0), 'session_abandon'],
+  ])('rejects malformed v2 wire data: %s', async (_name, reply, operation, path) => {
+    const backend = new TauriBackend(async <T>() => reply as T, { contract: enabledContract })
+    const error = await operation(backend).catch(reason => reason as BackendError)
+
+    expect(error).toBeInstanceOf(BackendError)
+    expect(error).toMatchObject({ code: 'invalid_response', retryable: false })
+    expect((error.details as { path: string }).path).toBe(path)
+  })
+
+  it('keeps gated v2 methods on unsupported_capability under the shipped contract', async () => {
+    const calls: string[] = []
+    const rejection = { code: 'not_implemented', message: '此功能尚未在 Mac 版中实现', retryable: false }
+    const backend = new TauriBackend(async <_T>(command) => {
+      calls.push(command)
+      throw rejection
+    })
+
+    await expect(backend.submitTurn(1, 0, 'turn-1', 'x')).rejects.toMatchObject(rejection)
+    expect(calls).toEqual(['unsupported_capability'])
+  })
+
+  it('subscribes runMapJob progress by jobId and unlistens after invoke, even on failure', async () => {
+    type Handler = (event: { payload: unknown }) => void
+    const handlers: Handler[] = []
+    let unlistened = 0
+    const listen = async (_event: string, handler: Handler) => {
+      handlers.push(handler)
+      return () => { unlistened += 1 }
+    }
+    const progress: unknown[] = []
+    let resolveInvoke!: (v: unknown) => void
+    const backend = new TauriBackend(
+      async <T>() => new Promise<T>(res => { resolveInvoke = res as (v: unknown) => void }),
+      { contract: enabledContract, listen },
+    )
+
+    const pending = backend.runMapJob(1, 'job-1', p => progress.push(p))
+    await Promise.resolve()
+    expect(handlers).toHaveLength(1)
+    handlers[0]({ payload: { jobId: 'job-1', progress: { stage: 'chapter', index: 0, total: 3, title: '一' } } })
+    handlers[0]({ payload: { jobId: 'other', progress: { stage: 'merging' } } })
+    handlers[0]({ payload: { jobId: 'job-1', progress: { stage: 'bogus' } } })
+    handlers[0]({ payload: { jobId: 'job-1', progress: { stage: 'done', blocks: 3 } } })
+    resolveInvoke([block])
+    expect(await pending).toEqual([block])
+    expect(progress).toEqual([
+      { stage: 'chapter', index: 0, total: 3, title: '一' },
+      { stage: 'done', blocks: 3 },
+    ])
+    expect(unlistened).toBe(1)
+
+    const failing = new TauriBackend(async () => { throw { code: 'conflict', message: '冲突', retryable: false } }, { contract: enabledContract, listen })
+    await expect(failing.runMapJob(1, 'job-2', () => {})).rejects.toMatchObject({ code: 'conflict' })
+    expect(unlistened).toBe(2)
+  })
+
+  it('does not subscribe to progress events without an onProgress callback', async () => {
+    let subscribed = 0
+    const listen = async () => { subscribed += 1; return () => {} }
+    const backend = new TauriBackend(async <T>() => [block] as T, { contract: enabledContract, listen })
+    await backend.runMapJob(1, 'job-1')
+    expect(subscribed).toBe(0)
+  })
+})
