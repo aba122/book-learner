@@ -370,6 +370,29 @@ describe('今日学习页', () => {
     expect(completeTask).toHaveBeenCalledTimes(2)
   })
 
+  it('conflict 失败禁用完成,但队列刷新成功后重新可用(F6)', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'completeTask')
+      .mockRejectedValueOnce(new BackendError({
+        code: 'conflict',
+        message: '数据状态冲突,请刷新后重试',
+        retryable: false,
+      }))
+      .mockResolvedValueOnce(undefined)
+
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    await user.click(within(cards[1]).getByRole('button', { name: '完成' }))
+    expect(await within(cards[1]).findByRole('button', { name: '完成暂不可用' })).toBeDisabled()
+    expect(await within(screen.getByTestId('task-row-2')).findByRole('alert')).toHaveTextContent('刷新后重试')
+
+    // 另一任务完成成功 → 队列刷新成功 → conflict 行按其文案承诺重新可用
+    await user.click(within(cards[0]).getByRole('button', { name: '完成' }))
+    const row2 = screen.getByTestId('task-row-2')
+    expect(await within(row2).findByRole('button', { name: '完成' })).toBeEnabled()
+    expect(within(row2).queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('卸载后晚到的完成失败不再处理错误', async () => {
     const completion = deferred<void>()
     vi.spyOn(backendModule.backend, 'completeTask').mockReturnValue(completion.promise)
@@ -469,7 +492,8 @@ describe('今日学习页', () => {
     expect(completeTask).toHaveBeenNthCalledWith(2, 2)
     expect(queue).toHaveBeenCalledTimes(2)
     expect(listBlocks).toHaveBeenCalledTimes(2)
-    expect(stats).toHaveBeenCalledTimes(1)
+    // H-T3(F9):完成任务后进度环/今日分钟必须更新,故成功后同时刷新 stats(1→2 为有意变更)
+    expect(stats).toHaveBeenCalledTimes(2)
   })
 
   it('完成后的队列刷新失败时保留旧快照', async () => {

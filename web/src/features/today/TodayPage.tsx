@@ -1,104 +1,63 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
-import { normalizeBackendError, type BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
 import { localCalendarDate } from '../../lib/localDate'
+import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { DailyTask, KnowledgeBlock, Stats } from '../../types'
+import type { DailyTask, KnowledgeBlock } from '../../types'
 import Pomodoro from './Pomodoro'
 import TaskCard from './TaskCard'
+
+interface QueueBundle {
+  tasks: DailyTask[]
+  blocks: Map<number, KnowledgeBlock>
+}
 
 export default function TodayPage() {
   const navigate = useNavigate()
   const setCurrentTaskId = useSession(s => s.setCurrentTaskId)
+  // 挂载时固定队列日期:跨午夜重试仍使用同一日期
   const [today] = useState(localCalendarDate)
-  const [tasks, setTasks] = useState<DailyTask[] | null>(null)
-  const [blocks, setBlocks] = useState<Map<number, KnowledgeBlock>>(new Map())
-  const [stats, setStats] = useState<Stats | null>(null)
   const [focusTask, setFocusTask] = useState<DailyTask | null>(null)
-  const [queueError, setQueueError] = useState<BackendError | null>(null)
-  const [statsError, setStatsError] = useState<BackendError | null>(null)
-  const [operationFailures, setOperationFailures] = useState<Map<number, BackendError>>(new Map())
-  const completionGuards = useRef(new Set<number>())
-  const committedCompletionGuards = useRef(new Set<number>())
-  const queueGeneration = useRef(0)
-  const statsGeneration = useRef(0)
-  const operationGenerations = useRef(new Map<number, number>())
-  const mounted = useRef(false)
-  const [blockedTaskIds, setBlockedTaskIds] = useState<Set<number>>(new Set())
 
-  const releaseCompletionGuard = useCallback((taskId: number) => {
-    completionGuards.current.delete(taskId)
-    committedCompletionGuards.current.delete(taskId)
-    setBlockedTaskIds(new Set(completionGuards.current))
-  }, [])
-
-  const releaseCommittedCompletionGuards = useCallback(() => {
-    for (const taskId of committedCompletionGuards.current) {
-      completionGuards.current.delete(taskId)
+  // 队列与其 blocks hydration 为单一原子 pipeline:全部成功后才发布;失败保留旧快照
+  const loadQueueBundle = useCallback(async (isCurrent: () => boolean): Promise<QueueBundle> => {
+    const tasks = await backend.todayQueue(today)
+    if (!isCurrent()) throw new StaleResult()
+    const blocks = new Map<number, KnowledgeBlock>()
+    for (const bookId of new Set(tasks.map(t => t.bookId))) {
+      for (const b of await backend.listBlocks(bookId)) blocks.set(b.id, b)
+      if (!isCurrent()) throw new StaleResult()
     }
-    committedCompletionGuards.current.clear()
-    setBlockedTaskIds(new Set(completionGuards.current))
-  }, [])
+    return { tasks, blocks }
+  }, [today])
+  const queue = useAsyncResource(loadQueueBundle)
+  const stats = useAsyncResource(useCallback(() => backend.stats(), []))
 
-  const loadQueue = useCallback(async () => {
-    if (!mounted.current) return false
-    const generation = ++queueGeneration.current
-    setQueueError(null)
-    try {
-      const queue = await backend.todayQueue(today)
-      if (!mounted.current || generation !== queueGeneration.current) return false
-      const map = new Map<number, KnowledgeBlock>()
-      for (const bookId of new Set(queue.map(t => t.bookId))) {
-        for (const b of await backend.listBlocks(bookId)) map.set(b.id, b)
-        if (!mounted.current || generation !== queueGeneration.current) return false
-      }
-      if (!mounted.current || generation !== queueGeneration.current) return false
-      setTasks(queue)
-      setBlocks(map)
-      releaseCommittedCompletionGuards()
-      return true
-    } catch (error) {
-      if (!mounted.current || generation !== queueGeneration.current) return false
-      setQueueError(normalizeBackendError(error))
-      return false
-    }
-  }, [releaseCommittedCompletionGuards, today])
+  const completion = useBackendOperation(
+    (taskId: number) => backend.completeTask(taskId),
+    {
+      onCommitted: async () => {
+        void stats.reload() // 进度环/今日分钟需更新;stats 失败不得持有完成守卫
+        if (!(await reloadQueue())) throw new Error('queue refresh failed')
+      },
+    },
+  )
 
-  const loadStats = useCallback(async () => {
-    if (!mounted.current) return
-    const generation = ++statsGeneration.current
-    setStatsError(null)
-    try {
-      const nextStats = await backend.stats()
-      if (!mounted.current || generation !== statsGeneration.current) return
-      setStats(nextStats)
-    } catch (error) {
-      if (!mounted.current || generation !== statsGeneration.current) return
-      setStatsError(normalizeBackendError(error))
+  // 队列刷新成功 → 释放"已提交待刷新"守卫,并清除 conflict 等错误(其文案要求"刷新后重试")
+  const reloadQueue = async () => {
+    const ok = await queue.reload()
+    if (ok) {
+      completion.releaseCommitted()
+      completion.clearAllErrors()
     }
-  }, [])
-
-  useEffect(() => {
-    const operationGenerationMap = operationGenerations.current
-    const completionGuardSet = completionGuards.current
-    const committedCompletionGuardSet = committedCompletionGuards.current
-    mounted.current = true
-    loadQueue()
-    loadStats()
-    return () => {
-      mounted.current = false
-      queueGeneration.current += 1
-      statsGeneration.current += 1
-      operationGenerationMap.clear()
-      completionGuardSet.clear()
-      committedCompletionGuardSet.clear()
-    }
-  }, [loadQueue, loadStats])
+    return ok
+  }
 
   const start = (task: DailyTask) => {
     setCurrentTaskId(task.id)
@@ -106,32 +65,13 @@ export default function TodayPage() {
     else navigate(`/reader/${task.blockId}?task=${task.id}`)
   }
 
-  const completeTask = async (taskId: number) => {
-    if (completionGuards.current.has(taskId)) return
-    const generation = (operationGenerations.current.get(taskId) ?? 0) + 1
-    operationGenerations.current.set(taskId, generation)
-    completionGuards.current.add(taskId)
-    setBlockedTaskIds(new Set(completionGuards.current))
-    setOperationFailures(current => {
-      const next = new Map(current)
-      next.delete(taskId)
-      return next
-    })
-    try {
-      await backend.completeTask(taskId)
-      if (!mounted.current || operationGenerations.current.get(taskId) !== generation) return
-      committedCompletionGuards.current.add(taskId)
-      await loadQueue()
-    } catch (error) {
-      if (!mounted.current || operationGenerations.current.get(taskId) !== generation) return
-      const failure = normalizeBackendError(error)
-      setOperationFailures(current => new Map(current).set(taskId, failure))
-      if (failure.retryable) releaseCompletionGuard(taskId)
-    }
+  const complete = (task: DailyTask) => {
+    completion.clearError(task.id)
+    void completion.run(task.id, task.id)
   }
 
-  const complete = (task: DailyTask) => completeTask(task.id)
-
+  const tasks = queue.data?.tasks ?? null
+  const blocks = queue.data?.blocks ?? new Map<number, KnowledgeBlock>()
   const doneCount = tasks?.filter(t => t.status === 'done').length ?? 0
   const allDone = tasks !== null && tasks.length > 0 && doneCount === tasks.length
 
@@ -141,19 +81,19 @@ export default function TodayPage() {
         title="今日学习"
         subtitle={`${today} · 薄弱重考 → 间隔复习 → 新块攻克`}
         actions={
-          stats && (
+          stats.data && (
             <div className="flex items-center gap-5">
               <div className="text-right text-xs leading-relaxed text-ink-3">
                 <div>
-                  连续 <span className="font-semibold text-ink-1">{stats.streakDays}</span> 天
+                  连续 <span className="font-semibold text-ink-1">{stats.data.streakDays}</span> 天
                 </div>
                 <div>
-                  今日 <span className="font-semibold text-ink-1">{stats.minutesToday}</span> 分钟
+                  今日 <span className="font-semibold text-ink-1">{stats.data.minutesToday}</span> 分钟
                 </div>
               </div>
               <ProgressRing
-                value={stats.totalBlocks ? stats.passedBlocks / stats.totalBlocks : 0}
-                label={`${stats.passedBlocks}/${stats.totalBlocks}`}
+                value={stats.data.totalBlocks ? stats.data.passedBlocks / stats.data.totalBlocks : 0}
+                label={`${stats.data.passedBlocks}/${stats.data.totalBlocks}`}
                 color="var(--c-ok)"
               />
             </div>
@@ -161,15 +101,15 @@ export default function TodayPage() {
         }
       />
 
-      {statsError && (
+      {stats.error && (
         <div className="mb-6">
-          <AsyncError error={statsError} onRetry={loadStats} variant="compact" />
+          <AsyncError error={stats.error} onRetry={stats.reload} variant="compact" />
         </div>
       )}
 
-      {queueError && tasks !== null && (
+      {queue.error && tasks !== null && (
         <div className="mb-6">
-          <AsyncError error={queueError} onRetry={loadQueue} variant="compact" />
+          <AsyncError error={queue.error} onRetry={reloadQueue} variant="compact" />
         </div>
       )}
 
@@ -179,8 +119,8 @@ export default function TodayPage() {
         </Card>
       )}
 
-      {queueError && tasks === null ? (
-        <AsyncError error={queueError} onRetry={loadQueue} />
+      {queue.error && tasks === null ? (
+        <AsyncError error={queue.error} onRetry={reloadQueue} />
       ) : tasks === null ? (
         <p className="text-sm text-ink-3">正在取回今日队列…</p>
       ) : tasks.length === 0 ? (
@@ -193,8 +133,8 @@ export default function TodayPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {tasks.map(task => {
-            const operationFailure = operationFailures.get(task.id)
-            const completionUnavailable = operationFailure?.retryable === false
+            const failure = completion.errors.get(task.id)
+            const completionUnavailable = failure?.retryable === false
             return (
               <div key={task.id} data-testid={`task-row-${task.id}`} className="flex flex-col gap-2">
                 <TaskCard
@@ -203,13 +143,13 @@ export default function TodayPage() {
                   onStart={start}
                   onComplete={complete}
                   onFocus={setFocusTask}
-                  completing={blockedTaskIds.has(task.id) && !completionUnavailable}
+                  completing={completion.pending.has(task.id) && !completionUnavailable}
                   completionUnavailable={completionUnavailable}
                 />
-                {operationFailure && (
+                {failure && (
                   <AsyncError
-                    error={operationFailure}
-                    onRetry={() => completeTask(task.id)}
+                    error={failure}
+                    onRetry={() => complete(task)}
                     variant="compact"
                   />
                 )}
