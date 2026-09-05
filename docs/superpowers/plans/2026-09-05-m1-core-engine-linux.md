@@ -67,12 +67,12 @@ core/tests/m1_engine.rs ← 端到端(MockProvider):导入 spine→地图→确�
 
 **Files:** Modify `core/src/db.rs`
 
-- [ ] **Step A1.1 失败测试**(db tests 模块):
+- [x] **Step A1.1 失败测试**(db tests 模块):
   1. `open_creates_schema_v4`:user_version=4;新表 `spine_item` `block_anchor` `map_job` `ai_request` `session_turn` `projection_outbox` 存在;`feynman_session` 新列 `task_id` `state` `version` `client_request_id` `verdict_request_id` `verdict_json` 存在(`pragma_table_info`);`book` 新列 `map_revision` `import_state`;`block_anchor.text` 与 `block_anchor.hint` 存在。
   2. `v3_rows_survive_v4`:用 `legacy_v1`+V2+V3 手工建 v3 库(执行 SCHEMA_V1/CONVERGE_V2/SCHEMA_V2/SCHEMA_V3,version=3),插 book/block/feynman_session 一行 → open → 行保留,`feynman_session.state='open'`、`version=0`、`book.map_revision=0`、`import_state='ready'`。
   3. `v4_indexes_enforce_idempotency_keys`:`ai_request` 同 request_id 二次插入 UNIQUE;`session_turn(session_id,client_turn_id)` 重复 UNIQUE;`feynman_session` 同 task 两条 state='open' UNIQUE;同 `verdict_request_id` 两条 UNIQUE;`block_anchor(block_id,seq)` UNIQUE;`spine_item(book_id,idx)` UNIQUE;**`spine_item` 同 book 同 href 不同 idx 允许**。
   4. `v4_child_tables_enforce_foreign_keys`:带外键的四张新表(`spine_item` `block_anchor` `map_job` `session_turn`)引用不存在的父 id → FOREIGNKEY;`feynman_session.task_id` 引用不存在的 daily_task → FOREIGNKEY(`ai_request`/`projection_outbox` 无外键)。
-- [ ] **Step A1.2** RED → **Step A1.3 实现**(`SCHEMA_V4`,`migrate` 增 `if v < 4`):
+- [x] **Step A1.2** RED → **Step A1.3 实现**(`SCHEMA_V4`,`migrate` 增 `if v < 4`):
 
 ```sql
 ALTER TABLE book ADD COLUMN map_revision INTEGER NOT NULL DEFAULT 0;
@@ -120,7 +120,7 @@ CREATE TABLE projection_outbox(
   attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL, done_at TEXT);
 ```
   `state`(open|evaluating|evaluated|confirmed|abandoned)/`import_state`(ready|extracted|mapped)的取值在代码层校验(`ALTER TABLE ADD COLUMN` 不加 CHECK,避免旧行兼容问题)。`feynman_session.transcript_json` 保留但不再作为事实源(权威 transcript = `session_turn`)。
-- [ ] **Step A1.4** GREEN(含既有 v1→v3 用例)→ **Step A1.5** commit `feat(core): schema v4——spine/锚点/地图作业/AI 幂等/会话回合/判定幂等/投影 outbox (A-T1)`
+- [x] **Step A1.4** GREEN(含既有 v1→v3 用例)→ **Step A1.5** commit `feat(core): schema v4——spine/锚点/地图作业/AI 幂等/会话回合/判定幂等/投影 outbox (A-T1)`
 
 ### Task A2: `ai.rs` request_id、限额、配置校验、test_connection
 

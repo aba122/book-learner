@@ -50,6 +50,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.execute_batch(SCHEMA_V3)?;
         tx.pragma_update(None, "user_version", 3)?;
     }
+    if v < 4 {
+        tx.execute_batch(SCHEMA_V4)?;
+        tx.pragma_update(None, "user_version", 4)?;
+    }
     tx.commit()
 }
 
@@ -192,6 +196,57 @@ DROP TABLE artifact;
 ALTER TABLE artifact_v3 RENAME TO artifact;
 "#;
 
+/// v4(2026-09-05,ADR-0001/0002/0003):追加式——spine 文本缓存、多段锚点、地图作业断点、AI 幂等请求、
+/// 会话状态/版本/幂等键、回合表、投影 outbox。`ALTER TABLE ADD COLUMN` 不加 CHECK(旧行兼容),
+/// `feynman_session.state`(open|evaluating|evaluated|confirmed|abandoned)与 `book.import_state`
+/// (ready|extracted|mapped)在代码层校验。`transcript_json` 保留仅供回看,权威 transcript = `session_turn`。
+/// `spine_item` 不对 href 唯一(EPUB spine 可重复引用同一 manifest 项)。
+const SCHEMA_V4: &str = r#"
+ALTER TABLE book ADD COLUMN map_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE book ADD COLUMN import_state TEXT NOT NULL DEFAULT 'ready';
+CREATE TABLE spine_item(
+  id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  idx INTEGER NOT NULL, href TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', text TEXT NOT NULL,
+  UNIQUE(book_id, idx));
+CREATE TABLE block_anchor(
+  id INTEGER PRIMARY KEY, block_id INTEGER NOT NULL REFERENCES knowledge_block(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL, spine_href TEXT NOT NULL,
+  cfi_start TEXT NOT NULL DEFAULT '', cfi_end TEXT NOT NULL DEFAULT '',
+  precision TEXT NOT NULL CHECK(precision IN ('exact','chapter_fallback')),
+  hint TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '',
+  UNIQUE(block_id, seq));
+CREATE TABLE map_job(
+  id INTEGER PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  job_id TEXT NOT NULL UNIQUE,
+  stage TEXT NOT NULL CHECK(stage IN ('chapters','merge','done','failed')),
+  next_chapter INTEGER NOT NULL DEFAULT 0, candidates_json TEXT NOT NULL DEFAULT '[]',
+  draft_json TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE ai_request(
+  request_id TEXT PRIMARY KEY, kind TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','done','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0, result TEXT, error TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+ALTER TABLE feynman_session ADD COLUMN task_id INTEGER REFERENCES daily_task(id) ON DELETE SET NULL;
+ALTER TABLE feynman_session ADD COLUMN state TEXT NOT NULL DEFAULT 'open';
+ALTER TABLE feynman_session ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE feynman_session ADD COLUMN client_request_id TEXT;
+ALTER TABLE feynman_session ADD COLUMN verdict_request_id TEXT;
+ALTER TABLE feynman_session ADD COLUMN verdict_json TEXT;
+CREATE UNIQUE INDEX feynman_session_request ON feynman_session(client_request_id) WHERE client_request_id IS NOT NULL;
+CREATE UNIQUE INDEX feynman_session_open_per_task ON feynman_session(task_id) WHERE task_id IS NOT NULL AND state IN ('open','evaluating','evaluated');
+CREATE UNIQUE INDEX feynman_session_verdict_request ON feynman_session(verdict_request_id) WHERE verdict_request_id IS NOT NULL;
+CREATE TABLE session_turn(
+  id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES feynman_session(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','student')), text TEXT NOT NULL,
+  client_turn_id TEXT, status TEXT NOT NULL DEFAULT 'done' CHECK(status IN ('pending','done','failed')),
+  created_at TEXT NOT NULL, UNIQUE(session_id, seq));
+CREATE UNIQUE INDEX session_turn_client ON session_turn(session_id, client_turn_id) WHERE client_turn_id IS NOT NULL;
+CREATE TABLE projection_outbox(
+  id INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL, done_at TEXT);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -233,12 +288,12 @@ mod tests {
     }
 
     #[test]
-    fn open_creates_schema_v3() {
+    fn open_creates_base_tables() {
         let conn = super::open_in_memory().unwrap();
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
         for t in [
             "book",
             "knowledge_block",
@@ -513,7 +568,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 3);
+        assert_eq!(user_version(&conn), 4);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -647,7 +702,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 3);
+        assert_eq!(user_version(&conn), 4);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -679,5 +734,242 @@ mod tests {
                 "{t} 应声明外键"
             );
         }
+    }
+
+    fn legacy_v3(path: &std::path::Path) -> Connection {
+        let legacy = legacy_v2(path);
+        legacy.execute_batch(super::SCHEMA_V3).unwrap();
+        legacy.pragma_update(None, "user_version", 3).unwrap();
+        legacy
+    }
+    fn has_column(conn: &Connection, table: &str, col: &str) -> bool {
+        count(
+            conn,
+            &format!("SELECT count(*) FROM pragma_table_info('{table}') WHERE name='{col}'"),
+        ) == 1
+    }
+
+    #[test]
+    fn open_creates_schema_v4() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 4);
+        for t in [
+            "spine_item",
+            "block_anchor",
+            "map_job",
+            "ai_request",
+            "session_turn",
+            "projection_outbox",
+        ] {
+            assert_eq!(
+                count(
+                    &conn,
+                    &format!(
+                        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='{t}'"
+                    )
+                ),
+                1,
+                "missing table {t}"
+            );
+        }
+        for c in [
+            "task_id",
+            "state",
+            "version",
+            "client_request_id",
+            "verdict_request_id",
+            "verdict_json",
+        ] {
+            assert!(
+                has_column(&conn, "feynman_session", c),
+                "feynman_session.{c}"
+            );
+        }
+        for c in ["map_revision", "import_state"] {
+            assert!(has_column(&conn, "book", c), "book.{c}");
+        }
+        for c in ["text", "hint"] {
+            assert!(has_column(&conn, "block_anchor", c), "block_anchor.{c}");
+        }
+    }
+
+    #[test]
+    fn v3_rows_survive_v4() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+        let legacy = legacy_v3(&path);
+        legacy
+            .execute_batch(
+                "INSERT INTO book(id,title,type,slug) VALUES(1,'书','textbook','bk');
+                 INSERT INTO knowledge_block(id,book_id,seq,title,slug) VALUES(7,1,1,'块','b1');
+                 INSERT INTO feynman_session(id,block_id,kind,started_at) VALUES(5,7,'learn','2026-09-01');",
+            )
+            .unwrap();
+        drop(legacy);
+        let conn = super::open(&path).unwrap();
+        assert_eq!(user_version(&conn), 4);
+        let (state, version): (String, i64) = conn
+            .query_row(
+                "SELECT state,version FROM feynman_session WHERE id=5",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((state.as_str(), version), ("open", 0));
+        let (rev, import_state): (i64, String) = conn
+            .query_row(
+                "SELECT map_revision,import_state FROM book WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((rev, import_state.as_str()), (0, "ready"));
+        assert_eq!(
+            count(&conn, "SELECT count(*) FROM knowledge_block WHERE id=7"),
+            1
+        );
+    }
+
+    #[test]
+    fn v4_indexes_enforce_idempotency_keys() {
+        let conn = super::open_in_memory().unwrap();
+        let book = insert_book(&conn, "bk");
+        conn.execute(
+            "INSERT INTO knowledge_block(id,book_id,seq,title,slug) VALUES(7,?1,1,'块','b1')",
+            [book],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO daily_task(id,date,book_id,block_id,kind,seq) VALUES(11,'2026-09-05',?1,7,'new',1)",
+            [book],
+        )
+        .unwrap();
+        // ai_request 以 request_id 为主键
+        conn.execute(
+            "INSERT INTO ai_request(request_id,kind,status,created_at,updated_at) VALUES('r1','turn','done','t','t')",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "INSERT INTO ai_request(request_id,kind,status,created_at,updated_at) VALUES('r1','turn','done','t','t')",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_PRIMARYKEY);
+        // 一任务一未确认会话;confirmed 不占槽
+        conn.execute(
+            "INSERT INTO feynman_session(id,block_id,kind,started_at,task_id,state) VALUES(1,7,'learn','t',11,'open')",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "INSERT INTO feynman_session(id,block_id,kind,started_at,task_id,state) VALUES(2,7,'learn','t',11,'evaluating')",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+        conn.execute(
+            "INSERT INTO feynman_session(id,block_id,kind,started_at,task_id,state) VALUES(2,7,'learn','t',11,'confirmed')",
+            [],
+        )
+        .unwrap();
+        // verdict_request_id / client_request_id 唯一
+        conn.execute(
+            "UPDATE feynman_session SET verdict_request_id='v1' WHERE id=2",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "UPDATE feynman_session SET verdict_request_id='v1' WHERE id=1",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+        conn.execute(
+            "UPDATE feynman_session SET client_request_id='c1' WHERE id=1",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "UPDATE feynman_session SET client_request_id='c1' WHERE id=2",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+        // session_turn(session_id, client_turn_id) 唯一
+        conn.execute(
+            "INSERT INTO session_turn(session_id,seq,role,text,client_turn_id,created_at) VALUES(1,1,'user','x','t1','t')",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "INSERT INTO session_turn(session_id,seq,role,text,client_turn_id,created_at) VALUES(1,2,'user','y','t1','t')",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+        // block_anchor(block_id, seq) 唯一
+        conn.execute(
+            "INSERT INTO block_anchor(block_id,seq,spine_href,precision) VALUES(7,1,'ch1.xhtml','chapter_fallback')",
+            [],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "INSERT INTO block_anchor(block_id,seq,spine_href,precision) VALUES(7,1,'ch2.xhtml','exact')",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+        // spine_item(book_id, idx) 唯一;同 href 不同 idx 允许
+        conn.execute(
+            "INSERT INTO spine_item(book_id,idx,href,text) VALUES(?1,0,'ch1.xhtml','a')",
+            [book],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO spine_item(book_id,idx,href,text) VALUES(?1,1,'ch1.xhtml','b')",
+            [book],
+        )
+        .unwrap();
+        let e = conn
+            .execute(
+                "INSERT INTO spine_item(book_id,idx,href,text) VALUES(?1,1,'ch3.xhtml','c')",
+                [book],
+            )
+            .unwrap_err();
+        assert_constraint_violation(e, ffi::SQLITE_CONSTRAINT_UNIQUE);
+    }
+
+    #[test]
+    fn v4_child_tables_enforce_foreign_keys() {
+        let conn = super::open_in_memory().unwrap();
+        for sql in [
+            "INSERT INTO spine_item(book_id,idx,href,text) VALUES(999,0,'x','t')",
+            "INSERT INTO block_anchor(block_id,seq,spine_href,precision) VALUES(999,1,'x','exact')",
+            "INSERT INTO map_job(book_id,job_id,stage,created_at,updated_at) VALUES(999,'j','chapters','t','t')",
+            "INSERT INTO session_turn(session_id,seq,role,text,created_at) VALUES(999,1,'user','x','t')",
+        ] {
+            let error = conn.execute(sql, []).unwrap_err();
+            assert_constraint_violation(error, ffi::SQLITE_CONSTRAINT_FOREIGNKEY);
+        }
+        let book = insert_book(&conn, "bk");
+        conn.execute(
+            "INSERT INTO knowledge_block(id,book_id,seq,title,slug) VALUES(7,?1,1,'块','b1')",
+            [book],
+        )
+        .unwrap();
+        let error = conn
+            .execute(
+                "INSERT INTO feynman_session(block_id,kind,started_at,task_id) VALUES(7,'learn','t',999)",
+                [],
+            )
+            .unwrap_err();
+        assert_constraint_violation(error, ffi::SQLITE_CONSTRAINT_FOREIGNKEY);
     }
 }

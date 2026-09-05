@@ -219,3 +219,8 @@
 - 计划范围:schema v4、Codex 限额/校验、幂等 AI 编排、prompt 与严格解析、两阶段地图作业、地图确认、持久会话/回合、评估与判定、投影 outbox、端到端集成;ADR 0001–0004 落档(0004 Deferred)。
 - 基线(独立复跑):core 53 单测 + 27 foundation + 1 lifecycle 全绿、1 ignored;web vitest 186 passed / 2 skipped(16 files)。
 - 推送:本机无凭证,每 Task 本地 commit;Plan A DoD 达成后打 tag `m1-linux-a`。
+
+## 2026-09-05 · A-T1 schema v4 完成
+- 追加式迁移 v3→v4:`book.map_revision/import_state`,新表 `spine_item`(不对 href 唯一)/`block_anchor`(含 `hint`/`text`)/`map_job`/`ai_request`/`session_turn`/`projection_outbox`,`feynman_session` 增 `task_id/state/version/client_request_id/verdict_request_id/verdict_json` 与三条部分唯一索引(每任务一未确认会话、请求 id、判定 id)。
+- RED:4 条新用例 + 3 条既有版本断言失败(7 failed);GREEN 后 core 57 单测 + 27 foundation + 1 lifecycle,clippy -D warnings 干净,fmt 通过。
+- 偏差:无。`ai_request` 主键重复的扩展码是 `SQLITE_CONSTRAINT_PRIMARYKEY`(TEXT 主键非 rowid 别名),用例按此断言。
