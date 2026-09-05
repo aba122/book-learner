@@ -233,3 +233,8 @@
 - 新模块 `orchestrate.rs`:`AiPolicy`(传输重试 2、纠错 1、退避 500ms 起,测试置 0)、`run_ai_request`(非 autocommit 直接拒绝;done 重放;pending/failed 续跑;accept 通过才记 done;`Ai|Io` 重试,其它不重试)、`run_ai_json`(parse 闭包兼 accept;失败恰纠错一次并把摘要追加到 system;Replayed 结果不再通过时作废重调)、`validate_request_id`/`validate_client_id`。
 - RED:13 条用例编译失败;GREEN 后 core 75 单测 + 27 + 1,clippy/fmt 通过。
 - 偏差:策略结构体多一个 `retry_backoff_ms` 字段(计划未列,用于让测试不等待退避)。
+
+## 2026-09-05 · A-T4 地图/迁移/情境化/讨论/终评 prompt 与严格解析完成
+- prompts:`map_stage_a_prompt(ty, href, title, text)`(source_section 固定 `"{href}#{小节标题}"`)、`map_stage_b_prompt(ty, candidates_json)`(三类书组织原则 + 15–45 分钟 + 沿用格式)、`application_prompt`/`methodology_prompt`/`humanities_discussion_prompt`/`final_exam_prompt`(prompt only,本计划无消费者)。
+- eval:`ChapterCandidate`/`DraftMap{modules[{name, blocks[{title, summary, source_sections, prereqs}]}]}`/`ApplicationResult`/`MethodologyFragment`/`DiscussionNote`/`FinalReport`(全部 deny_unknown_fields + Serialize),数组提取 `[`..`]`,终评 overall 1–5 校验。
+- RED:6 条用例编译失败;GREEN 后 core 81 单测 + 27 + 1,clippy/fmt 通过。测试字面量含 `"#` 需避开 raw string 终止符(已改写)。

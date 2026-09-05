@@ -184,10 +184,10 @@ pub fn validate_client_id(id: &str) -> Result<()>   // 非空、≤64、仅 [A-Z
 
 **Files:** Modify `core/src/prompts.rs`, `core/src/eval.rs`
 
-- [ ] **Step A4.1 失败测试**:
+- [x] **Step A4.1 失败测试**:
   - prompts:`map_stage_a_prompt(ty, chapter_href, chapter_title, chapter_text)` 含 "知识点候选"、"JSON 数组"、章标题,并规定每条候选的 `source_section` 必须写成 `"{chapter_href}#{原文小节标题}"`(无小节则 `"{chapter_href}"`),prompt 中出现该 href;`map_stage_b_prompt(ty, candidates_json)` 三类书各含其组织原则关键词(教材 "前置依赖" / 方法论 "观点—框架—案例" / 人文 "叙事脉络")并含 "15–45 分钟",且要求 `source_sections` 原样沿用候选的 `"{href}#{小节标题}"` 格式;`application_prompt(ctx)` 含 "现实情境"、"禁止书内例题";`methodology_prompt(ctx)` 含 "我的版本"、"markdown";`humanities_discussion_prompt(ctx)` 含 "对立视角"、"不评判立场";`final_exam_prompt(map_summary)` 含 "全书框架"、"学习报告"。全部末尾要求"最后一条消息只输出 JSON"(6.5 输出 markdown 片段的 JSON 包裹)。**6.4/6.5/6.6/6.8 本计划无消费者(prompt only),文档回写时标注。**
   - eval 解析(全部 `deny_unknown_fields` + `Serialize`,提取规则同 parse_eval):`parse_chapter_candidates` → `Vec<ChapterCandidate{title, summary, prereq_titles: Vec<String>, source_section /*"{href}#{小节标题}"*/}>`(输入为 JSON 数组:提取首个 `[`..末个 `]`);`parse_draft_map` → `DraftMap{modules: Vec<DraftModule{name, blocks: Vec<DraftBlock{title, summary, source_sections: Vec<String>, prereqs: Vec<String>}>}>}`;`parse_application_result` → `{passed: bool, comment}`;`parse_methodology_fragment` → `{markdown, source_block}`;`parse_discussion_note` → `{markdown, used_facts: bool}`;`parse_final_report` → `{overall: u8(1-5), strongest_module, weakest_module, report_markdown}`。各含 1 条合法 + 1 条非法(未知字段/越界)用例。
-- [ ] **Step A4.2** RED → **Step A4.3 实现** → **Step A4.4** GREEN → **Step A4.5** commit `feat(core): 地图生成/迁移应用/情境化/讨论/终评 prompt 与严格解析 (A-T4)`
+- [x] **Step A4.2** RED → **Step A4.3 实现** → **Step A4.4** GREEN → **Step A4.5** commit `feat(core): 地图生成/迁移应用/情境化/讨论/终评 prompt 与严格解析 (A-T4)`
 
 ### Task A5: `mapgen.rs` — 两阶段地图作业(断点续跑、长章分片)
 
