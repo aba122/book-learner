@@ -236,8 +236,8 @@ export async function restoreSegmentText(book: Book, seg: AnchorSegment): Promis
 
 设计:`ImportAttempt{file, type, jobId: newClientId(), bookId?, chapters?}`;op:`importEpub`(已导入则跳过)→ `openEpub(await file.arrayBuffer())` + `extractSpine`(已抽取则跳过;进度"正在抽取章节文本…")→ `storeSpine(bookId, chapters)` → `runMapJob(bookId, jobId, p => setProgress(progressLabel(p)))`;`progressLabel`:chapter → `正在分析第 {index+1}/{total} 章:{title}`、merging → `正在整合知识地图…`、done → `已生成 {blocks} 个知识块`。重试复用同一 attempt(同 jobId)。抽取失败 → `BackendError{code:'invalid_request', message:'无法解析这个 EPUB 文件', retryable:false}`。
 
-- [ ] **Step B6.1 失败测试**(`vi.mock('../../epub/extract')` 返回固定 3 章;沿用现有用例风格):导入 → 选类型 → 依次出现"正在抽取章节文本…"、"正在分析第 1/3 章:…"(用 deferred 控制 `runMapJob` 并手动触发 `onProgress`)→ 完成跳 `/map/:bookId`;`storeSpine` 收到 mock 章节;`runMapJob` 第 2 参匹配 id 正则且**重试时与首次相同**、`importEpub` 只调一次(`runMapJob` 先拒绝一次再成功);抽取失败 → 不可重试错误、保留文件与类型、只提供关闭;保留:原生不支持导入、进行中防重复。
-- [ ] **Step B6.2** RED → **Step B6.3 实现** → **Step B6.4** GREEN → **Step B6.5** commit `feat(web): 导入向导接 spine 抽取、storeSpine 与地图作业进度 (B-T6)`
+- [x] **Step B6.1 失败测试**(`vi.mock('../../epub/extract')` 返回固定 3 章;沿用现有用例风格):导入 → 选类型 → 依次出现"正在抽取章节文本…"、"正在分析第 1/3 章:…"(用 deferred 控制 `runMapJob` 并手动触发 `onProgress`)→ 完成跳 `/map/:bookId`;`storeSpine` 收到 mock 章节;`runMapJob` 第 2 参匹配 id 正则且**重试时与首次相同**、`importEpub` 只调一次(`runMapJob` 先拒绝一次再成功);抽取失败 → 不可重试错误、保留文件与类型、只提供关闭;保留:原生不支持导入、进行中防重复。
+- [x] **Step B6.2** RED → **Step B6.3 实现** → **Step B6.4** GREEN → **Step B6.5** commit `feat(web): 导入向导接 spine 抽取、storeSpine 与地图作业进度 (B-T6)`
 
 ### Task B7: 删除旧契约、回写文档、收尾
 

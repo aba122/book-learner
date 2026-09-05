@@ -7,13 +7,29 @@ import { BackendError } from '../../backend/errors'
 import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
-import type { Book, KnowledgeBlock } from '../../types'
+import * as extractModule from '../../epub/extract'
+import type { Book, KnowledgeBlock, MapProgress, SpineChapter } from '../../types'
 import LibraryPage from './LibraryPage'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
+// EPUB 抽取在 jsdom 里不可行(epub.js 需真实 DOM/zip),导入向导测试 mock 掉抽取模块;真实抽取由 Playwright 覆盖
+vi.mock('../../epub/extract', () => ({
+  openEpub: vi.fn(async () => ({ destroy: vi.fn() })),
+  extractSpine: vi.fn(async () => CHAPTERS),
+}))
+
+const CHAPTERS: SpineChapter[] = [
+  { idx: 0, href: 'ch1.xhtml', title: '第一章', text: '第一章正文' },
+  { idx: 1, href: 'ch2.xhtml', title: '第二章', text: '第二章正文' },
+  { idx: 2, href: 'ch3.xhtml', title: '第三章', text: '第三章正文' },
+]
+const ID_RE = /^[A-Za-z0-9._-]{1,64}$/
 
 beforeEach(() => {
   ;(backendModule as unknown as { backend: Backend }).backend = new MockBackend()
+  // vi.mock 工厂产生的 vi.fn 不受 restoreAllMocks 影响,调用计数需手动清零
+  vi.mocked(extractModule.extractSpine).mockClear()
+  vi.mocked(extractModule.openEpub).mockClear()
 })
 
 afterEach(() => {
@@ -105,29 +121,82 @@ describe('书架页', () => {
     expect(normalize).not.toHaveBeenCalled()
   })
 
-  it('导入向导:上传文件→选"教材"→显示进度→完成跳 /map/:bookId', async () => {
+  it('导入向导:上传→选"教材"→抽取→storeSpine→作业进度→完成跳 /map/:bookId', async () => {
     const user = userEvent.setup()
-    let resolveMap!: (v: KnowledgeBlock[]) => void
-    vi.spyOn(backendModule.backend, 'generateMap').mockImplementation(
-      async (_bookId, onProgress) => {
-        onProgress?.('正在解析 EPUB 目录…')
+    let progress!: (p: MapProgress) => void
+    let resolveJob!: (v: KnowledgeBlock[]) => void
+    const storeSpine = vi.spyOn(backendModule.backend, 'storeSpine')
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob').mockImplementation(
+      async (_bookId, _jobId, onProgress) => {
+        progress = onProgress!
         return new Promise<KnowledgeBlock[]>(res => {
-          resolveMap = res
+          resolveJob = res
         })
       },
     )
     renderLibrary()
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
 
-    const input = screen.getByLabelText(/选择 EPUB 文件/)
-    await user.upload(input, new File(['epub'], '深度工作.epub', { type: 'application/epub+zip' }))
-
+    const selected = new File(['epub'], '深度工作.epub', { type: 'application/epub+zip' })
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), selected)
     await user.click(await screen.findByRole('button', { name: '教材' }))
 
-    expect(await screen.findByText('正在解析 EPUB 目录…')).toBeInTheDocument()
+    expect(await screen.findByText('正在生成知识地图…')).toBeInTheDocument()
+    expect(vi.mocked(extractModule.extractSpine)).toHaveBeenCalledTimes(1)
+    expect(storeSpine).toHaveBeenCalledWith(2, CHAPTERS)
+    expect(runMapJob).toHaveBeenCalledTimes(1)
+    expect(runMapJob.mock.calls[0][0]).toBe(2)
+    expect(runMapJob.mock.calls[0][1]).toMatch(ID_RE)
 
-    resolveMap([])
+    await act(async () => progress({ stage: 'chapter', index: 0, total: 3, title: '第一章' }))
+    expect(screen.getByText('正在分析第 1/3 章:第一章')).toBeInTheDocument()
+    await act(async () => progress({ stage: 'merging' }))
+    expect(screen.getByText('正在整合知识地图…')).toBeInTheDocument()
+    await act(async () => progress({ stage: 'done', blocks: 3 }))
+    expect(screen.getByText('已生成 3 个知识块')).toBeInTheDocument()
+
+    resolveJob([])
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
+  })
+
+  it('作业失败后重试:导入与抽取只做一次,runMapJob 复用同一 jobId', async () => {
+    const user = userEvent.setup()
+    const importEpub = vi.spyOn(backendModule.backend, 'importEpub')
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
+      .mockRejectedValueOnce(new BackendError({ code: 'io_failure', message: '地图作业中断', retryable: true }))
+      .mockResolvedValueOnce([])
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '重试.epub', { type: 'application/epub+zip' }))
+    await user.click(screen.getByRole('button', { name: '教材' }))
+
+    const dialog = screen.getByRole('dialog', { name: '导入书籍' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('地图作业中断')
+    await user.click(within(dialog).getByRole('button', { name: '重试' }))
+
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
+    expect(importEpub).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(extractModule.extractSpine)).toHaveBeenCalledTimes(1)
+    expect(runMapJob).toHaveBeenCalledTimes(2)
+    expect(runMapJob.mock.calls[1][1]).toBe(runMapJob.mock.calls[0][1])
+  })
+
+  it('EPUB 抽取失败:不可重试错误,保留文件与类型,只提供关闭', async () => {
+    const user = userEvent.setup()
+    vi.mocked(extractModule.extractSpine).mockRejectedValueOnce(new Error('bad zip'))
+    const storeSpine = vi.spyOn(backendModule.backend, 'storeSpine')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '坏文件.epub', { type: 'application/epub+zip' }))
+    await user.click(screen.getByRole('button', { name: '人文·社科' }))
+
+    const dialog = screen.getByRole('dialog', { name: '导入书籍' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('无法解析这个 EPUB 文件')
+    expect(within(dialog).getByText(/坏文件/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/人文·社科/)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '关闭' })).toBeEnabled()
+    expect(storeSpine).not.toHaveBeenCalled()
   })
 
   it('原生不支持导入时保留所选文件和类型,只提供关闭', async () => {
@@ -159,7 +228,8 @@ describe('书架页', () => {
         retryable: true,
       }))
       .mockResolvedValueOnce({ bookId: 42 })
-    vi.spyOn(backendModule.backend, 'generateMap').mockResolvedValue([])
+    vi.spyOn(backendModule.backend, 'storeSpine').mockResolvedValue(undefined) // bookId 42 不在 Mock 种子里
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob').mockResolvedValue([])
     renderLibrary()
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
     const selected = new File(['epub'], '可靠系统.epub', { type: 'application/epub+zip' })
@@ -172,6 +242,8 @@ describe('书架页', () => {
     expect(importEpub).toHaveBeenCalledTimes(2)
     expect(importEpub.mock.calls[0]).toEqual([selected, 'methodology'])
     expect(importEpub.mock.calls[1]).toEqual([selected, 'methodology'])
+    expect(runMapJob).toHaveBeenCalledTimes(1)
+    expect(runMapJob.mock.calls[0][1]).toMatch(ID_RE)
   })
 
   it('导入写入进行中同步阻止重复提交', async () => {

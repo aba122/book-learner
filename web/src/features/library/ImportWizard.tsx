@@ -1,11 +1,15 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
+import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
+import { extractSpine, openEpub } from '../../epub/extract'
+import { newClientId } from '../../lib/ids'
 import { useBackendOperation } from '../../lib/useBackendOperation'
-import type { BookType } from '../../types'
+import type { BookType, SpineChapter } from '../../types'
+import { progressLabel } from './importProgress'
 
 const TYPES: { type: BookType; label: string; desc: string }[] = [
   { type: 'textbook', label: '教材', desc: '概念层层递进,依赖严格,逐块攻克后向前推进' },
@@ -16,7 +20,23 @@ const TYPES: { type: BookType; label: string; desc: string }[] = [
 interface ImportAttempt {
   file: File
   type: BookType
+  /** 地图作业 id:选类型时生成一次,重试复用(runMapJob 同 jobId 幂等) */
+  jobId: string
   bookId?: number
+  chapters?: SpineChapter[]
+}
+
+/** EPUB 抽取在 JS 侧(ADR-0004):解析失败是内容问题,不可重试 */
+async function extractChapters(file: File): Promise<SpineChapter[]> {
+  let book: Awaited<ReturnType<typeof openEpub>> | null = null
+  try {
+    book = await openEpub(await file.arrayBuffer())
+    return await extractSpine(book)
+  } catch {
+    throw new BackendError({ code: 'invalid_request', message: '无法解析这个 EPUB 文件', retryable: false })
+  } finally {
+    book?.destroy()
+  }
 }
 
 export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -26,17 +46,23 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
   const importedBookId = useRef<number | null>(null)
 
-  // 两步写(导入→生成地图)为一个操作;导入成功后立即把 bookId 记进 attempt,失败重试只重跑生成地图
+  // 导入 → 抽取 spine → storeSpine → 地图作业(进度)为一个操作;每步成果记进 attempt,失败重试只重跑未完成的步骤
   const importOp = useBackendOperation(
     async (captured: ImportAttempt) => {
-      setProgress(captured.bookId === undefined ? '正在导入书籍…' : '正在生成知识地图…')
-      let bookId = captured.bookId
+      let { bookId, chapters } = captured
       if (bookId === undefined) {
-        const imported = await backend.importEpub(captured.file, captured.type)
-        bookId = imported.bookId
+        setProgress('正在导入书籍…')
+        bookId = (await backend.importEpub(captured.file, captured.type)).bookId
         setAttempt({ ...captured, bookId })
       }
-      await backend.generateMap(bookId, message => setProgress(message))
+      if (chapters === undefined) {
+        setProgress('正在抽取章节文本…')
+        chapters = await extractChapters(captured.file)
+        setAttempt({ ...captured, bookId, chapters })
+      }
+      await backend.storeSpine(bookId, chapters)
+      setProgress('正在生成知识地图…')
+      await backend.runMapJob(bookId, captured.jobId, p => setProgress(progressLabel(p)))
       importedBookId.current = bookId
     },
     {
@@ -67,7 +93,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
 
   const chooseType = (type: BookType) => {
     if (!file) return
-    runAttempt({ file, type })
+    runAttempt({ file, type, jobId: newClientId() })
   }
 
   return (

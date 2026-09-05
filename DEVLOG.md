@@ -311,3 +311,8 @@
 - `epub/extract.ts`:`openEpub`、`spineSections`(spine.each)、`loadSection`、`chapterMarkdownText`(标题层级 "# "/"## " 标记 + 块级分段)、`chapterPlainText`(无标记,fallback 段用)、`extractSpine`(TOC label 匹配 href ?? 首个 h1..h3 ?? href;href 去重;每章 unload)。`epub/anchors.ts`:`resolveBlockAnchors`(命中 → [标题首个文本节点起, 下一同级/更高级标题首个文本节点起) exact 段,两个**点** CFI + 归一化文本;未命中/空 hint → 整章 chapter_fallback)、`restoreSegmentText`(EpubCFI.toRange 两点组合 Range)。
 - harness `anchors-smoke.html`/`src/anchors-smoke.ts` + `e2e/anchors-smoke.spec.ts`:spine 3 章/标题/标记文本、精确段在下一小节前结束、章内重复标题 CFI 不同且按序、跨章同名独立、嵌套节点可匹配、缺失/空 hint 回退整章且文本等于 chapterPlainText(≠ 带标记的 spine 文本)、7 段中 5 个 exact 段往返还原相等、多段顺序保持。
 - GREEN:vitest **245 passed / 2 skipped(18 files)**、tsc、oxlint 0、build、Playwright 2/2(`PLAYWRIGHT_BROWSERS_PATH=/bigtemp/fzv6en/book-learner/playwright-browsers`)。
+
+## 2026-09-05 · B-T6 导入向导接 spine 抽取、storeSpine 与地图作业进度完成
+- `ImportWizard`:attempt 记 `{file, type, jobId(选类型时 newClientId 一次), bookId?, chapters?}`;op 依次 importEpub(已导入跳过)→ `openEpub(file.arrayBuffer()) + extractSpine`(已抽取跳过;失败映射为不可重试 `invalid_request`"无法解析这个 EPUB 文件",book 一律 destroy)→ `storeSpine` → `runMapJob(bookId, jobId, p => setProgress(progressLabel(p)))`;重试复用同一 attempt(同 jobId)。`features/library/importProgress.ts` 的 `progressLabel`:chapter → "正在分析第 i/n 章:标题"、merging → "正在整合知识地图…"、done → "已生成 N 个知识块"。
+- 测试(vi.mock 抽取模块;真实抽取由 Playwright 覆盖):完整进度链路与跳转、作业失败重试只重跑作业且 jobId 相同(导入/抽取各 1 次)、抽取失败不可重试并保留文件与类型、既有可重试导入/原生不支持/进行中防重复用例(storeSpine 对假 bookId 需 stub;vi.mock 工厂的 vi.fn 需在 beforeEach mockClear)。
+- GREEN:web **247 passed / 2 skipped(18 files)**、tsc、oxlint 0、build(门禁脚本 `/bigtemp/fzv6en/book-learner/webgate.sh`,取代此前会静默跳过的 && 链)。
