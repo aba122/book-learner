@@ -8,6 +8,7 @@ import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import { READER_FONT_STEPS } from '../../config'
+import EpubView from './EpubView'
 import ReaderPage from './ReaderPage'
 
 const h = vi.hoisted(() => {
@@ -30,6 +31,8 @@ const h = vi.hoisted(() => {
       }),
     },
     destroy: vi.fn(),
+    ready: Promise.resolve(),
+    locations: { generate: vi.fn(() => Promise.resolve()), percentageFromCfi: vi.fn(() => 0.5) },
   }
   const ePub = vi.fn(() => book)
   return { rendition, book, ePub }
@@ -163,5 +166,29 @@ describe('阅读器', () => {
     })))
 
     expect(normalize).not.toHaveBeenCalled()
+  })
+})
+
+describe('EpubView 回调 ref(H-T6)', () => {
+  it('epub 事件触发时调用最新回调,而非首次渲染时传入的', async () => {
+    const toc1 = vi.fn(); const toc2 = vi.fn()
+    const prog1 = vi.fn(); const prog2 = vi.fn()
+    const { rerender } = render(
+      <EpubView url="/fixtures/sample.epub" fontSizePct="100%" theme="paper" onToc={toc1} onProgress={prog1} />,
+    )
+    rerender(
+      <EpubView url="/fixtures/sample.epub" fontSizePct="100%" theme="paper" onToc={toc2} onProgress={prog2} />,
+    )
+    await act(async () => {})
+    await act(async () => {})
+    expect(toc2).toHaveBeenCalledTimes(1)
+    expect(toc1).not.toHaveBeenCalled()
+    const relocated = h.rendition.on.mock.calls.find(c => c[0] === 'relocated')?.[1] as
+      | ((loc: { start: { cfi: string } }) => void)
+      | undefined
+    expect(relocated).toBeTypeOf('function')
+    relocated!({ start: { cfi: 'epubcfi(/6/2!/4/2)' } })
+    expect(prog2).toHaveBeenCalledWith(0.5)
+    expect(prog1).not.toHaveBeenCalled()
   })
 })

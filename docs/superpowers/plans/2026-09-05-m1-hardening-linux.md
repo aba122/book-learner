@@ -208,9 +208,9 @@ export function useBackendOperation<A extends unknown[]>(
 
 **Files:** Modify `web/src/features/reader/EpubView.tsx:53-56`;Test `reader.test.tsx`(现有用例作安全网 + 1 新用例)
 
-- [ ] **Step 6.1 失败测试**:onToc/onProgress 回调在父组件重渲染后被替换,epub 事件触发时应调用**最新**回调(用 mock rendition 手动触发 `relocated` 事件,断言第二个 spy 被调而非第一个)。
-- [ ] **Step 6.2** 实现:把 `onTocRef.current = onToc` 等三处渲染期赋值改为 `useEffect(() => { onTocRef.current = onToc }, [onToc])`(同 onProgress/initialHref);不改行为。
-- [ ] **Step 6.3** reader 焦点 GREEN;`pnpm -C web lint` **0 warnings**;commit `fix(web): EpubView 回调 ref 改为 effect 同步,lint 归零 (H-T6)`
+- [x] **Step 6.1 失败测试**:onToc/onProgress 回调在父组件重渲染后被替换,epub 事件触发时应调用**最新**回调(用 mock rendition 手动触发 `relocated` 事件,断言第二个 spy 被调而非第一个)。
+- [x] **Step 6.2** 实现:把 `onTocRef.current = onToc` 等三处渲染期赋值改为 `useEffect(() => { onTocRef.current = onToc }, [onToc])`(同 onProgress/initialHref);不改行为。
+- [x] **Step 6.3** reader 焦点 GREEN;`pnpm -C web lint` **0 warnings**;commit `fix(web): EpubView 回调 ref 改为 effect 同步,lint 归零 (H-T6)`
 
 ### Task 6b: `tauri.ts` — 让 IPC 契约破坏可见(F8)
 

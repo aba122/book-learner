@@ -1,6 +1,6 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 
 export interface EpubHandle {
   next: () => void
@@ -48,12 +48,15 @@ const EpubView = forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
+  // 最新回调经 ref 供 epub 事件使用;在提交阶段同步,不在渲染期写 ref(react/refs)
   const onTocRef = useRef(onToc)
   const onProgressRef = useRef(onProgress)
-  onTocRef.current = onToc
-  onProgressRef.current = onProgress
   const initialHrefRef = useRef(initialHref)
-  initialHrefRef.current = initialHref
+  useLayoutEffect(() => {
+    onTocRef.current = onToc
+    onProgressRef.current = onProgress
+    initialHrefRef.current = initialHref
+  })
 
   useEffect(() => {
     if (!containerRef.current) return

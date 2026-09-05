@@ -2,12 +2,12 @@ import type { NavItem } from 'epubjs'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
-import { normalizeBackendError, type BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Tag from '../../components/Tag'
 import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS } from '../../config'
+import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import type { KnowledgeBlock } from '../../types'
 import EpubView, { type EpubHandle, type ReaderTheme } from './EpubView'
 
@@ -17,18 +17,26 @@ const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[]
   { name: 'night', label: '夜读', swatchClass: 'bg-ink-1 border-ink-2' },
 ]
 
+interface ReaderContent {
+  block: KnowledgeBlock
+  source: { href: string; text: string }
+  url: string
+}
+
+/** 路由参数变化即重挂载:旧 blockId 的晚到结果随旧实例卸载而作废。 */
 export default function ReaderPage() {
   const { blockId: blockIdParam } = useParams()
   const blockId = Number(blockIdParam)
+  return <ReaderPageContent key={blockId} blockId={blockId} />
+}
+
+function ReaderPageContent({ blockId }: { blockId: number }) {
   const [searchParams] = useSearchParams()
   const taskId = searchParams.get('task')
   const backTaskId = searchParams.get('back')
   const navigate = useNavigate()
 
   const epubRef = useRef<EpubHandle>(null)
-  const [url, setUrl] = useState<string | null>(null)
-  const [block, setBlock] = useState<KnowledgeBlock | null>(null)
-  const [source, setSource] = useState<{ href: string; text: string } | null>(null)
   const [toc, setToc] = useState<NavItem[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -36,43 +44,22 @@ export default function ReaderPage() {
   const [theme, setTheme] = useState<ReaderTheme>('paper')
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
-  const [initError, setInitError] = useState<BackendError | null>(null)
-  const mounted = useRef(false)
-  const initGeneration = useRef(0)
 
-  const loadContent = useCallback(async () => {
-    if (!mounted.current) return
-    const generation = ++initGeneration.current
-    setInitError(null)
-    setBlock(null)
-    setSource(null)
-    setUrl(null)
-    try {
-      const b = await backend.getBlock(blockId)
-      if (!mounted.current || generation !== initGeneration.current) return
-      const [src, epub] = await Promise.all([
-        backend.blockSource(blockId),
-        backend.epubUrl(b.bookId),
-      ])
-      if (!mounted.current || generation !== initGeneration.current) return
-      setBlock(b)
-      setSource(src)
-      setUrl(epub)
-    } catch (error) {
-      if (!mounted.current || generation !== initGeneration.current) return
-      setInitError(normalizeBackendError(error))
-    }
-  }, [blockId])
-
-  useEffect(() => {
-    mounted.current = true
-    // oxlint-disable-next-line react/set-state-in-effect -- route entry starts an external backend read.
-    void loadContent()
-    return () => {
-      mounted.current = false
-      initGeneration.current += 1
-    }
-  }, [loadContent])
+  // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布
+  const content = useAsyncResource(useCallback(async (isCurrent: () => boolean): Promise<ReaderContent> => {
+    const block = await backend.getBlock(blockId)
+    if (!isCurrent()) throw new StaleResult()
+    const [source, url] = await Promise.all([
+      backend.blockSource(blockId),
+      backend.epubUrl(block.bookId),
+    ])
+    return { block, source, url }
+  }, [blockId]))
+  const block = content.data?.block ?? null
+  const source = content.data?.source ?? null
+  const url = content.data?.url ?? null
+  const initError = content.error
+  const loadContent = content.reload
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
