@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
-import { normalizeBackendError, type BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { BookType } from '../../types'
 
 const TYPES: { type: BookType; label: string; desc: string }[] = [
@@ -23,74 +23,51 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
-  const [failure, setFailure] = useState<BackendError | null>(null)
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
-  const [busy, setBusy] = useState(false)
-  const inFlight = useRef(false)
-  const generation = useRef(0)
-  const mounted = useRef(false)
+  const importedBookId = useRef<number | null>(null)
 
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-      generation.current += 1
-      inFlight.current = false
-    }
-  }, [])
+  // 两步写(导入→生成地图)为一个操作;导入成功后立即把 bookId 记进 attempt,失败重试只重跑生成地图
+  const importOp = useBackendOperation(
+    async (captured: ImportAttempt) => {
+      setProgress(captured.bookId === undefined ? '正在导入书籍…' : '正在生成知识地图…')
+      let bookId = captured.bookId
+      if (bookId === undefined) {
+        const imported = await backend.importEpub(captured.file, captured.type)
+        bookId = imported.bookId
+        setAttempt({ ...captured, bookId })
+      }
+      await backend.generateMap(bookId, message => setProgress(message))
+      importedBookId.current = bookId
+    },
+    {
+      onCommitted: async () => {
+        if (importedBookId.current !== null) navigate(`/map/${importedBookId.current}`)
+      },
+    },
+  )
+  const busy = importOp.pending.has('import')
+  const failure = importOp.errors.get('import')
 
   if (!open) return null
 
   const close = () => {
-    if (inFlight.current) return
-    generation.current += 1
+    if (busy) return
+    importOp.clearError('import')
     setFile(null)
     setProgress(null)
-    setFailure(null)
     setAttempt(null)
-    setBusy(false)
     onClose()
   }
 
-  const runAttempt = async (captured: ImportAttempt) => {
-    if (inFlight.current) return
-    inFlight.current = true
-    const currentGeneration = ++generation.current
-    let nextAttempt = captured
+  const runAttempt = (captured: ImportAttempt) => {
+    importOp.clearError('import')
     setAttempt(captured)
-    setFailure(null)
-    setBusy(true)
-    setProgress(captured.bookId === undefined ? '正在导入书籍…' : '正在生成知识地图…')
-    try {
-      let bookId = captured.bookId
-      if (bookId === undefined) {
-        const imported = await backend.importEpub(captured.file, captured.type)
-        if (!mounted.current || currentGeneration !== generation.current) return
-        bookId = imported.bookId
-        nextAttempt = { ...captured, bookId }
-        setAttempt(nextAttempt)
-      }
-      await backend.generateMap(bookId, message => {
-        if (mounted.current && currentGeneration === generation.current) setProgress(message)
-      })
-      if (!mounted.current || currentGeneration !== generation.current) return
-      navigate(`/map/${bookId}`)
-    } catch (error) {
-      if (!mounted.current || currentGeneration !== generation.current) return
-      setAttempt(nextAttempt)
-      setFailure(normalizeBackendError(error))
-      setProgress(null)
-    } finally {
-      if (currentGeneration === generation.current) {
-        inFlight.current = false
-        if (mounted.current) setBusy(false)
-      }
-    }
+    void importOp.run('import', captured)
   }
 
   const chooseType = (type: BookType) => {
     if (!file) return
-    void runAttempt({ file, type })
+    runAttempt({ file, type })
   }
 
   return (
@@ -118,7 +95,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
               《{attempt.file.name.replace(/\.epub$/i, '')}》· {TYPES.find(t => t.type === attempt.type)?.label}
             </p>
             <div className="mt-6">
-              <AsyncError error={failure} onRetry={() => void runAttempt(attempt)} />
+              <AsyncError error={failure} onRetry={() => runAttempt(attempt)} />
             </div>
             <div className="mt-5 flex justify-end">
               <Button onClick={close}>关闭</Button>

@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
-import { normalizeBackendError, type BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Confirm from '../../components/Confirm'
 import PageHeader from '../../components/PageHeader'
 import Tag from '../../components/Tag'
+import { useAsyncResource } from '../../lib/useAsyncResource'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
 import type { Book, BookStatus } from '../../types'
 import ImportWizard from './ImportWizard'
@@ -23,81 +24,48 @@ const SPINE = ['bg-new', 'bg-review', 'bg-weak']
 export default function LibraryPage() {
   const navigate = useNavigate()
   const setActiveBookId = useSession(s => s.setActiveBookId)
-  const [books, setBooks] = useState<Book[] | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<Book | null>(null)
-  const [booksError, setBooksError] = useState<BackendError | null>(null)
-  const [switchError, setSwitchError] = useState<BackendError | null>(null)
-  const [switching, setSwitching] = useState(false)
-  const mounted = useRef(false)
-  const listGeneration = useRef(0)
-  const switchGeneration = useRef(0)
-  const switchGuard = useRef(false)
 
-  const reload = useCallback(async () => {
-    if (!mounted.current) return false
-    const generation = ++listGeneration.current
-    setBooksError(null)
-    try {
-      const list = await backend.listBooks()
-      if (!mounted.current || generation !== listGeneration.current) return false
-      setBooks([...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active')))
-      return true
-    } catch (error) {
-      if (!mounted.current || generation !== listGeneration.current) return false
-      setBooksError(normalizeBackendError(error))
-      return false
-    }
-  }, [])
+  const books = useAsyncResource(useCallback(async () => {
+    const list = await backend.listBooks()
+    return [...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active'))
+  }, []))
 
-  useEffect(() => {
-    mounted.current = true
-    void reload()
-    return () => {
-      mounted.current = false
-      listGeneration.current += 1
-      switchGeneration.current += 1
-      switchGuard.current = false
-    }
-  }, [reload])
+  const switchOp = useBackendOperation(
+    (bookId: number) => backend.setActiveBook(bookId),
+    {
+      onCommitted: async (_key, bookId) => {
+        setActiveBookId(bookId)
+        setSwitchTarget(null)
+        void books.reload()
+      },
+    },
+  )
+  const switching = switchOp.pending.has('switch')
+  const switchError = switchOp.errors.get('switch')
 
   const open = (book: Book) => {
     if (book.status === 'active') navigate(`/map/${book.id}`)
     else {
-      setSwitchError(null)
+      switchOp.clearError('switch')
       setSwitchTarget(book)
     }
   }
 
-  const confirmSwitch = async () => {
-    if (!switchTarget || switchGuard.current) return
-    const target = switchTarget
-    const generation = ++switchGeneration.current
-    switchGuard.current = true
-    setSwitching(true)
-    setSwitchError(null)
-    try {
-      await backend.setActiveBook(target.id)
-      if (!mounted.current || generation !== switchGeneration.current) return
-      setActiveBookId(target.id)
-      setSwitchTarget(null)
-      void reload()
-    } catch (error) {
-      if (!mounted.current || generation !== switchGeneration.current) return
-      setSwitchError(normalizeBackendError(error))
-    } finally {
-      if (generation === switchGeneration.current) {
-        switchGuard.current = false
-        if (mounted.current) setSwitching(false)
-      }
-    }
+  const confirmSwitch = () => {
+    if (!switchTarget) return
+    switchOp.clearError('switch')
+    void switchOp.run('switch', switchTarget.id)
   }
 
   const cancelSwitch = () => {
-    if (switchGuard.current) return
-    setSwitchError(null)
+    if (switching) return
+    switchOp.clearError('switch')
     setSwitchTarget(null)
   }
+
+  const list = books.data
 
   return (
     <div className="mx-auto max-w-4xl px-10 py-12">
@@ -111,21 +79,21 @@ export default function LibraryPage() {
         }
       />
 
-      {booksError && books !== null && (
+      {books.error && list !== null && (
         <div className="mb-6">
-          <AsyncError error={booksError} onRetry={reload} variant="compact" />
+          <AsyncError error={books.error} onRetry={books.reload} variant="compact" />
         </div>
       )}
 
-      {booksError && books === null ? (
-        <AsyncError error={booksError} onRetry={reload} />
-      ) : books === null ? (
+      {books.error && list === null ? (
+        <AsyncError error={books.error} onRetry={books.reload} />
+      ) : list === null ? (
         <p className="text-sm text-ink-3">正在打开书架…</p>
-      ) : books.length === 0 ? (
+      ) : list.length === 0 ? (
         <p className="text-sm text-ink-3">书架还空着——导入一本 EPUB 开始。</p>
       ) : (
         <div className="grid grid-cols-3 gap-6 sm:grid-cols-4">
-          {books.map(book => (
+          {list.map(book => (
             <button
               key={book.id}
               onClick={() => open(book)}

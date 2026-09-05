@@ -186,8 +186,8 @@ export function useBackendOperation<A extends unknown[]>(
 **Files:** Modify 四个 `*Page.tsx`;各自测试不改断言
 
 - [x] **Step 4.1** Stats(读)与 Settings(读 + saveSettings 写)先迁;**F10**:数字输入清空不得变 0——`AppSettings` 数字字段为 `number`,页面需为 pomodoroMinutes/breakMinutes 各持一个**字符串草稿 state**,空串/NaN/非正整数在本地显示校验错误并禁用保存,不发请求;合法时才写回 number(新增用例);焦点测试 GREEN,commit `refactor(web): Stats/Settings 迁移至公共异步 hook (H-T4a)`
-- [ ] **Step 4.2** Library(读 books + importEpub/generateMap/setActiveBook 写)与 Map(读 blocks + confirmMap/setPlan/setActiveBook 写)迁移;Map 的编辑态本地 state 保持;焦点测试 GREEN;lint 中 LibraryPage/MapPage 的 `set-state-in-effect` 消失(剩 3 条 EpubView)。commit `refactor(web): Library/Map 迁移至公共异步 hook (H-T4b)`
-- [ ] **Step 4.3** 全量 vitest 158/2 GREEN;`grep -c "Generation\|mounted.current" web/src/features/**/*.tsx` 应仅剩 Feynman/Reader(T5/T6 处理)。
+- [x] **Step 4.2** Library(读 books + importEpub/generateMap/setActiveBook 写)与 Map(读 blocks + confirmMap/setPlan/setActiveBook 写)迁移;Map 的编辑态本地 state 保持;焦点测试 GREEN;lint 中 LibraryPage/MapPage 的 `set-state-in-effect` 消失(剩 3 条 EpubView)。commit `refactor(web): Library/Map 迁移至公共异步 hook (H-T4b)`
+- [x] **Step 4.3** 全量 vitest 158/2 GREEN;`grep -c "Generation\|mounted.current" web/src/features/**/*.tsx` 应仅剩 Feynman/Reader(T5/T6 处理)。
 
 ### Task 5: FeynmanPage 操作错误态(基线 Node 10 的非幂等子集)
 

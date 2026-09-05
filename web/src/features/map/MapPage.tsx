@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
-import { normalizeBackendError, type BackendError } from '../../backend/errors'
 import type { MapEditBlock } from '../../backend/types'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
@@ -10,6 +9,8 @@ import PageHeader from '../../components/PageHeader'
 import Tag, { type TagTone } from '../../components/Tag'
 import { DAILY_CAP_DEFAULT } from '../../config'
 import { localCalendarDate } from '../../lib/localDate'
+import { useAsyncResource } from '../../lib/useAsyncResource'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
 import type { BlockStatus, KnowledgeBlock, Scores } from '../../types'
 
@@ -49,82 +50,82 @@ interface EditEntry {
   block: KnowledgeBlock
 }
 
+/** 路由参数变化即重挂载:旧 bookId 的晚到结果随旧实例卸载而作废,无需手工 generation。 */
 export default function MapPage() {
   const { bookId: bookIdParam } = useParams()
   const bookId = Number(bookIdParam)
+  return <MapPageContent key={bookId} bookId={bookId} />
+}
+
+function MapPageContent({ bookId }: { bookId: number }) {
   const navigate = useNavigate()
   const setActiveBookId = useSession(s => s.setActiveBookId)
 
-  const [blocks, setBlocks] = useState<KnowledgeBlock[] | null>(null)
-  const [bookTitle, setBookTitle] = useState('')
   const [edits, setEdits] = useState<EditEntry[] | null>(null) // 非 null = 编辑模式
   const [goalOpen, setGoalOpen] = useState(false)
   const [deadline, setDeadline] = useState('')
   const [remindTime, setRemindTime] = useState('21:00')
-  const [blocksError, setBlocksError] = useState<BackendError | null>(null)
-  const [titleError, setTitleError] = useState<BackendError | null>(null)
-  const [confirmError, setConfirmError] = useState<BackendError | null>(null)
-  const [confirmAttempt, setConfirmAttempt] = useState<MapEditBlock[] | null>(null)
-  const [confirming, setConfirming] = useState(false)
-  const [planError, setPlanError] = useState<BackendError | null>(null)
-  const [planning, setPlanning] = useState(false)
-  const mounted = useRef(false)
-  const blocksGeneration = useRef(0)
-  const titleGeneration = useRef(0)
-  const confirmGeneration = useRef(0)
-  const planGeneration = useRef(0)
-  const confirmGuard = useRef(false)
-  const planGuard = useRef(false)
 
-  const reload = useCallback(async () => {
-    if (!mounted.current) return false
-    const generation = ++blocksGeneration.current
-    setBlocksError(null)
-    try {
-      const list = await backend.listBlocks(bookId)
-      if (!mounted.current || generation !== blocksGeneration.current) return false
-      setBlocks([...list].sort((a, z) => a.seq - z.seq))
-      return true
-    } catch (error) {
-      if (!mounted.current || generation !== blocksGeneration.current) return false
-      setBlocksError(normalizeBackendError(error))
-      return false
-    }
-  }, [bookId])
+  const blocksRes = useAsyncResource(useCallback(async () => {
+    const list = await backend.listBlocks(bookId)
+    return [...list].sort((a, z) => a.seq - z.seq)
+  }, [bookId]))
+  const title = useAsyncResource(useCallback(async () => {
+    const books = await backend.listBooks()
+    return books.find(book => book.id === bookId)?.title ?? ''
+  }, [bookId]))
+  const blocks = blocksRes.data
+  const bookTitle = title.data ?? ''
 
-  const loadTitle = useCallback(async () => {
-    if (!mounted.current) return
-    const generation = ++titleGeneration.current
-    setTitleError(null)
-    try {
-      const books = await backend.listBooks()
-      if (!mounted.current || generation !== titleGeneration.current) return
-      setBookTitle(books.find(book => book.id === bookId)?.title ?? '')
-    } catch (error) {
-      if (!mounted.current || generation !== titleGeneration.current) return
-      setTitleError(normalizeBackendError(error))
-    }
-  }, [bookId])
+  // 定稿:失败保留全部编辑;重试重发精确快照(hook 记录上次 args);成功才重载列表并打开目标设定
+  const confirmOp = useBackendOperation(
+    (snapshot: MapEditBlock[]) => backend.confirmMap(bookId, snapshot),
+    {
+      onCommitted: async () => {
+        setEdits(null)
+        setGoalOpen(true)
+        void blocksRes.reload()
+      },
+    },
+  )
+  const confirming = confirmOp.pending.has('confirm')
+  const confirmError = confirmOp.errors.get('confirm')
 
-  useEffect(() => {
-    mounted.current = true
-    void reload()
-    void loadTitle()
-    return () => {
-      mounted.current = false
-      blocksGeneration.current += 1
-      titleGeneration.current += 1
-      confirmGeneration.current += 1
-      planGeneration.current += 1
-      confirmGuard.current = false
-      planGuard.current = false
-    }
-  }, [reload, loadTitle])
+  // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整(须先于 planOp 声明,其闭包引用它)
+  const remaining = blocks?.length ?? 0
+  const dailyBlocks = (() => {
+    if (!deadline) return null
+    const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
+    if (days < 1) return null
+    return Math.ceil(remaining / days)
+  })()
+
+  // 目标设定:setPlan→setActiveBook 两步为一个操作;成功后该书成为主攻书并回今日
+  const planOp = useBackendOperation(
+    async () => {
+      if (!deadline || dailyBlocks === null) return
+      await backend.setPlan({
+        bookId,
+        deadline,
+        dailyNewBlocks: dailyBlocks,
+        dailyCap: DAILY_CAP_DEFAULT,
+        remindTime,
+      })
+      await backend.setActiveBook(bookId)
+    },
+    {
+      onCommitted: async () => {
+        setActiveBookId(bookId)
+        navigate('/')
+      },
+    },
+  )
+  const planning = planOp.pending.has('plan')
+  const planError = planOp.errors.get('plan')
 
   const startEdit = () => {
     if (!blocks) return
-    setConfirmError(null)
-    setConfirmAttempt(null)
+    confirmOp.clearError('confirm')
     setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: false, block: b })))
   }
 
@@ -151,79 +152,22 @@ export default function MapPage() {
     )
   }
 
-  const submitMap = async (snapshot: MapEditBlock[]) => {
-    if (confirmGuard.current) return
-    const generation = ++confirmGeneration.current
-    confirmGuard.current = true
-    setConfirming(true)
-    setConfirmAttempt(snapshot)
-    setConfirmError(null)
-    try {
-      await backend.confirmMap(bookId, snapshot)
-      if (!mounted.current || generation !== confirmGeneration.current) return
-      setEdits(null)
-      setConfirmAttempt(null)
-      setGoalOpen(true)
-      void reload()
-    } catch (error) {
-      if (!mounted.current || generation !== confirmGeneration.current) return
-      setConfirmError(normalizeBackendError(error))
-    } finally {
-      if (generation === confirmGeneration.current) {
-        confirmGuard.current = false
-        if (mounted.current) setConfirming(false)
-      }
-    }
-  }
-
   const finalize = () => {
     if (!edits) return
-    const snapshot = edits.map((entry, index) => ({
+    const snapshot: MapEditBlock[] = edits.map((entry, index) => ({
       title: entry.title,
       moduleName: entry.moduleName,
       seq: index + 1,
       skipped: entry.skipped,
     }))
-    void submitMap(snapshot)
+    confirmOp.clearError('confirm')
+    void confirmOp.run('confirm', snapshot)
   }
 
-  // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整
-  const remaining = blocks?.length ?? 0
-  const dailyBlocks = useMemo(() => {
-    if (!deadline) return null
-    const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
-    if (days < 1) return null
-    return Math.ceil(remaining / days)
-  }, [deadline, remaining])
-
-  const startLearning = async () => {
-    if (!deadline || dailyBlocks === null || planGuard.current) return
-    const generation = ++planGeneration.current
-    planGuard.current = true
-    setPlanning(true)
-    setPlanError(null)
-    try {
-      await backend.setPlan({
-        bookId,
-        deadline,
-        dailyNewBlocks: dailyBlocks,
-        dailyCap: DAILY_CAP_DEFAULT,
-        remindTime,
-      })
-      if (!mounted.current || generation !== planGeneration.current) return
-      await backend.setActiveBook(bookId)
-      if (!mounted.current || generation !== planGeneration.current) return
-      setActiveBookId(bookId)
-      navigate('/')
-    } catch (error) {
-      if (!mounted.current || generation !== planGeneration.current) return
-      setPlanError(normalizeBackendError(error))
-    } finally {
-      if (generation === planGeneration.current) {
-        planGuard.current = false
-        if (mounted.current) setPlanning(false)
-      }
-    }
+  const startLearning = () => {
+    if (!deadline || dailyBlocks === null) return
+    planOp.clearError('plan')
+    void planOp.run('plan')
   }
 
   // 渲染顺序:编辑模式用 edits 平铺;浏览模式用 blocks
@@ -249,8 +193,7 @@ export default function MapPage() {
           editing ? (
             <>
               <Button disabled={confirming} onClick={() => {
-                setConfirmError(null)
-                setConfirmAttempt(null)
+                confirmOp.clearError('confirm')
                 setEdits(null)
               }}>
                 取消
@@ -265,15 +208,15 @@ export default function MapPage() {
         }
       />
 
-      {titleError && (
+      {title.error && (
         <div className="mb-4">
-          <AsyncError error={titleError} onRetry={loadTitle} variant="compact" />
+          <AsyncError error={title.error} onRetry={title.reload} variant="compact" />
         </div>
       )}
 
-      {blocksError && blocks !== null && (
+      {blocksRes.error && blocks !== null && (
         <div className="mb-4">
-          <AsyncError error={blocksError} onRetry={reload} variant="compact" />
+          <AsyncError error={blocksRes.error} onRetry={blocksRes.reload} variant="compact" />
         </div>
       )}
 
@@ -281,14 +224,14 @@ export default function MapPage() {
         <div className="mb-4">
           <AsyncError
             error={confirmError}
-            onRetry={confirmAttempt ? () => void submitMap(confirmAttempt) : undefined}
+            onRetry={() => void confirmOp.retry('confirm')}
             variant="compact"
           />
         </div>
       )}
 
-      {blocksError && blocks === null ? (
-        <AsyncError error={blocksError} onRetry={reload} />
+      {blocksRes.error && blocks === null ? (
+        <AsyncError error={blocksRes.error} onRetry={blocksRes.reload} />
       ) : blocks === null ? (
         <p className="text-sm text-ink-3">正在展开地图…</p>
       ) : (
@@ -413,7 +356,7 @@ export default function MapPage() {
             )}
             <div className="mt-6 flex justify-end gap-2">
               <Button disabled={planning} onClick={() => {
-                setPlanError(null)
+                planOp.clearError('plan')
                 setGoalOpen(false)
               }}>
                 稍后再定
