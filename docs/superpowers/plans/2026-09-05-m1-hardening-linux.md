@@ -179,13 +179,13 @@ export function useBackendOperation<A extends unknown[]>(
 - [x] **Step 3.1** 记录基线:`pnpm -C web exec vitest --run src/features/today/today.test.tsx`(33 passed)与 `wc -l TodayPage.tsx`(230)。
 - [x] **Step 3.2** 重构:队列+blocks 合为一个 `useAsyncResource(loadQueueBundle)`(fetcher 内部串行 todayQueue→listBlocks,**每步之间 `if (!isCurrent()) throw new StaleResult()`**(hook 对 StaleResult 静默丢弃,保持 `data` 类型干净,不引入 `| null`)以保住既有断言 `today.test.tsx:292-303`;返回 `{tasks, blocks}` 原子发布;`today` 仍在挂载时固定);stats 为第二个 `useAsyncResource`;完成任务为 `useBackendOperation(backend.completeTask, { onCommitted: () => queue.reload().then(ok => ok ? undefined : Promise.reject()) })`,队列 reload 成功后 `releaseCommitted()` **并 `clearAllErrors()`**(F6:`conflict` 文案说"刷新后重试",刷新后必须重新可用);`completionUnavailable` = `errors.get(id)?.retryable === false`。**F9**:`onCommitted` 内 `void stats.reload()` **fire-and-forget**(不参与 ok/reject 判定,stats 失败不得持有完成守卫),然后 await 队列 reload——这会改动 `today.test.tsx:472`(`重试完成操作只重发同一任务并在成功后刷新队列`)中 `expect(stats).toHaveBeenCalledTimes(1)` → 2,属**有意行为变更**,DEVLOG 明记(本切片唯一允许改的旧断言)。新增用例:conflict 失败 → 队列刷新成功后"完成"重新可用。删除页面内全部 generation/mounted/guard ref。
 - [x] **Step 3.3** `today.test.tsx` 33/33 GREEN 不改断言;`pnpm -C web lint` 中 TodayPage 的 `set-state-in-effect` 警告消失(5 条剩余)。
-- [ ] **Step 3.4** commit `refactor(web): TodayPage 迁移至公共异步 hook (H-T3)`
+- [x] **Step 3.4** commit `refactor(web): TodayPage 迁移至公共异步 hook (H-T3)`
 
 ### Task 4: Stats / Settings / Library / Map 迁移
 
 **Files:** Modify 四个 `*Page.tsx`;各自测试不改断言
 
-- [ ] **Step 4.1** Stats(读)与 Settings(读 + saveSettings 写)先迁;**F10**:数字输入清空不得变 0——`AppSettings` 数字字段为 `number`,页面需为 pomodoroMinutes/breakMinutes 各持一个**字符串草稿 state**,空串/NaN/非正整数在本地显示校验错误并禁用保存,不发请求;合法时才写回 number(新增用例);焦点测试 GREEN,commit `refactor(web): Stats/Settings 迁移至公共异步 hook (H-T4a)`
+- [x] **Step 4.1** Stats(读)与 Settings(读 + saveSettings 写)先迁;**F10**:数字输入清空不得变 0——`AppSettings` 数字字段为 `number`,页面需为 pomodoroMinutes/breakMinutes 各持一个**字符串草稿 state**,空串/NaN/非正整数在本地显示校验错误并禁用保存,不发请求;合法时才写回 number(新增用例);焦点测试 GREEN,commit `refactor(web): Stats/Settings 迁移至公共异步 hook (H-T4a)`
 - [ ] **Step 4.2** Library(读 books + importEpub/generateMap/setActiveBook 写)与 Map(读 blocks + confirmMap/setPlan/setActiveBook 写)迁移;Map 的编辑态本地 state 保持;焦点测试 GREEN;lint 中 LibraryPage/MapPage 的 `set-state-in-effect` 消失(剩 3 条 EpubView)。commit `refactor(web): Library/Map 迁移至公共异步 hook (H-T4b)`
 - [ ] **Step 4.3** 全量 vitest 158/2 GREEN;`grep -c "Generation\|mounted.current" web/src/features/**/*.tsx` 应仅剩 Feynman/Reader(T5/T6 处理)。
 

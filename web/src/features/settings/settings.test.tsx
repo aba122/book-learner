@@ -233,3 +233,25 @@ describe('设置页', () => {
     expect(normalize).not.toHaveBeenCalled()
   })
 })
+
+describe('数字输入校验(F10)', () => {
+  it('清空番茄钟分钟不会变成 0:显示校验提示、禁用保存、不发请求', async () => {
+    const user = userEvent.setup()
+    const saveSettings = vi.spyOn(backendModule.backend, 'saveSettings')
+    render(<SettingsPage />)
+    const pomo = await screen.findByLabelText('番茄钟(分钟)')
+    await user.clear(pomo)
+    expect(pomo).toHaveValue(null)
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入正整数')
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).toBeDisabled()
+    fireEvent.click(saveButton)
+    expect(saveSettings).not.toHaveBeenCalled()
+
+    await user.type(pomo, '40')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(saveButton).toBeEnabled()
+    await user.click(saveButton)
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ pomodoroMinutes: 40 }))
+  })
+})
