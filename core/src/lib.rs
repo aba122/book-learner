@@ -13,6 +13,7 @@ pub mod prompts;
 pub mod sched;
 pub mod session;
 pub mod settings;
+pub mod verdict;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CoreError {

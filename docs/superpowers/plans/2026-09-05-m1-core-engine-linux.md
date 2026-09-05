@@ -345,8 +345,8 @@ pub struct VerdictOutcome { pub passed: bool, pub block_status: String, pub task
 pub fn confirm_session_verdict(conn, session_id, expected_version, request_id, pass: bool, date) -> Result<VerdictOutcome>;
 ```
 
-- [ ] **Step A8.1 失败测试**:evaluation 幂等(同 id 二次不调 provider);evaluation 失败后 state 回 open 且同 id 重试成功;手工置 state='evaluating' 后同 id 续跑成功、异 id → Conflict;非 evaluated 状态 confirm → Conflict;`apply_eval_in_tx` 在外层事务内可用(既有 apply_eval_to_db 用例仍绿);pass 流转(块 passed、stage1 复习、weak_point 入库、task done、outbox 4 行);relearn 流转(块 learning、task 仍 pending、无复习、次日 generate_daily 仍含该块为 new);**用户与 AI 不一致**:AI relearn + pass=true → passed;AI pass + pass=false → learning;weak_retest 任务 pass → on_weak_retest streak+1、task done、块 status/passed_at 不变、薄弱点数不变、outbox 3 行;review 任务 fail → 重置 1 天档 + 新薄弱点(仅 on_review_result 产生的 1 条)、task done、块 status 不变;同 request_id 双 confirm → 同 outcome、无重复复习行/outbox 行;不同 request_id 二次 confirm → Conflict。
-- [ ] **Step A8.2** RED → **Step A8.3 实现** → **Step A8.4** GREEN → **Step A8.5** commit `feat(core): 评估请求与原子判定流转——用户判定覆盖、任务类型分流、确认幂等 (A-T8)`
+- [x] **Step A8.1 失败测试**:evaluation 幂等(同 id 二次不调 provider);evaluation 失败后 state 回 open 且同 id 重试成功;手工置 state='evaluating' 后同 id 续跑成功、异 id → Conflict;非 evaluated 状态 confirm → Conflict;`apply_eval_in_tx` 在外层事务内可用(既有 apply_eval_to_db 用例仍绿);pass 流转(块 passed、stage1 复习、weak_point 入库、task done、outbox 4 行);relearn 流转(块 learning、task 仍 pending、无复习、次日 generate_daily 仍含该块为 new);**用户与 AI 不一致**:AI relearn + pass=true → passed;AI pass + pass=false → learning;weak_retest 任务 pass → on_weak_retest streak+1、task done、块 status/passed_at 不变、薄弱点数不变、outbox 3 行;review 任务 fail → 重置 1 天档 + 新薄弱点(仅 on_review_result 产生的 1 条)、task done、块 status 不变;同 request_id 双 confirm → 同 outcome、无重复复习行/outbox 行;不同 request_id 二次 confirm → Conflict。
+- [x] **Step A8.2** RED → **Step A8.3 实现** → **Step A8.4** GREEN → **Step A8.5** commit `feat(core): 评估请求与原子判定流转——用户判定覆盖、任务类型分流、确认幂等 (A-T8)`
 
 ### Task A9: `projection.rs` — 投影 outbox 重放
 

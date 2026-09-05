@@ -206,21 +206,22 @@ pub fn on_weak_retest(conn: &Connection, weak_id: i64, pass: bool, date: &str) -
     Ok(())
 }
 
-/// 评估落库唯一入口(TECH_DESIGN §3.3 的 SQLite 半边)。
-pub fn apply_eval_to_db(
+/// 在调用方事务内按**显式** verdict 落库(判定确认用;用户判定可覆盖 eval.verdict):
+/// scores、未修复薄弱点;Pass → on_block_passed;Relearn → status='learning'。
+pub fn apply_eval_in_tx(
     conn: &Connection,
     block_id: i64,
     eval: &crate::eval::EvalResult,
+    verdict: crate::eval::Verdict,
     date: &str,
 ) -> Result<()> {
     use crate::eval::Verdict;
-    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?; // 读后写:IMMEDIATE 才能等锁
-    tx.execute(
+    conn.execute(
         "UPDATE knowledge_block SET scores_json=?2 WHERE id=?1",
         rusqlite::params![block_id, serde_json::to_string(&eval.scores).unwrap()],
     )?;
     for wp in eval.weak_points.iter().filter(|w| !w.fixed_in_session) {
-        tx.execute(
+        conn.execute(
             "INSERT INTO weak_point(block_id,title,detail,anchor_json,created_at) \
                     VALUES(?1,?2,?3,?4,?5)",
             rusqlite::params![
@@ -234,15 +235,27 @@ pub fn apply_eval_to_db(
             ],
         )?;
     }
-    match eval.verdict {
-        Verdict::PassSuggested => on_block_passed(&tx, block_id, date)?,
+    match verdict {
+        Verdict::PassSuggested => on_block_passed(conn, block_id, date)?,
         Verdict::RelearnSuggested => {
-            tx.execute(
+            conn.execute(
                 "UPDATE knowledge_block SET status='learning' WHERE id=?1",
                 [block_id],
             )?;
         }
     }
+    Ok(())
+}
+
+/// 评估落库唯一入口(TECH_DESIGN §3.3 的 SQLite 半边):自开 IMMEDIATE 事务,按 eval.verdict 行动。
+pub fn apply_eval_to_db(
+    conn: &Connection,
+    block_id: i64,
+    eval: &crate::eval::EvalResult,
+    date: &str,
+) -> Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?; // 读后写:IMMEDIATE 才能等锁
+    apply_eval_in_tx(&tx, block_id, eval, eval.verdict.clone(), date)?;
     tx.commit()?;
     Ok(())
 }
@@ -684,5 +697,48 @@ mod tests {
                 cap: 4
             }
         ));
+    }
+
+    #[test]
+    fn apply_eval_in_tx_works_inside_outer_transaction_with_explicit_verdict() {
+        let (conn, _) = setup();
+        let e: crate::eval::EvalResult = serde_json::from_str(
+            r#"{"verdict":"relearn_suggested","scores":{"accuracy":2,"completeness":2,"clarity":3},
+            "summary":"s","final_restatement":"r","weak_points":[{"title":"w","detail":"d"}]}"#,
+        )
+        .unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        // AI 建议重学,但按显式 Pass 落库
+        super::apply_eval_in_tx(
+            &tx,
+            1,
+            &e,
+            crate::eval::Verdict::PassSuggested,
+            "2026-08-30",
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        let st: String = conn
+            .query_row("SELECT status FROM knowledge_block WHERE id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(st, "passed");
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM review_schedule WHERE block_id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        let w: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM weak_point WHERE block_id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(w, 1);
     }
 }

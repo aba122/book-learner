@@ -259,3 +259,9 @@
 - 新模块 `session.rs`:`get_session`(TurnView 含 `client_turn_id`/`ready_to_end`,学生文本输出时剥离 `[READY_TO_END]`)、`start_or_resume_session`(client_request_id 幂等;同任务未确认会话 resume;非当日/不存在 → NotFound;任务非 pending → Conflict;kind 映射 new→learn/weak_retest→retest/review→review)、`fixed_context_for_block`(exact 段 text 优先、fallback 整章且同章只取一次、60 KiB 字符边界截断、历史评估/薄弱点/前置状态)、`submit_turn`(①同 turn id done 重放/pending 续跑 ②事务 A 校验 state/无 pending/版本并写 pending 回合不 bump ③无事务 run_ai_request `turn:{sid}:{turn}` ④事务 B 复查 state='open'、落库学生原文、version+1)、`abandon_session`(允许 pending;confirmed/abandoned → Conflict)。
 - RED:31 处编译错误;GREEN 后 core 109 单测 + 27 + 1,门禁全绿。修了两处测试自身问题(RefCell 借用跨调用、clippy 类型复杂度)。
 - 偏差:`submit_turn` 比计划多 `workdir` 参数(同 A-T5 理由)。
+
+## 2026-09-05 · A-T8 评估请求与原子判定流转完成
+- `sched::apply_eval_in_tx(conn, block_id, eval, verdict, date)` 抽出(不开事务、显式 verdict),`apply_eval_to_db` 保留为包装;新模块 `verdict.rs`:`request_evaluation`(前置:无 pending 回合、≥1 用户回合;open→evaluating 短事务;`eval:{sid}:{rid}` 经 run_ai_json;成功 evaluated+version+1,失败回 open;evaluated 同 id 重放/异 id Conflict;evaluating 态无 eval 行或同 id 续跑、异 id Conflict)、`confirm_session_verdict`(单 IMMEDIATE 事务:同 `verdict:{sid}:{rid}` 已确认 → 从 verdict_json 重建且不看版本/pass;state 须 evaluated、版本一致;用户 pass 覆盖 AI verdict;new → apply_eval_in_tx + pass 时 task done;weak_retest/review 不改块、只走 on_weak_retest/on_review_result 且 task done;outbox new 4 行 / 其它 3 行,`block_eval` 载荷含 passed 与 entry_key;session confirmed、version+1)。
+- `verdict_request_id` 存命名空间化的 `verdict:{sid}:{rid}`(全局唯一索引下避免跨会话的客户端 id 碰撞)。
+- RED:16 处编译错误;GREEN 后 core 121 单测 + 27 + 1,门禁全绿。修正一处测试预期:人为把 state 置回 evaluating 后同 id 续跑会重做事务 B(版本再 +1),这是真实崩溃语义,不是缺陷。
+- 偏差:`request_evaluation` 多 `workdir` 参数(同前)。
