@@ -371,10 +371,10 @@ pub fn run_pending(conn, memory: &MemoryStore) -> Result<usize>;
 
 **Files:** Create `core/tests/m1_engine.rs`;Modify `TECH_DESIGN.md`(§3.1 块文件命名/§3.3 投影/§4 v4/§5 编排/§6 已实现标注与 prompt-only)、`IMPLEMENTATION_PLAN.md`、基线文档 Node 1/4/5/6/8/9 状态、`DEVLOG.md`
 
-- [ ] **Step A10.1** 集成测试(MockProvider 按 request_id 分发固定 JSON;**provider 回调内用第二连接对同一 DB 文件写入一行 setting,证明 AI 调用期间无事务持有**):建书 → store_spine(3 章) → run_map_job → apply_draft_map → set_plan → generate_daily(Day0,new 任务) → start_or_resume_session → submit_turn ×2(第二次 READY_TO_END) → request_evaluation → confirm_session_verdict(pass) → run_pending(init_book + md + git,不手工 ensure_book) → **重开连接**再 run_pending = 0、再 confirm 同 request_id = 同 outcome → generate_daily(Day1)队首为 weak_retest 且 review 到期。
-- [ ] **Step A10.2** 全量:`cargo test`、clippy `-D warnings`、`cargo fmt --check`;记录用例数。
-- [ ] **Step A10.3** 回写文档 + DEVLOG(每 Task 数字、与基线偏差、Mac 阶段需接线的 command 清单——按 Plan B 契约 v2 命名:`startOrResumeSession` / `submitTurn` / `requestEvaluation` / `confirmSessionVerdict` / `abandonSession` / `confirmMap`(ops+expectedRevision)/ `mapJob` 进度 / `storeSpine` / `setAnchorSegments` / `runProjection`)。
-- [ ] **Step A10.4** commit `docs: M1 core engine 收尾与回写 (A-T10)`;打 tag `m1-linux-a`;凭证到位后随 linux-local 一并推送。
+- [x] **Step A10.1** 集成测试(MockProvider 按 request_id 分发固定 JSON;**provider 回调内用第二连接对同一 DB 文件写入一行 setting,证明 AI 调用期间无事务持有**):建书 → store_spine(3 章) → run_map_job → apply_draft_map → set_plan → generate_daily(Day0,new 任务) → start_or_resume_session → submit_turn ×2(第二次 READY_TO_END) → request_evaluation → confirm_session_verdict(pass) → run_pending(init_book + md + git,不手工 ensure_book) → **重开连接**再 run_pending = 0、再 confirm 同 request_id = 同 outcome → generate_daily(Day1)队首为 weak_retest 且 review 到期。
+- [x] **Step A10.2** 全量:`cargo test`、clippy `-D warnings`、`cargo fmt --check`;记录用例数。
+- [x] **Step A10.3** 回写文档 + DEVLOG(每 Task 数字、与基线偏差、Mac 阶段需接线的 command 清单——按 Plan B 契约 v2 命名:`startOrResumeSession` / `submitTurn` / `requestEvaluation` / `confirmSessionVerdict` / `abandonSession` / `confirmMap`(ops+expectedRevision)/ `mapJob` 进度 / `storeSpine` / `setAnchorSegments` / `runProjection`)。
+- [x] **Step A10.4** commit `docs: M1 core engine 收尾与回写 (A-T10)`;打 tag `m1-linux-a`;凭证到位后随 linux-local 一并推送。
 
 ## 完成定义(DoD)
 

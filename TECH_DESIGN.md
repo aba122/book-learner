@@ -70,7 +70,7 @@ memory/
    ├─ _map.md            ← 知识地图 + 各块状态一览表
    ├─ _weakpoints.md     ← 薄弱点清单(待考/已修复)
    ├─ _methodology.md    ← (方法论书)个人方法论累积文档
-   └─ blocks/<序号>-<块slug>.md
+   └─ blocks/<block_id 四位>-<块slug>.md   ← 2026-09-05 起以 block_id 命名(ADR-0003;Reorder 改 seq 不再孤立历史)
 ```
 
 `profile.md` 分节:`## 知识背景` `## 已掌握概念`(按领域列表)`## 误区模式`(AI 观察积累)`## 个人情境`(工作/研究/生活现状,用户可手改,AI 从对话提取后追加候选,用户确认)。
@@ -97,6 +97,8 @@ review_stage: 3         # 间隔复习到第几档
 ## AI 观察笔记
 <codex 自由追加的定性认识,只增不改>
 ```
+
+评估历史每行末尾带 `<!-- {op_id} -->` 幂等标记:同一判定的投影重放(含"文件已写、outbox 未标 done"的崩溃边界)不会重复追加历史行与观察笔记(`memory::apply_eval` 的 `entry_key`)。frontmatter 的 `status/passed_at` 与"通过建议/重学建议"以**用户判定**为准(ADR-0002)。
 
 ### 3.2 上下文组装(固定注入 + 自主补充)
 
@@ -129,7 +131,7 @@ review_stage: 3         # 间隔复习到第几档
 app 校验 schema(serde 严格解析,失败则带错误信息重试一次)后:
 - 程序化写入块文件固定区块与 frontmatter、_weakpoints.md、_map.md 状态行、SQLite;
 - `observation_note` 追加到块文件"AI 观察笔记"区(只追加,永不重写历史);
-- 目标顺序为先写 SQLite 事务,再写 md,最后 git commit;三种存储不能共享 ACID 事务,当前 Mac Foundation 尚未实现这条跨存储管线。产品 M1 实现前必须用 ADR 定义可恢复的 outbox/操作日志、幂等 key、补偿与重放顺序,不得宣称跨 SQLite/Markdown/Git 原子性。
+- **已实现(2026-09-05,ADR-0001,core/src/projection.rs)**:三种存储不共享 ACID 事务;SQLite 是唯一事实源。`verdict::confirm_session_verdict` 在**一个** IMMEDIATE 事务里完成会话/块/薄弱点/复习/任务变更,并向 `projection_outbox` 入队 `block_eval`(载荷含用户判定 `passed` 与幂等 `entry_key`)/`sync_weakpoints`/`sync_map`/`git_commit`;`map::apply_draft_map` 入队 `init_book`,`confirm_map` 入队 `sync_map`。`projection::run_pending(conn, memory)` 按 id 顺序重放 pending/failed 行(失败即停、保持顺序,failed 行下次重试),处理器全部幂等;应用启动与每次确认后调用即可追平 md 与 git。
 
 ### 3.4 git 备份
 
@@ -173,7 +175,18 @@ setting(key, value)
 - v2 前置收敛:同书多计划留最新、多活跃计划留最新,再建 `study_plan_one_per_book` / `study_plan_single_active` 唯一索引(旧库不再永久迁移失败)。
 - v3:`book_single_active` 唯一索引(恰一本 status='active',迁移时优先保留持有活跃计划的书);`daily_task`/`feynman_session`/`weak_point`/`review_schedule`/`artifact` 重建补外键(`ON DELETE CASCADE`;`artifact.block_id` `SET NULL`;`daily_task.ref_id` 为多态引用不加 FK)。迁移在单个 IMMEDIATE 事务内、`foreign_keys=ON`,孤儿行使整体回滚而非静默通过。
 - 用例层不变量:`insert_book` 在已有主攻书时以 `paused` 入库;`set_plan` 仅对 active 书激活计划;`set_active_book` 要求目标书已有 `study_plan`(否则 `Conflict`),书状态与计划 active 在同一事务切换。
-- **并发策略**:所有连接 `busy_timeout` 5s;**所有读后写事务一律 `BEGIN IMMEDIATE`**——SQLite 对已持 SHARED 的连接做 RESERVED 升级时不调用 busy handler,DEFERRED 会立刻 `database is locked`。
+- **并发策略**:所有连接 `busy_timeout` 5s;**所有读后写事务一律 `BEGIN IMMEDIATE`**——SQLite 对已持 SHARED 的连接做 RESERVED 升级时不调用 busy handler,DEFERRED 会立刻 `database is locked`。**AI 调用期间不持有事务**(`orchestrate::run_ai_request` 在非 autocommit 连接上直接报错;集成测试在 provider 回调里用第二连接写入验证)。
+
+**v4(2026-09-05,Plan A,user_version=4,ADR-0001/0002/0003,追加式不重建旧表)**
+- `book` 增 `map_revision`(地图乐观并发修订号,草图落库置 1,每次 `confirm_map` +1)与 `import_state`(ready|extracted|mapped)。
+- `spine_item(book_id, idx, href, title, text)`:已抽取的 spine 纯文本缓存(EPUB 抽取在 JS 侧,ADR-0004),`UNIQUE(book_id, idx)`,同 href 可重复。
+- `block_anchor(block_id, seq, spine_href, cfi_start, cfi_end, precision exact|chapter_fallback, hint, text)`:知识块**有序多段**锚点;草图落库时每个 `source_section("{href}#{小节标题}")` 生成一段 `chapter_fallback`(`hint` 存小节标题),Plan B/Mac 解析 CFI 与段文本后经 `map::set_anchor_segments` 回填为 `exact`。取代 `knowledge_block.spine_href/cfi_*`(保留列不再使用)。
+- `map_job(job_id UNIQUE, stage chapters|merge|done|failed, next_chapter, candidates_json, draft_json, error)`:两阶段地图作业断点。
+- `ai_request(request_id PK, kind, status pending|done|failed, attempts, result, error)`:AI 调用幂等表(命名空间见 ADR-0002)。
+- `feynman_session` 增 `task_id`(→daily_task)、`state`(open|evaluating|evaluated|confirmed|abandoned)、`version`、`client_request_id`、`verdict_request_id`、`verdict_json`;部分唯一索引:每任务至多一个未确认会话、`client_request_id` 唯一、`verdict_request_id`(存 `verdict:{session}:{request}`)唯一。`transcript_json` 保留仅供回看,**权威 transcript = `session_turn`**。
+- `session_turn(session_id, seq, role user|student, text, client_turn_id, status pending|done|failed)`:`(session_id, client_turn_id)` 唯一;学生文本存原文(含 `[READY_TO_END]`),输出时剥离。
+- `projection_outbox(op_id UNIQUE, kind, payload, status pending|done|failed, attempts, error, done_at)`。
+- 用例层:`next_new_blocks` 同时选 `unlearned` 与 `learning`(纯按 seq;重学后的块仍会再入队),`check_behind` 剩余块同样计 learning。
 
 ## 5. Codex 集成
 
@@ -184,6 +197,8 @@ setting(key, value)
   读取 tmpfile 作为回复(避免解析 stdout 流水);需要结构化时 prompt 要求"最后一条消息只输出 JSON"。
 - 只读型调用(学生追问轮次)用 `--sandbox read-only`;需要 AI 写自由笔记的场景不开放——所有写入统一由 app 程序化完成(§3.3),保证格式。
 - 超时:对话轮次 120s,地图生成每章 300s;超时/非零退出 → 指数退避重试 2 次 → 仍失败弹前端错误(可手动重试,不丢已有对话)。
+- **编排(2026-09-05,core/src/orchestrate.rs,ADR-0002)**:所有 AI 调用必须经 `run_ai_request`/`run_ai_json`,禁止业务模块直接调 `AiProvider::complete`。同 `request_id` 已 done → 直接重放存储结果(不再付费);pending/failed → 续跑并累加 `attempts`;provider 成功后先经 `accept` 校验(结构化请求 = parse + 语义校验),**只有通过才记 done**;传输类错误(`Ai | Io`)最多重试 2 次(500ms 起指数退避),`InvalidInput/Conflict/Db` 不重试;accept 失败恰纠错一次(把错误摘要追加到 system)。request_id 命名空间:`map:{job}:ch{idx}[:p{k}]`、`map:{job}:merge`、`turn:{session}:{turn}`、`eval:{session}:{request}`。
+- **限额**:prompt 经单个 argv 传入,渲染后 ≤ 100 KiB(Linux `MAX_ARG_STRLEN` 128 KiB,spawn 前拒绝为 `InvalidInput`),输出文件 ≤ 1 MiB;地图 Stage A 对 >60 KiB 的章按段落/字符边界分片,Stage B 候选超限先去 summary 压缩、仍超则明确失败。`CodexCliProvider::validate(workdir)` 校验二进制与工作目录,`test_connection()` 跑 `--version`(10s,进程组)。spawn 遇 `ETXTBSY` 有界重试。
 - 子进程卫生(2026-09-05):stderr 由独立线程并发排空到 4 KiB 有界尾部(管道写满不再阻塞子进程/误报超时);子进程以独立进程组启动,超时与正常退出后均整组 SIGKILL,不留孙进程;排空线程有界等待 2s;错误信息附 stderr 末 400 字符。重试编排(同 ID 重放、JSON 纠错一次)属编排层,见基线 Node 4。
 - 多轮对话:app 把完整对话历史(system 设定 + 逐轮 user/assistant)拼进每次 prompt;无跨进程状态。
 - 前端体验:非流式,等待期显示"学生思考中…",回复用打字机动画渲染。
@@ -192,8 +207,9 @@ setting(key, value)
 
 ```rust
 trait AiProvider {
-    fn complete(&self, req: CompletionRequest) -> Result<String>;
-    // req: {system, messages, workdir, sandbox, timeout, expect_json}
+    fn complete(&self, req: &CompletionRequest) -> Result<String>;
+    // req: {system, messages, workdir, read_only, request_id, timeout_secs}
+    // request_id 由 orchestrate 填入;CodexCliProvider 不使用,测试 Mock 按它分发应答
 }
 struct CodexCliProvider { bin_path, model, extra_args }
 ```
@@ -209,18 +225,26 @@ struct CodexCliProvider { bin_path, model, extra_args }
 **阶段 B(汇总)**:注入全部章节候选 + 书籍类型 →「将候选整合为知识地图:合并重复、按模块分组、每块 15–45 分钟可学完、给出前置依赖(教材类)/观点-框架-案例层级(方法论类)/叙事脉络分段(人文类)。输出 JSON:modules[{name, blocks[{title, summary, source_sections[], prereqs[]}]}]。」
 app 将 source_sections 解析为 spine_href + CFI 范围(§7.2)。
 
+**已实现(2026-09-05,core)**:`prompts::map_stage_a_prompt(ty, href, title, text)` / `map_stage_b_prompt(ty, candidates_json)`;`source_section` 固定格式 `"{href}#{原文小节标题}"`(无小节则 `"{href}"`),Stage B 原样沿用;`mapgen::run_map_job` 两阶段作业(`map_job` 断点续跑、长章分片、`validate_draft` 拒绝环/重复标题/未知来源、语义无效草图不记 done)。
+
 ### 6.2 费曼学生扮演(对话轮次)
 
 system 要点:「你扮演一位聪明但完全没学过这个主题的学生,用户在教你。规则:①每次只回复一段话,只提问或表达困惑,绝不讲课、绝不补充正确答案;②追问策略:优先追问用户表述中模糊、跳步、与原文相悖之处;用『为什么』『如果…会怎样』『这和 X 有什么区别』式问题;③若用户已把当前要点讲清,自然转向该块下一个要点;④全部要点讲清后,回复以 [READY_TO_END] 结尾示意可以收尾;⑤语气好奇友善,不引经据典。」
 注入:固定上下文(§3.2)+ 对话历史 + 书籍类型侧重(教材:边界条件与推导;方法论:框架要素关系与案例;人文:因果链与发展逻辑)。
 
+**已实现(2026-09-05,core/src/session.rs)**:`fixed_context_for_block` 由 DB 组装固定上下文(exact 锚点段文本优先、fallback 整章、60 KiB 截断);`start_or_resume_session` / `submit_turn` / `abandon_session` 实现一任务一会话与幂等回合协议(ADR-0002)。
+
 ### 6.3 评估(对话结束时独立调用)
 
 「你是学习评估师。基于以下讲授对话与原文,严格评估用户对本块的掌握。评分标准:准确性(与原文/事实相符)、完整性(要点覆盖)、清晰度(能否让外行听懂)。宁可低估不可高估;用户当场修复的漏洞记为 fixed_in_session。最后一条消息只输出 JSON(schema 见 §3.3)。」
 
+**已实现(2026-09-05,core/src/verdict.rs)**:`request_evaluation`(幂等、失败回 open)与 `confirm_session_verdict`(单事务原子流转;**用户 pass 覆盖 AI verdict**;new 任务落块状态/薄弱点/复习,weak_retest/review 任务只走 `on_weak_retest`/`on_review_result` 不改块状态;同 request_id 重放)。
+
 ### 6.4 迁移应用题(教材类,通过后)
 
 「基于本块知识与用户画像中的个人情境,出 1–2 道**现实情境**应用题(禁止书内例题改编;优先贴近用户的工作/研究情境)。用户作答后,评估其思路是否正确运用了本块知识,指出运用错误或遗漏,输出简短评语 + 是否掌握迁移能力的判断。」
+
+> §6.4/6.5/6.6(讨论轮)/6.8 在 2026-09-05 Plan A 中仅落地 prompt 构造器与严格解析(`prompts::application_prompt` 等,**prompt only**,M2/M3 接消费者)。
 
 ### 6.5 情境化方法论引导(方法论类,通过后)
 
@@ -246,7 +270,7 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 - 中文排版:字体栈 `Songti SC / PingFang SC / 霞鹜文楷(内置可选)`,版心 max-width 38em,行高 1.8,两端对齐 + `text-autospace`,亮/暗/纸质三主题。
 
 ### 7.2 知识块锚定
-- 地图生成时 AI 给 `source_sections`(章节 href + 小节标题文本);app 在该章 DOM 中查找标题节点,生成起止 CFI(块首=该小节标题,块尾=下一小节标题前);跨章块存多段 CFI 范围数组。
+- 地图生成时 AI 给 `source_sections`(格式 `"{href}#{小节标题}"`);core 落库为 `block_anchor` 有序段(`chapter_fallback` + `hint`=小节标题);阅读器(Plan B,JS 侧)在该章 DOM 中按 `hint` 查找标题节点,生成起止 CFI(块首=该小节标题,块尾=下一小节标题前)并连同段文本经 `setAnchorSegments` 回填为 `exact`;跨章块即多段。
 - 标题匹配失败时回退为整章范围,并在地图页标记"锚点粗略"供手动校正(阅读器内选区→"设为块起点/终点")。
 - 用户合并块 → CFI 范围数组合并;拆分块 → 进入阅读器选区指定分界点。
 - 学习模式高亮用 epub.js annotations API 对块范围加下划线色层。
