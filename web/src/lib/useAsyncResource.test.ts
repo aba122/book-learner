@@ -67,8 +67,14 @@ describe('useAsyncResource', () => {
   })
 
   it('reload:成功返回 true,失败返回 false 且保留旧 data', async () => {
-    const answers = [Promise.resolve(1), Promise.reject(new Error('x')), Promise.resolve(3)]
-    const fetcher = vi.fn(() => answers.shift()!)
+    // 惰性构造:提前 new 出来的 Promise.reject 在被 fetcher 取用前就是"未处理拒绝",
+    // vitest 会计为 Unhandled Error 并以非零码退出(CI web 任务曾因此红)
+    const answers = [
+      () => Promise.resolve(1),
+      () => Promise.reject(new Error('x')),
+      () => Promise.resolve(3),
+    ]
+    const fetcher = vi.fn(() => answers.shift()!())
     const { result } = renderHook(() => useAsyncResource(fetcher))
     await act(async () => {})
     expect(result.current.data).toBe(1)

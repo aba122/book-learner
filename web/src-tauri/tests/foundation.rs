@@ -254,7 +254,7 @@ fn application_services_delegate_to_core_and_persist_across_reopen() {
         application::get_block(&state, block).unwrap().title,
         "知识块"
     );
-    application::set_active_book(&state, second).unwrap();
+    // 主攻书切换要求该书已有学习计划(core::library::set_active_book,F4),故先设计划再激活
     application::set_plan(
         &state,
         StudyPlanRequest {
@@ -266,6 +266,7 @@ fn application_services_delegate_to_core_and_persist_across_reopen() {
         },
     )
     .unwrap();
+    application::set_active_book(&state, second).unwrap();
     let second_block = state
         .with_connection(|connection| {
             book_learner_core::models::insert_block(
@@ -394,17 +395,7 @@ fn command_inner_functions_are_thin_typed_and_emit_correlated_errors() {
     let (state, first, second, block) = seeded_state(&database);
 
     assert_eq!(commands::library_list_books_inner(&state).unwrap().len(), 2);
-    commands::library_set_active_book_inner(&state, second).unwrap();
-    assert_eq!(
-        commands::map_list_blocks_inner(&state, first)
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        commands::map_get_block_inner(&state, block).unwrap().id,
-        block
-    );
+    // 先设计划再激活(主攻书切换要求已有学习计划)
     commands::planning_set_plan_inner(
         &state,
         StudyPlanRequest {
@@ -416,6 +407,17 @@ fn command_inner_functions_are_thin_typed_and_emit_correlated_errors() {
         },
     )
     .unwrap();
+    commands::library_set_active_book_inner(&state, second).unwrap();
+    assert_eq!(
+        commands::map_list_blocks_inner(&state, first)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        commands::map_get_block_inner(&state, block).unwrap().id,
+        block
+    );
     let _ = commands::planning_today_queue_inner(&state, "2026-09-01".into()).unwrap();
     let settings = commands::settings_get_inner(&state).unwrap();
     commands::settings_save_inner(&state, settings).unwrap();
@@ -519,6 +521,19 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
 
     let directory = tempfile::tempdir().unwrap();
     let (state, first, _, block) = seeded_state(&directory.path().join("ipc.db"));
+    // 契约循环按 JSON 顺序先调 library_set_active_book 再调 planning_set_plan,
+    // 而主攻书切换要求该书已有学习计划,故先为 first 预置计划
+    application::set_plan(
+        &state,
+        StudyPlanRequest {
+            book_id: first,
+            deadline: "2026-10-01".into(),
+            daily_new_blocks: 1,
+            daily_cap: 4,
+            remind_time: "21:00".into(),
+        },
+    )
+    .unwrap();
     let app = book_learner_app::register_commands(mock_builder().manage(state))
         .build(mock_context(noop_assets()))
         .unwrap();
