@@ -338,3 +338,7 @@
 
 ## 2026-09-05 · Plan B 复选框补勾与 bundle 重建
 - B-T5 的计划复选框在当时的 commit 中未勾上(同前述 && 链中断问题),本条补勾;Plan A/Plan B 现无未勾选步骤。tag `m1-linux-b` 重指向本提交(tag 从未推送),bundle `/bigtemp/fzv6en/book-learner/m1-linux-pending.bundle` 重建并重新 `verify`(结果见同目录 `.verify.txt`)。
+
+## 2026-09-07 · Mac 阶段执行计划落档
+- 新增 `docs/superpowers/plans/2026-09-07-mac-m1-wiring.md`(M0–M8):推送/三个堆叠 PR 合并 → Rust 侧 wire 常量同步(JSON 19/15 vs Rust 9/11,Tauri 契约用例会先红)→ F3 → Foundation 原生门禁(`mac-m1`)→ 独立连接策略/记忆库根/启动恢复 → 接线地图组 5 条、会话组 5 条 → ADR-0004(默认选项 B,先 spike)与原生导入/epubUrl/blockSource → stats/tray/有序退出 → 受控测试日期 + 端到端门禁(`m1`)。独立评审一轮:6 条问题(契约用例 match panic、tauri.test.ts 为第四处同步点、分支策略矛盾、Book.map_revision 无数据源、asset protocol 作用域写法、测试日期无机制)与 9 条建议全部并入。
+- `CLAUDE.md` 状态区与阅读顺序更新:Mac 会话入口指向该计划。预计 5–6 个工作日。
