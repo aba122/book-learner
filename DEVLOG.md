@@ -342,3 +342,12 @@
 ## 2026-09-07 · Mac 阶段执行计划落档
 - 新增 `docs/superpowers/plans/2026-09-07-mac-m1-wiring.md`(M0–M8):推送/三个堆叠 PR 合并 → Rust 侧 wire 常量同步(JSON 19/15 vs Rust 9/11,Tauri 契约用例会先红)→ F3 → Foundation 原生门禁(`mac-m1`)→ 独立连接策略/记忆库根/启动恢复 → 接线地图组 5 条、会话组 5 条 → ADR-0004(默认选项 B,先 spike)与原生导入/epubUrl/blockSource → stats/tray/有序退出 → 受控测试日期 + 端到端门禁(`m1`)。独立评审一轮:6 条问题(契约用例 match panic、tauri.test.ts 为第四处同步点、分支策略矛盾、Book.map_revision 无数据源、asset protocol 作用域写法、测试日期无机制)与 9 条建议全部并入。
 - `CLAUDE.md` 状态区与阅读顺序更新:Mac 会话入口指向该计划。预计 5–6 个工作日。
+
+## 2026-09-07 · 推送、三个堆叠 PR 与 CI 修复
+- 用用户提供的窄权限 token 推送 47 提交并建三个堆叠 PR:[#3](https://github.com/aba122/book-learner/pull/3) feat/mac-m1→main、[#4](https://github.com/aba122/book-learner/pull/4) feat/m1-core-engine→feat/mac-m1、[#5](https://github.com/aba122/book-learner/pull/5) feat/m1-web-contract→feat/m1-core-engine。合并顺序应为 #3 → #4 → #5(#4/#5 的 base 需在前一个合并后改指 main,GitHub 不会自动重定向)。
+- 首轮 CI(runs 34085387055 / 34085388775 / 34085389736)三分支全红,根因两处:
+  - web 任务:`web/src/lib/useAsyncResource.test.ts` 提前构造 `Promise.reject(new Error('x'))`,在被 fetcher 取用前已是未处理拒绝,vitest 报 `Errors 1 error` 并以非零码退出(用例本身 247 通过)。该问题自加固切片起存在;本地门禁 `webgate.sh` 只匹配 "failed" 文本、未看退出码,故未察觉——门禁已改为检查退出码。修复:惰性构造 `() => Promise.reject(...)`。
+  - mac-foundation 任务:加固切片使 `library::set_active_book` 要求书已有学习计划(F4),`web/src-tauri/tests/foundation.rs` 三个用例在设计划前激活书 → `Conflict`。改为先设计划再激活,契约循环前为 `first` 预置计划。feat/m1-web-contract 另缺 B-T1 新增的 `KnowledgeBlock.skipped` 字段(E0063 编译错),补 `skipped: false`。
+  - 修复提交 997cec2 落在 feat/mac-m1,merge 进上两层(7ce9c5e / de0e272);`skipped` 补丁 21a8043 仅在 feat/m1-web-contract。Rust 改动在 Linux 无法编译,以 `cargo fmt --check` + CI(macos-14)为验证。
+- 第二轮 CI:feat/mac-m1 [run 34087344533](https://github.com/aba122/book-learner/actions/runs/34087344533) 全绿;feat/m1-core-engine [run 34087343847](https://github.com/aba122/book-learner/actions/runs/34087343847) 全绿;feat/m1-web-contract [run 34087343910](https://github.com/aba122/book-learner/actions/runs/34087343910) web/core 绿、mac-foundation 红——仅 `real_tauri_ipc_surface_matches_the_shared_wire_contract` 在 `foundation.rs:517` 整体比对失败(JSON 19 命令 vs Rust `WIRE_COMMANDS` 9),即 Mac 计划 M0 的已知缺口,其余 8 个 Tauri 用例通过。PR #5 的 mac 任务在 M0 同步前保持红,不做绕过。
+- 推送本条后即撤销 token(`POST /credentials/revoke`,验证 401),本机不留凭证。
