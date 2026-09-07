@@ -21,6 +21,16 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::settings_get,
         commands::settings_save,
         commands::unsupported_capability,
+        commands::map_store_spine,
+        commands::map_run_job,
+        commands::map_confirm,
+        commands::map_set_anchor_segments,
+        commands::map_list_anchors,
+        commands::session_start_or_resume,
+        commands::session_submit_turn,
+        commands::session_request_evaluation,
+        commands::session_confirm_verdict,
+        commands::session_abandon,
     ])
 }
 

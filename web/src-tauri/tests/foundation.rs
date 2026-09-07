@@ -486,6 +486,20 @@ fn invoke_json(
     .map(|body| body.deserialize().unwrap())
 }
 
+/// 已注册但尚未接线的 v2 命令(M0 占位);M4/M5 每接一条就从此移除并改为预期 `Ok`。
+const PLACEHOLDER_COMMANDS: &[&str] = &[
+    "map_store_spine",
+    "map_run_job",
+    "map_confirm",
+    "map_set_anchor_segments",
+    "map_list_anchors",
+    "session_start_or_resume",
+    "session_submit_turn",
+    "session_request_evaluation",
+    "session_confirm_verdict",
+    "session_abandon",
+];
+
 #[test]
 fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     let contract: Value =
@@ -558,25 +572,51 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 "breakMinutes": 5, "remindTime": "21:00"
             }}),
             "unsupported_capability" => json!({"capability": "importEpub"}),
+            // 契约 v2:占位期 payload 只需满足参数名/类型;接线后改为可落库的真实值
+            "map_store_spine" => json!({"bookId": first, "chapters": []}),
+            "map_run_job" => json!({"bookId": first, "jobId": "map:job-1"}),
+            "map_confirm" => json!({"bookId": first, "expectedRevision": 0, "ops": []}),
+            "map_set_anchor_segments" => json!({"blockId": block, "segments": []}),
+            "map_list_anchors" => json!({"blockId": block}),
+            "session_start_or_resume" => json!({
+                "taskId": 1, "clientRequestId": "req-1", "date": "2026-09-01"
+            }),
+            "session_submit_turn" => json!({
+                "sessionId": 1, "expectedVersion": 1, "clientTurnId": "turn-1", "text": "讲授"
+            }),
+            "session_request_evaluation" => json!({"sessionId": 1, "requestId": "eval"}),
+            "session_confirm_verdict" => json!({
+                "sessionId": 1, "expectedVersion": 1, "requestId": "verdict",
+                "pass": true, "date": "2026-09-01"
+            }),
+            "session_abandon" => json!({"sessionId": 1, "expectedVersion": 1}),
             other => panic!("contract contains unknown command {other}"),
         };
-        let actual_keys: Vec<&str> = payload
+        // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对
+        let mut actual_keys: Vec<&str> = payload
             .as_object()
             .unwrap()
             .keys()
             .map(String::as_str)
             .collect();
-        let expected_keys: Vec<&str> = entry["payloadKeys"]
+        let mut expected_keys: Vec<&str> = entry["payloadKeys"]
             .as_array()
             .unwrap()
             .iter()
             .map(|key| key.as_str().unwrap())
             .collect();
+        actual_keys.sort_unstable();
+        expected_keys.sort_unstable();
         assert_eq!(actual_keys, expected_keys, "{command}");
 
         let response = invoke_json(&webview, command, payload);
         if command == "unsupported_capability" {
             assert_eq!(response.unwrap_err()["code"], "not_implemented");
+        } else if PLACEHOLDER_COMMANDS.contains(&command) {
+            // M0 占位期:已注册且参数通过反序列化,但返回 not_implemented(capability = 前端方法名)
+            let error = response.expect_err(command);
+            assert_eq!(error["code"], "not_implemented", "{command}");
+            assert_eq!(error["details"]["capability"], entry["method"], "{command}");
         } else {
             response.unwrap_or_else(|error| panic!("{command} was not invokable: {error}"));
         }

@@ -60,11 +60,11 @@ docs/smoke/mac-m1-native-smoke.md      ← 填写签字
 
 ### Task M0: 推送、PR、编译基线与契约同步修复(半天)
 
-- [ ] **M0.1** 推送 Linux 阶段全部成果:`git push origin feat/mac-m1 feat/m1-core-engine feat/m1-web-contract m1-linux-a m1-linux-b`;确认 GitHub Actions core/web job 转绿(pnpm 版本修复已在 feat/mac-m1)。
-- [ ] **M0.2** 开三个堆叠 PR 并按序合并:`feat/mac-m1 → main`、`feat/m1-core-engine → feat/mac-m1`、`feat/m1-web-contract → feat/m1-core-engine`(每个合并前 CI 绿;合并后 GitHub 自动重定向下游 base)。合并完成后 `git checkout -b feat/mac-m1-wiring main`。
-- [ ] **M0.3 失败测试**:`cargo test --manifest-path web/src-tauri/Cargo.toml` — 预期 `tests/foundation.rs` 中对照 `shared/tauri-wire-contract.json` 的用例 RED(JSON 19 条命令/15 项 unsupported vs Rust 9/11)。
-- [ ] **M0.4 实现**:`commands/mod.rs` 的 `WIRE_COMMANDS` 增 10 条(command 名与 payloadKeys 逐字对齐 JSON:`map_store_spine[bookId,chapters]`…`session_abandon[sessionId,expectedVersion]`);`UNSUPPORTED_CAPABILITIES` 改为 JSON 当前 15 项;这 10 条命令**暂以占位实现**(注册同名 command,内部返回 `IpcError::not_implemented(方法名)`)。同 commit 扩展 `foundation.rs` 的 `real_tauri_ipc_surface_matches_the_shared_wire_contract`:为 10 条新命令补 payload 分支,并把"占位期间预期 `not_implemented`"写成表驱动(一个 `PLACEHOLDER_COMMANDS` 集合),M4/M5 每接一条就从该集合移除、改为预期 `Ok`;M6 的 `library_import_epub_chunk` 需要原始请求体,在该用例中单列特殊分支。
-- [ ] **M0.5** GREEN(src-tauri 全绿);`pnpm -C web tauri dev` 能启动并显示七路由(此时 v2 能力仍是未实现态)。commit `chore(mac): 同步 Rust 侧 wire 契约常量,注册 v2 占位命令 (M0)` + push。
+- [x] **M0.1**(2026-09-07 在 Linux 侧用用户 token 完成;CI core/web 绿,tag 未推送)推送 Linux 阶段全部成果:`git push origin feat/mac-m1 feat/m1-core-engine feat/m1-web-contract m1-linux-a m1-linux-b`;确认 GitHub Actions core/web job 转绿(pnpm 版本修复已在 feat/mac-m1)。
+- [ ] **M0.2**(PR #3/#4/#5 已开;**合并待用户**——Mac 无 GitHub 凭证;本分支 `feat/mac-m1-wiring` 暂自 `feat/m1-web-contract` 开出,PR 合并后再并入 main)开三个堆叠 PR 并按序合并:`feat/mac-m1 → main`、`feat/m1-core-engine → feat/mac-m1`、`feat/m1-web-contract → feat/m1-core-engine`(每个合并前 CI 绿;合并后 GitHub 自动重定向下游 base)。合并完成后 `git checkout -b feat/mac-m1-wiring main`。
+- [x] **M0.3 失败测试**(实测 `foundation.rs:517` 整体比对红,8/9 过):`cargo test --manifest-path web/src-tauri/Cargo.toml` — 预期 `tests/foundation.rs` 中对照 `shared/tauri-wire-contract.json` 的用例 RED(JSON 19 条命令/15 项 unsupported vs Rust 9/11)。
+- [x] **M0.4 实现**(占位命令参数已按 types.ts 类型化;payload 键比对改为集合比对,因 serde_json 默认 BTreeMap 键序无语义):`commands/mod.rs` 的 `WIRE_COMMANDS` 增 10 条(command 名与 payloadKeys 逐字对齐 JSON:`map_store_spine[bookId,chapters]`…`session_abandon[sessionId,expectedVersion]`);`UNSUPPORTED_CAPABILITIES` 改为 JSON 当前 15 项;这 10 条命令**暂以占位实现**(注册同名 command,内部返回 `IpcError::not_implemented(方法名)`)。同 commit 扩展 `foundation.rs` 的 `real_tauri_ipc_surface_matches_the_shared_wire_contract`:为 10 条新命令补 payload 分支,并把"占位期间预期 `not_implemented`"写成表驱动(一个 `PLACEHOLDER_COMMANDS` 集合),M4/M5 每接一条就从该集合移除、改为预期 `Ok`;M6 的 `library_import_epub_chunk` 需要原始请求体,在该用例中单列特殊分支。
+- [x] **M0.5** GREEN(src-tauri 9+1+2 全绿,clippy 0;`tauri dev` 七路由目检待有 GUI 会话时补做——本阶段经 SSH 隧道无桌面)(此时 v2 能力仍是未实现态)。commit `chore(mac): 同步 Rust 侧 wire 契约常量,注册 v2 占位命令 (M0)` + push。
 
 ### Task M1: F3 —— 启动失败可见(1 小时)
 
