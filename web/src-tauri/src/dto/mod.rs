@@ -1,4 +1,6 @@
 use book_learner_core::eval::Scores;
+use book_learner_core::map::{AnchorSegment, MapEditOp};
+use book_learner_core::mapgen::{MapProgress, SpineChapter};
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
 use book_learner_core::sched::DailyTask;
@@ -17,6 +19,7 @@ pub struct BookDto {
     pub book_type: String,
     pub slug: String,
     pub status: String,
+    pub map_revision: i64,
 }
 
 impl From<Book> for BookDto {
@@ -33,6 +36,7 @@ impl From<Book> for BookDto {
             book_type: book.book_type.as_str().into(),
             slug: book.slug,
             status: status.into(),
+            map_revision: book.map_revision,
         }
     }
 }
@@ -70,6 +74,7 @@ pub struct KnowledgeBlockDto {
     pub scores: Option<ScoresDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub passed_at: Option<String>,
+    pub skipped: bool,
 }
 
 impl TryFrom<KnowledgeBlock> for KnowledgeBlockDto {
@@ -97,6 +102,7 @@ impl TryFrom<KnowledgeBlock> for KnowledgeBlockDto {
             status: block.status,
             scores: block.scores.map(Into::into),
             passed_at: block.passed_at,
+            skipped: block.skipped,
         })
     }
 }
@@ -179,6 +185,135 @@ impl From<AppSettingsDto> for AppSettings {
             pomodoro_minutes: settings.pomodoro_minutes,
             break_minutes: settings.break_minutes,
             remind_time: settings.remind_time,
+        }
+    }
+}
+
+// ---- 契约 v2 DTO(camelCase 镜像 core 结构;形状以 web/src/types.ts 为准)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpineChapterDto {
+    pub idx: i64,
+    pub href: String,
+    pub title: String,
+    pub text: String,
+}
+
+impl From<SpineChapterDto> for SpineChapter {
+    fn from(chapter: SpineChapterDto) -> Self {
+        Self {
+            idx: chapter.idx,
+            href: chapter.href,
+            title: chapter.title,
+            text: chapter.text,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AnchorSegmentDto {
+    pub spine_href: String,
+    pub cfi_start: String,
+    pub cfi_end: String,
+    /// exact | chapter_fallback(core 落库时校验)
+    pub precision: String,
+    pub hint: String,
+    pub text: String,
+}
+
+impl From<AnchorSegmentDto> for AnchorSegment {
+    fn from(segment: AnchorSegmentDto) -> Self {
+        Self {
+            spine_href: segment.spine_href,
+            cfi_start: segment.cfi_start,
+            cfi_end: segment.cfi_end,
+            precision: segment.precision,
+            hint: segment.hint,
+            text: segment.text,
+        }
+    }
+}
+
+impl From<AnchorSegment> for AnchorSegmentDto {
+    fn from(segment: AnchorSegment) -> Self {
+        Self {
+            spine_href: segment.spine_href,
+            cfi_start: segment.cfi_start,
+            cfi_end: segment.cfi_end,
+            precision: segment.precision,
+            hint: segment.hint,
+            text: segment.text,
+        }
+    }
+}
+
+/// 判别字段 `op` 及取值与 `web/src/types.ts` 的 `MapEditOp` 一致;字段名 camelCase。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum MapEditOpDto {
+    Rename { block_id: i64, title: String },
+    RenameModule { from: String, to: String },
+    Reorder { block_ids: Vec<i64> },
+    SetSkipped { block_id: i64, skipped: bool },
+    Merge { into: i64, from: Vec<i64> },
+    Split { block_id: i64 },
+}
+
+impl From<MapEditOpDto> for MapEditOp {
+    fn from(op: MapEditOpDto) -> Self {
+        match op {
+            MapEditOpDto::Rename { block_id, title } => Self::Rename { block_id, title },
+            MapEditOpDto::RenameModule { from, to } => Self::RenameModule { from, to },
+            MapEditOpDto::Reorder { block_ids } => Self::Reorder { block_ids },
+            MapEditOpDto::SetSkipped { block_id, skipped } => {
+                Self::SetSkipped { block_id, skipped }
+            }
+            MapEditOpDto::Merge { into, from } => Self::Merge { into, from },
+            MapEditOpDto::Split { block_id } => Self::Split { block_id },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MapRevisionDto {
+    pub revision: u64,
+}
+
+/// 地图作业进度(Tauri event `map_job_progress` 的 payload.progress;判别字段 `stage`)。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "stage",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MapProgressDto {
+    Chapter {
+        index: usize,
+        total: usize,
+        title: String,
+    },
+    Merging,
+    Done {
+        blocks: usize,
+    },
+}
+
+impl From<MapProgress> for MapProgressDto {
+    fn from(progress: MapProgress) -> Self {
+        match progress {
+            MapProgress::Chapter {
+                index,
+                total,
+                title,
+            } => Self::Chapter {
+                index,
+                total,
+                title,
+            },
+            MapProgress::Merging => Self::Merging,
+            MapProgress::Done { blocks } => Self::Done { blocks },
         }
     }
 }

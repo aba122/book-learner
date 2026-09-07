@@ -57,6 +57,16 @@ impl IpcError {
         }
     }
 
+    pub(crate) fn invalid_request(message: impl Into<String>, cause: impl Into<String>) -> Self {
+        Self {
+            code: ErrorCode::InvalidRequest,
+            message: message.into(),
+            retryable: false,
+            details: None,
+            internal_cause: cause.into(),
+        }
+    }
+
     pub(crate) fn not_implemented(capability: String) -> Self {
         Self {
             code: ErrorCode::NotImplemented,

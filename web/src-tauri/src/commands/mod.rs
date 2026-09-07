@@ -1,8 +1,13 @@
-use serde_json::Value;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::application;
-use crate::dto::{AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, StudyPlanRequest};
+use crate::dto::{
+    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, MapRevisionDto, SpineChapterDto, StudyPlanRequest,
+};
+
+/// 地图作业进度事件名(与 web/src/backend/tauri.ts 的 MAP_JOB_PROGRESS_EVENT 一致)。
+pub const MAP_JOB_PROGRESS_EVENT: &str = "map_job_progress";
 use crate::error::IpcError;
 use crate::state::AppState;
 
@@ -40,15 +45,10 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &[
     "importEpub",
-    "confirmMap",
     "completeTask",
     "blockSource",
     "epubUrl",
     "stats",
-    "storeSpine",
-    "runMapJob",
-    "setAnchorSegments",
-    "listAnchors",
     "startOrResumeSession",
     "submitTurn",
     "requestEvaluation",
@@ -133,6 +133,57 @@ pub fn unsupported_capability_inner(state: &AppState, capability: String) -> Res
     })
 }
 
+pub fn map_store_spine_inner(
+    state: &AppState,
+    book_id: i64,
+    chapters: Vec<SpineChapterDto>,
+) -> Result<(), IpcError> {
+    run_command(state, "map_store_spine", || {
+        application::store_spine(state, book_id, chapters)
+    })
+}
+
+pub fn map_run_job_inner(
+    state: &AppState,
+    book_id: i64,
+    job_id: &str,
+    on_progress: &mut dyn FnMut(MapProgressDto),
+) -> Result<Vec<KnowledgeBlockDto>, IpcError> {
+    run_command(state, "map_run_job", || {
+        application::run_map_job(state, book_id, job_id, on_progress)
+    })
+}
+
+pub fn map_confirm_inner(
+    state: &AppState,
+    book_id: i64,
+    expected_revision: i64,
+    ops: Vec<MapEditOpDto>,
+) -> Result<MapRevisionDto, IpcError> {
+    run_command(state, "map_confirm", || {
+        application::confirm_map(state, book_id, expected_revision, ops)
+    })
+}
+
+pub fn map_set_anchor_segments_inner(
+    state: &AppState,
+    block_id: i64,
+    segments: Vec<AnchorSegmentDto>,
+) -> Result<(), IpcError> {
+    run_command(state, "map_set_anchor_segments", || {
+        application::set_anchor_segments(state, block_id, segments)
+    })
+}
+
+pub fn map_list_anchors_inner(
+    state: &AppState,
+    block_id: i64,
+) -> Result<Vec<AnchorSegmentDto>, IpcError> {
+    run_command(state, "map_list_anchors", || {
+        application::list_anchors(state, block_id)
+    })
+}
+
 /// v2 命令占位期(M0):命令已注册、参数已按契约类型化,但 core 用例尚未接线;
 /// 统一返回 `not_implemented`(details.capability = 前端方法名)。M4/M5 逐条替换为真实实现。
 fn placeholder(state: &AppState, command: &'static str, method: &str) -> Result<(), IpcError> {
@@ -213,20 +264,28 @@ pub async fn unsupported_capability(
 pub async fn map_store_spine(
     state: State<'_, AppState>,
     book_id: i64,
-    chapters: Value,
+    chapters: Vec<SpineChapterDto>,
 ) -> Result<(), IpcError> {
-    let _ = (book_id, chapters);
-    placeholder(&state, "map_store_spine", "storeSpine")
+    map_store_spine_inner(&state, book_id, chapters)
 }
 
 #[tauri::command(async)]
-pub async fn map_run_job(
+pub async fn map_run_job<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     book_id: i64,
     job_id: String,
-) -> Result<(), IpcError> {
-    let _ = (book_id, job_id);
-    placeholder(&state, "map_run_job", "runMapJob")
+) -> Result<Vec<KnowledgeBlockDto>, IpcError> {
+    let mut emit = |progress: MapProgressDto| {
+        // 进度只是提示:发送失败仅记日志,最终结果仍由返回值决定
+        if let Err(error) = app.emit(
+            MAP_JOB_PROGRESS_EVENT,
+            serde_json::json!({ "jobId": job_id, "progress": progress }),
+        ) {
+            tracing::warn!(job_id, %error, "map_job_progress event failed");
+        }
+    };
+    map_run_job_inner(&state, book_id, &job_id, &mut emit)
 }
 
 #[tauri::command(async)]
@@ -234,26 +293,26 @@ pub async fn map_confirm(
     state: State<'_, AppState>,
     book_id: i64,
     expected_revision: i64,
-    ops: Value,
-) -> Result<(), IpcError> {
-    let _ = (book_id, expected_revision, ops);
-    placeholder(&state, "map_confirm", "confirmMap")
+    ops: Vec<MapEditOpDto>,
+) -> Result<MapRevisionDto, IpcError> {
+    map_confirm_inner(&state, book_id, expected_revision, ops)
 }
 
 #[tauri::command(async)]
 pub async fn map_set_anchor_segments(
     state: State<'_, AppState>,
     block_id: i64,
-    segments: Value,
+    segments: Vec<AnchorSegmentDto>,
 ) -> Result<(), IpcError> {
-    let _ = (block_id, segments);
-    placeholder(&state, "map_set_anchor_segments", "setAnchorSegments")
+    map_set_anchor_segments_inner(&state, block_id, segments)
 }
 
 #[tauri::command(async)]
-pub async fn map_list_anchors(state: State<'_, AppState>, block_id: i64) -> Result<(), IpcError> {
-    let _ = block_id;
-    placeholder(&state, "map_list_anchors", "listAnchors")
+pub async fn map_list_anchors(
+    state: State<'_, AppState>,
+    block_id: i64,
+) -> Result<Vec<AnchorSegmentDto>, IpcError> {
+    map_list_anchors_inner(&state, block_id)
 }
 
 #[tauri::command(async)]

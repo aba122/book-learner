@@ -93,7 +93,7 @@ docs/smoke/mac-m1-native-smoke.md      ← 填写签字
 
 DTO 形状以 `web/src/backend/tauri.ts` 的 `decode*` 与 `web/src/types.ts` 为真值(camelCase;`MapEditOp` 用 serde 内部标签枚举,标签字段名与 TS 判别字段一致——在 Mac 上打开 `types.ts` 核对后再写)。
 
-- [ ] **M4.1 失败测试**(`tests/foundation.rs`,直接调 `*_inner`):
+- [x] **M4.1 失败测试**(`map_group_commands_round_trip_and_expose_revision_and_skipped`、`map_run_job_uses_the_injected_provider_reports_progress_and_is_idempotent`、`map_run_job_over_ipc_emits_map_job_progress_events_with_the_job_id`)(`tests/foundation.rs`,直接调 `*_inner`):
   - `map_store_spine` 写 `spine_item` 且 `import_state='extracted'`;
   - `map_run_job` 用 `MockProvider`(测试内实现 `AiProvider`,按 request_id 后缀返回 Stage A/B 固定 JSON;`AppState` 需可注入 provider——加 `AppState::with_provider(Box<dyn AiProvider>)` 测试构造)→ 返回块列表(含 `skipped`)、进度事件至少 3 次 Chapter + Merging + Done(用 `tauri::test::mock_app` 捕获 `map_job_progress` payload `{jobId, progress}`);再次同 jobId → 不重复落库;
   - `map_confirm` 修订号不符 → `conflict`;成功返回 `{revision}`;
@@ -101,8 +101,8 @@ DTO 形状以 `web/src/backend/tauri.ts` 的 `decode*` 与 `web/src/types.ts` �
   - DTO:`BookDto.map_revision`、`KnowledgeBlockDto.skipped` 序列化字段名 `mapRevision`/`skipped`。**core 改动(本 Task 允许)**:`models::Book` 增 `map_revision: i64` 且 `list_books` SELECT 该列(修正 `core/tests/foundation.rs` 与 `web/src-tauri/examples/seed_smoke.rs` 中的 `Book { .. }` 字面量);`KnowledgeBlock.skipped` 已在 core。接线后 TS 侧 `decodeBook`/`decodeBlock` 删除 `?? 0`/`?? false` 缺省,`mapRevision`/`skipped` 视为必填(同 commit 更新 `tauri.test.ts` fixture)。
   - 测试基建:`AppState::with_provider(Box<dyn AiProvider + Send + Sync>)`(`AiProvider` 无超 trait,Tauri `manage` 要求 `Sync`;测试 `MockProvider` 用 `Mutex` 而非 core 测试里的 `RefCell`);进度事件在 `tauri::test::mock_app` 下用 `app.listen_any("map_job_progress", …)` 或注入的 sink 捕获(MockRuntime 不执行 JS)。
   - `MapEditOp` serde:`#[serde(tag = "<判别字段名,以 web/src/types.ts 为准>", rename_all = "camelCase", rename_all_fields = "camelCase")]`(serde ≥1.0.229 支持 `rename_all_fields`,使 `blockId`/`blockIds` 自动对齐)。
-- [ ] **M4.2 实现**:`application::{store_spine, run_map_job, confirm_map, set_anchor_segments, list_anchors}`(慢的 `run_map_job` 用 `open_connection()`;**先查 `book.map_revision > 0`——已有地图则直接返回 `list_blocks` 且不发进度、不重跑作业**(与 Mock 语义一致);否则 `mapgen::run_map_job` 后 `map::apply_draft_map`,若其返回 `Conflict`(并发下已落库)同样回退为 `list_blocks`);command 薄层;`register_commands` 注册;JSON/Rust/TS 三处从 unsupported 移除 `storeSpine/runMapJob/confirmMap/setAnchorSegments/listAnchors`。
-- [ ] **M4.3** GREEN(三套测试);`tauri dev`:导入向导走到地图页(需 M6 之前用 Mock 不可行——此处先用 `BOOK_LEARNER_DATA_DIR` 指向 `seed_smoke` 库并手工调用 `map_store_spine`,或推迟目检到 M6)。commit `feat(mac): 接线地图组 5 条 command (M4)` + push。
+- [x] **M4.2 实现**(TS 解码器 mapRevision/skipped 改必填;tauri.test.ts 的 unsupported 路由用例改为按契约 JSON 数据驱动):`application::{store_spine, run_map_job, confirm_map, set_anchor_segments, list_anchors}`(慢的 `run_map_job` 用 `open_connection()`;**先查 `book.map_revision > 0`——已有地图则直接返回 `list_blocks` 且不发进度、不重跑作业**(与 Mock 语义一致);否则 `mapgen::run_map_job` 后 `map::apply_draft_map`,若其返回 `Conflict`(并发下已落库)同样回退为 `list_blocks`);command 薄层;`register_commands` 注册;JSON/Rust/TS 三处从 unsupported 移除 `storeSpine/runMapJob/confirmMap/setAnchorSegments/listAnchors`。
+- [x] **M4.3** GREEN(core 127/27/1/1、src-tauri 16/1/2、web 248/1、clippy 0;`tauri dev` 目检待 GUI 会话);`tauri dev`:导入向导走到地图页(需 M6 之前用 Mock 不可行——此处先用 `BOOK_LEARNER_DATA_DIR` 指向 `seed_smoke` 库并手工调用 `map_store_spine`,或推迟目检到 M6)。commit `feat(mac): 接线地图组 5 条 command (M4)` + push。
 
 ### Task M5: 接线 session 组(5 命令,1 天)
 

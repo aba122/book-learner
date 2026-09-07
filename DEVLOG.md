@@ -371,3 +371,12 @@
 - `ai_provider()`:注入优先;否则 `CodexCliProvider{bin}`,`bin` 取 `setting.codexBin`(绝对路径;不是 `AppSettings` 字段,直接读表)→ `resolve_codex_bin(configured, PATH, HOME, fallback_dirs)` 纯函数:`$PATH` → `/opt/homebrew/bin` → `/usr/local/bin` → `~/.npm-global/bin` → `~/.nvm/versions/node/*/bin`(高版本优先);相对路径 → `invalid_request`,全部失败 → `not_found`("请在设置中填写其绝对路径")。固定目录经参数注入使用例不受本机 `/opt/homebrew/bin/codex` 影响。
 - 启动恢复:`run_startup_recovery(&state)`(独立连接 + `projection::run_pending`)在 setup 内经 `tauri::async_runtime::spawn_blocking` 触发,结果写日志;用例:入队 `init_book` → 恢复处理 1 条并生成 `books/first/_map.md`,再次调用为 0(幂等)。
 - 门禁:src-tauri 13/1/2、clippy 0、fmt 过。
+
+## 2026-09-07 · M4:接线地图组 5 条 command
+- **core**:`models::Book` 增 `map_revision`(`list_books` SELECT 该列;core 内无其他 `Book {}` 字面量)。
+- **DTO**:`BookDto.mapRevision`、`KnowledgeBlockDto.skipped`;新增 `SpineChapterDto`、`AnchorSegmentDto`(precision 由 core 落库校验)、`MapEditOpDto`(`#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]`,与 `types.ts` 的 `MapEditOp` 判别字段一致)、`MapRevisionDto`、`MapProgressDto`(`tag = "stage"`)。
+- **application**:`store_spine/confirm_map/set_anchor_segments/list_anchors` 走共享连接;`run_map_job` 走独立连接 + `ai_provider()`:`map_revision > 0` 直接返回块列表、不发进度、不调 provider(与 MockBackend 语义一致),否则 `mapgen::run_map_job` → `map::apply_draft_map`(Conflict 视为并发已落库,回退为返回现有块)。`expectedRevision` 负数 → `invalid_request`。
+- **command**:`map_run_job<R: Runtime>(app: AppHandle<R>, …)` 用 `app.emit("map_job_progress", {jobId, progress})` 发进度;`*_inner` 接 `&mut dyn FnMut(MapProgressDto)` 便于直接测试。
+- **契约四处同步**:JSON `unsupportedCapabilities` 移除 5 项(余 10 → 本任务后剩 `importEpub/completeTask/blockSource/epubUrl/stats` + 会话组 5 项);Rust 常量同步;`contract.test.ts` 列表;`tauri.test.ts`:传输用例改为只比对 v1 方法集(v2 传输已有独立用例)、"unsupported 路由"用例改为按 JSON 数据驱动(接线一条自动收缩)、"缺省 mapRevision/skipped"用例反转为必填(`invalid_response`);`tauri.ts` 解码器删除 `?? 0`/`?? false`。
+- **用例**:`seeded_state` 拆出 `seed_books(&state)` 以支持 `AppState::with_provider` 注入;`MapMock` 按 request_id 后缀返回 Stage A/B;IPC 用例经 `app.listen_any` 捕获事件(MockRuntime 不执行 JS,但 Rust 端事件总线可用),断言 ≥3 条且 jobId 一致、末条 `{stage:"done",blocks:1}`。契约用例的地图组 payload 改用无块的 `second`(`seed_map` 直接用 core 落一张单块草图)。
+- **门禁**:core 127/27/1/1、src-tauri 16/1/2、web 248/1 + lint 0 + tsc + build、clippy 0。两轮 clippy 修正:未用 `serde_json::Value`、`let_and_return`。

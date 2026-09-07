@@ -160,8 +160,7 @@ function decodeBook(value: unknown, path: string): Book {
     type: enumAt(wire.type, `${path}.type`, BOOK_TYPES),
     slug: stringAt(wire.slug, `${path}.slug`),
     status: enumAt(wire.status, `${path}.status`, BOOK_STATUSES),
-    // Mac DTO 尚未带 mapRevision 时默认 0(记入接线清单;接线后应为必填)
-    mapRevision: optionalAt(wire, 'mapRevision', path, safeIntegerAt) ?? 0,
+    mapRevision: safeIntegerAt(wire.mapRevision, `${path}.mapRevision`),
   }
 }
 
@@ -190,8 +189,7 @@ function decodeBlock(value: unknown, path: string): KnowledgeBlock {
     status: enumAt(wire.status, `${path}.status`, BLOCK_STATUSES),
     ...(scores === undefined ? {} : { scores }),
     ...(passedAt === undefined ? {} : { passedAt }),
-    // Mac DTO 尚未带 skipped 时默认 false(记入接线清单)
-    skipped: optionalAt(wire, 'skipped', path, booleanAt) ?? false,
+    skipped: booleanAt(wire.skipped, `${path}.skipped`),
   }
 }
 

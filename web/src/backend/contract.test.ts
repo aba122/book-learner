@@ -76,10 +76,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'confirmSessionVerdict', command: 'session_confirm_verdict', payloadKeys: ['sessionId', 'expectedVersion', 'requestId', 'pass', 'date'] },
       { method: 'abandonSession', command: 'session_abandon', payloadKeys: ['sessionId', 'expectedVersion'] },
     ])
-    // v1 会话/地图方法已删除(B7);confirmMap 已是 v2 签名但原生仍待接线
+    // v1 会话/地图方法已删除(B7);Mac M4 已接线地图组 5 条(storeSpine/runMapJob/confirmMap/setAnchorSegments/listAnchors)
     expect(tauriWireContract.unsupportedCapabilities).toEqual([
-      'importEpub', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl', 'stats',
-      'storeSpine', 'runMapJob', 'setAnchorSegments', 'listAnchors',
+      'importEpub', 'completeTask', 'blockSource', 'epubUrl', 'stats',
       'startOrResumeSession', 'submitTurn', 'requestEvaluation', 'confirmSessionVerdict', 'abandonSession',
     ])
   })

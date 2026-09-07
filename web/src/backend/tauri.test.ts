@@ -74,9 +74,9 @@ describe('TauriBackend supported transport', () => {
     expect(await backend.getSettings()).toEqual(settings)
     await backend.saveSettings(settings)
 
-    // 受支持传输 = 契约中既非 unsupported 入口、也不在 unsupportedCapabilities 门控列表里的命令
+    // 本用例只走 v1 的 8 个方法;v2 方法的传输由下方"契约 v2 传输"用例覆盖
     const expected = tauriWireContract.commands.filter(entry =>
-      entry.method !== 'unsupported' && !tauriWireContract.unsupportedCapabilities.includes(entry.method))
+      entry.method !== 'unsupported' && !V2_METHODS.includes(entry.method))
     expect(calls.map(({ command, payload }, index) => ({
       method: expected[index].method,
       command,
@@ -109,7 +109,7 @@ describe('TauriBackend supported transport', () => {
     expect(await backend.todayQueue('2026-09-01')).toEqual([taskWithoutRef])
   })
 
-  it('defaults mapRevision/skipped when the native DTO has not been extended yet (Mac wiring pending)', async () => {
+  it('requires mapRevision/skipped now that the native DTO carries them (Mac M4)', async () => {
     const legacyBook = { ...book } as Partial<typeof book>
     delete legacyBook.mapRevision
     const legacyBlock = { ...block } as Partial<typeof block>
@@ -119,8 +119,8 @@ describe('TauriBackend supported transport', () => {
     ) as T
     const backend = new TauriBackend(invoke)
 
-    expect((await backend.listBooks())[0].mapRevision).toBe(0)
-    expect((await backend.getBlock(2)).skipped).toBe(false)
+    await expect(backend.listBooks()).rejects.toMatchObject({ code: 'invalid_response' })
+    await expect(backend.getBlock(2)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it.each([
@@ -343,25 +343,28 @@ describe('TauriBackend failures and unsupported capabilities', () => {
       throw rejection
     })
     let progressCalls = 0
-    const operations = [
-      () => backend.importEpub(new File([], 'book.epub'), 'textbook'),
-      () => backend.confirmMap(1, 1, []),
-      () => backend.completeTask(1),
-      () => backend.blockSource(1),
-      () => backend.epubUrl(1),
-      () => backend.stats(),
-      () => backend.storeSpine(1, []),
-      () => backend.runMapJob(1, 'job-1', () => { progressCalls += 1 }),
-      () => backend.setAnchorSegments(1, []),
-      () => backend.listAnchors(1),
-      () => backend.startOrResumeSession(1, 'req-1', '2026-09-05'),
-      () => backend.submitTurn(1, 0, 'turn-1', 'x'),
-      () => backend.requestEvaluation(1, 'eval'),
-      () => backend.confirmSessionVerdict(1, 0, 'verdict', true, '2026-09-05'),
-      () => backend.abandonSession(1, 0),
-    ]
+    // 按契约 JSON 的 unsupportedCapabilities 驱动:Mac 每接线一条即从 JSON 移除,本用例自动收缩
+    const operationByCapability: Record<string, () => Promise<unknown>> = {
+      importEpub: () => backend.importEpub(new File([], 'book.epub'), 'textbook'),
+      confirmMap: () => backend.confirmMap(1, 1, []),
+      completeTask: () => backend.completeTask(1),
+      blockSource: () => backend.blockSource(1),
+      epubUrl: () => backend.epubUrl(1),
+      stats: () => backend.stats(),
+      storeSpine: () => backend.storeSpine(1, []),
+      runMapJob: () => backend.runMapJob(1, 'job-1', () => { progressCalls += 1 }),
+      setAnchorSegments: () => backend.setAnchorSegments(1, []),
+      listAnchors: () => backend.listAnchors(1),
+      startOrResumeSession: () => backend.startOrResumeSession(1, 'req-1', '2026-09-05'),
+      submitTurn: () => backend.submitTurn(1, 0, 'turn-1', 'x'),
+      requestEvaluation: () => backend.requestEvaluation(1, 'eval'),
+      confirmSessionVerdict: () => backend.confirmSessionVerdict(1, 0, 'verdict', true, '2026-09-05'),
+      abandonSession: () => backend.abandonSession(1, 0),
+    }
 
-    for (const operation of operations) {
+    for (const capability of tauriWireContract.unsupportedCapabilities) {
+      const operation = operationByCapability[capability]
+      expect(operation, capability).toBeDefined()
       const result = operation()
       await expect(result).rejects.toMatchObject(rejection)
       await expect(result).rejects.toBeInstanceOf(BackendError)

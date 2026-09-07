@@ -6,11 +6,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use book_learner_app::application;
 use book_learner_app::commands;
 use book_learner_app::dto::{
-    AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, StudyPlanRequest,
+    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, SpineChapterDto, StudyPlanRequest,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
 use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState};
-use book_learner_core::eval::Scores;
+use book_learner_core::ai::{AiProvider, CompletionRequest};
+use book_learner_core::eval::{DraftBlock, DraftMap, DraftModule, Scores};
+use book_learner_core::map;
 use book_learner_core::models::{Book, BookStatus, BookType, KnowledgeBlock};
 use book_learner_core::projection;
 use book_learner_core::sched::DailyTask;
@@ -19,6 +22,7 @@ use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
+use tauri::Listener;
 use tracing_subscriber::fmt::MakeWriter;
 
 #[test]
@@ -30,12 +34,13 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
         book_type: BookType::Methodology,
         slug: "systems".into(),
         status: BookStatus::Paused,
+        map_revision: 3,
     });
     assert_eq!(
         serde_json::to_value(book).unwrap(),
         json!({
             "id": 7, "title": "系统思考", "author": "作者",
-            "type": "methodology", "slug": "systems", "status": "paused"
+            "type": "methodology", "slug": "systems", "status": "paused", "mapRevision": 3
         })
     );
 
@@ -63,7 +68,7 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
             "id": 11, "bookId": 7, "moduleName": "反馈", "seq": 2,
             "title": "增强回路", "slug": "reinforcing-loop", "prereqIds": [9, 10],
             "status": "passed", "scores": {"accuracy": 4, "completeness": 3, "clarity": 5},
-            "passedAt": "2026-09-01"
+            "passedAt": "2026-09-01", "skipped": false
         })
     );
 
@@ -211,9 +216,145 @@ fn error_codes_are_snake_case_and_core_errors_map_to_safe_stable_payloads() {
     }
 }
 
+fn spine_chapter_json() -> Value {
+    json!({"idx": 0, "href": "ch0.xhtml", "title": "第一章", "text": "第一章原文:弹性是相对变化率。"})
+}
+
+fn anchor_segment_json() -> Value {
+    json!({
+        "spineHref": "ch0.xhtml", "cfiStart": "epubcfi(/6/2!/4/2)", "cfiEnd": "epubcfi(/6/2!/4/4)",
+        "precision": "exact", "hint": "第一章", "text": "弹性是相对变化率。"
+    })
+}
+
+/// 为 `book_id` 存一章 spine 并落一张单块草图(不经 AI),返回该块 id;书的 map_revision 变为 1。
+fn seed_map(state: &AppState, book_id: i64) -> i64 {
+    let chapter: SpineChapterDto = serde_json::from_value(spine_chapter_json()).unwrap();
+    commands::map_store_spine_inner(state, book_id, vec![chapter]).unwrap();
+    let draft = DraftMap {
+        modules: vec![DraftModule {
+            name: "模块一".into(),
+            blocks: vec![DraftBlock {
+                title: "供需弹性".into(),
+                summary: String::new(),
+                source_sections: vec!["ch0.xhtml#第一章".into()],
+                prereqs: vec![],
+            }],
+        }],
+    };
+    let revision = state
+        .with_connection(|connection| map::apply_draft_map(connection, book_id, &draft))
+        .unwrap();
+    assert_eq!(revision, 1);
+    commands::map_list_blocks_inner(state, book_id).unwrap()[0].id
+}
+
+#[test]
+fn map_group_commands_round_trip_and_expose_revision_and_skipped() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, second, _) = seeded_state(&directory.path().join("app.db"));
+    let block_id = seed_map(&state, second);
+
+    let books = commands::library_list_books_inner(&state).unwrap();
+    let revision_of = |id: i64| {
+        books
+            .iter()
+            .find(|book| book.id == id)
+            .unwrap()
+            .map_revision
+    };
+    assert_eq!(revision_of(first), 0);
+    assert_eq!(revision_of(second), 1);
+    assert_eq!(
+        serde_json::to_value(&books[1]).unwrap()["mapRevision"],
+        json!(1)
+    );
+
+    let blocks = commands::map_list_blocks_inner(&state, second).unwrap();
+    assert_eq!(blocks.len(), 1);
+    assert!(!blocks[0].skipped);
+    assert_eq!(
+        serde_json::to_value(&blocks[0]).unwrap()["skipped"],
+        json!(false)
+    );
+    // 草图落库的 chapter_fallback 锚点带 hint
+    let anchors = commands::map_list_anchors_inner(&state, block_id).unwrap();
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[0].precision, "chapter_fallback");
+    assert_eq!(anchors[0].hint, "第一章");
+
+    // 编辑确认:TS 形状的 ops 经 serde 判别字段 `op` 反序列化
+    let ops: Vec<MapEditOpDto> = serde_json::from_value(json!([
+        {"op": "setSkipped", "blockId": block_id, "skipped": true},
+        {"op": "rename", "blockId": block_id, "title": "价格弹性"},
+        {"op": "renameModule", "from": "模块一", "to": "供给与需求"},
+        {"op": "reorder", "blockIds": [block_id]}
+    ]))
+    .unwrap();
+    assert_eq!(
+        ops[0],
+        MapEditOpDto::SetSkipped {
+            block_id,
+            skipped: true
+        }
+    );
+    assert!(
+        serde_json::from_value::<MapEditOpDto>(json!({"op": "explode", "blockId": 1})).is_err()
+    );
+    let confirmed = commands::map_confirm_inner(&state, second, 1, ops).unwrap();
+    assert_eq!(confirmed.revision, 2);
+    let blocks = commands::map_list_blocks_inner(&state, second).unwrap();
+    assert!(blocks[0].skipped);
+    assert_eq!(blocks[0].title, "价格弹性");
+    assert_eq!(blocks[0].module_name, "供给与需求");
+    // 过期修订号 → conflict;负数 → invalid_request
+    assert_eq!(
+        commands::map_confirm_inner(&state, second, 1, vec![])
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        commands::map_confirm_inner(&state, second, -1, vec![])
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+
+    // 锚点段往返(替换语义)
+    let segment: AnchorSegmentDto = serde_json::from_value(anchor_segment_json()).unwrap();
+    commands::map_set_anchor_segments_inner(&state, block_id, vec![segment.clone()]).unwrap();
+    assert_eq!(
+        commands::map_list_anchors_inner(&state, block_id).unwrap(),
+        vec![segment]
+    );
+    let bad: AnchorSegmentDto = serde_json::from_value(json!({
+        "spineHref": "ch0.xhtml", "cfiStart": "", "cfiEnd": "", "precision": "guess", "hint": "", "text": ""
+    }))
+    .unwrap();
+    assert_eq!(
+        commands::map_set_anchor_segments_inner(&state, block_id, vec![bad])
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::map_list_anchors_inner(&state, i64::MAX)
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
     let state = AppState::open(path).unwrap();
-    let ids = state
+    let (first, second, block) = seed_books(&state);
+    (state, first, second, block)
+}
+
+/// 两本书(first 活跃且有一块;second 暂停、无块)。
+fn seed_books(state: &AppState) -> (i64, i64, i64) {
+    state
         .with_connection(|connection| {
             let first = book_learner_core::models::insert_book(
                 connection,
@@ -241,8 +382,142 @@ fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
             )?;
             Ok((first, second, block))
         })
+        .unwrap()
+}
+
+/// 两阶段地图作业的假 provider:按 request_id 后缀返回 Stage A 候选 / Stage B 草图;计数用于断言"已有地图不重跑"。
+struct MapMock {
+    calls: Mutex<usize>,
+}
+
+impl AiProvider for MapMock {
+    fn complete(&self, request: &CompletionRequest) -> book_learner_core::Result<String> {
+        *self.calls.lock().unwrap() += 1;
+        let id = request.request_id.as_str();
+        if id.ends_with(":merge") {
+            return Ok(r#"{"modules":[{"name":"供给与需求","blocks":[
+                {"title":"供需弹性","summary":"","source_sections":["ch0.xhtml#第一章"],"prereqs":[]}]}]}"#
+                .into());
+        }
+        if id.starts_with("map:") {
+            return Ok(
+                r#"[{"title":"供需弹性","summary":"s","prereq_titles":[],"source_section":"ch0.xhtml#第一章"}]"#
+                    .into(),
+            );
+        }
+        Err(CoreError::Ai(format!("unexpected request {id}")))
+    }
+}
+
+fn state_with_map_mock(path: &Path) -> (AppState, Arc<MapMock>) {
+    let mock = Arc::new(MapMock {
+        calls: Mutex::new(0),
+    });
+    let state = AppState::open(path)
+        .unwrap()
+        .with_provider(Arc::clone(&mock) as Arc<dyn AiProvider + Send + Sync>);
+    (state, mock)
+}
+
+#[test]
+fn map_run_job_uses_the_injected_provider_reports_progress_and_is_idempotent() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, mock) = state_with_map_mock(&directory.path().join("app.db"));
+    let (first, second, _) = seed_books(&state);
+    let chapter: SpineChapterDto = serde_json::from_value(spine_chapter_json()).unwrap();
+    commands::map_store_spine_inner(&state, second, vec![chapter]).unwrap();
+
+    let mut events: Vec<MapProgressDto> = vec![];
+    let blocks =
+        commands::map_run_job_inner(&state, second, "job-1", &mut |p| events.push(p)).unwrap();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].title, "供需弹性");
+    assert!(!blocks[0].skipped);
+    assert_eq!(*mock.calls.lock().unwrap(), 2, "Stage A + Stage B");
+    assert!(matches!(
+        events.first(),
+        Some(MapProgressDto::Chapter {
+            index: 0,
+            total: 1,
+            ..
+        })
+    ));
+    assert!(events.contains(&MapProgressDto::Merging));
+    assert_eq!(events.last(), Some(&MapProgressDto::Done { blocks: 1 }));
+    assert_eq!(
+        serde_json::to_value(&events[0]).unwrap(),
+        json!({"stage": "chapter", "index": 0, "total": 1, "title": "第一章"})
+    );
+    let books = commands::library_list_books_inner(&state).unwrap();
+    assert_eq!(
+        books.iter().find(|b| b.id == second).unwrap().map_revision,
+        1
+    );
+
+    // 已有地图:同 jobId / 新 jobId 都直接返回现有块,不发进度、不调 provider
+    let mut again: Vec<MapProgressDto> = vec![];
+    let same =
+        commands::map_run_job_inner(&state, second, "job-1", &mut |p| again.push(p)).unwrap();
+    let fresh =
+        commands::map_run_job_inner(&state, second, "job-2", &mut |p| again.push(p)).unwrap();
+    assert_eq!(same, blocks);
+    assert_eq!(fresh, blocks);
+    assert!(again.is_empty());
+    assert_eq!(*mock.calls.lock().unwrap(), 2);
+
+    // 无 spine 的书 → invalid_request;不存在的书 → not_found
+    assert_eq!(
+        commands::map_run_job_inner(&state, first, "job-3", &mut |_| {})
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::map_run_job_inner(&state, i64::MAX, "job-4", &mut |_| {})
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn map_run_job_over_ipc_emits_map_job_progress_events_with_the_job_id() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _mock) = state_with_map_mock(&directory.path().join("ipc.db"));
+    let (_, second, _) = seed_books(&state);
+    let chapter: SpineChapterDto = serde_json::from_value(spine_chapter_json()).unwrap();
+    commands::map_store_spine_inner(&state, second, vec![chapter]).unwrap();
+
+    let app = book_learner_app::register_commands(mock_builder().manage(state))
+        .build(mock_context(noop_assets()))
         .unwrap();
-    (state, ids.0, ids.1, ids.2)
+    let received: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let sink = Arc::clone(&received);
+    app.listen_any(commands::MAP_JOB_PROGRESS_EVENT, move |event| {
+        sink.lock()
+            .unwrap()
+            .push(serde_json::from_str(event.payload()).unwrap());
+    });
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+
+    let blocks = invoke_json(
+        &webview,
+        "map_run_job",
+        json!({"bookId": second, "jobId": "job-ipc"}),
+    )
+    .unwrap();
+    assert_eq!(blocks.as_array().unwrap().len(), 1);
+    assert_eq!(blocks[0]["skipped"], json!(false));
+    let events = received.lock().unwrap();
+    assert!(events.len() >= 3, "{events:?}");
+    assert!(events.iter().all(|e| e["jobId"] == "job-ipc"), "{events:?}");
+    assert_eq!(events[0]["progress"]["stage"], "chapter");
+    assert_eq!(
+        events.last().unwrap()["progress"],
+        json!({"stage": "done", "blocks": 1})
+    );
 }
 
 #[test]
@@ -681,11 +956,6 @@ fn invoke_json(
 
 /// 已注册但尚未接线的 v2 命令(M0 占位);M4/M5 每接一条就从此移除并改为预期 `Ok`。
 const PLACEHOLDER_COMMANDS: &[&str] = &[
-    "map_store_spine",
-    "map_run_job",
-    "map_confirm",
-    "map_set_anchor_segments",
-    "map_list_anchors",
     "session_start_or_resume",
     "session_submit_turn",
     "session_request_evaluation",
@@ -728,7 +998,9 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     );
 
     let directory = tempfile::tempdir().unwrap();
-    let (state, first, _, block) = seeded_state(&directory.path().join("ipc.db"));
+    let (state, first, second, block) = seeded_state(&directory.path().join("ipc.db"));
+    // 地图组命令用无块的 second:先存 spine 并落一张草图(map_run_job 在接线前仍为占位)
+    let second_block = seed_map(&state, second);
     // 契约循环按 JSON 顺序先调 library_set_active_book 再调 planning_set_plan,
     // 而主攻书切换要求该书已有学习计划,故先为 first 预置计划
     application::set_plan(
@@ -766,11 +1038,15 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             }}),
             "unsupported_capability" => json!({"capability": "importEpub"}),
             // 契约 v2:占位期 payload 只需满足参数名/类型;接线后改为可落库的真实值
-            "map_store_spine" => json!({"bookId": first, "chapters": []}),
-            "map_run_job" => json!({"bookId": first, "jobId": "map:job-1"}),
-            "map_confirm" => json!({"bookId": first, "expectedRevision": 0, "ops": []}),
-            "map_set_anchor_segments" => json!({"blockId": block, "segments": []}),
-            "map_list_anchors" => json!({"blockId": block}),
+            "map_store_spine" => json!({"bookId": second, "chapters": [spine_chapter_json()]}),
+            "map_run_job" => json!({"bookId": second, "jobId": "job-1"}),
+            "map_confirm" => json!({"bookId": second, "expectedRevision": 1, "ops": [
+                {"op": "setSkipped", "blockId": second_block, "skipped": true}
+            ]}),
+            "map_set_anchor_segments" => json!({
+                "blockId": second_block, "segments": [anchor_segment_json()]
+            }),
+            "map_list_anchors" => json!({"blockId": second_block}),
             "session_start_or_resume" => json!({
                 "taskId": 1, "clientRequestId": "req-1", "date": "2026-09-01"
             }),
