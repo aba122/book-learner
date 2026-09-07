@@ -365,3 +365,9 @@
 - 无人值守冒烟(`~/Developer/f3-smoke.sh`,替代需 GUI 的手工项):`BOOK_LEARNER_DATA_DIR=relative` 启动 debug 二进制 → stdout 日志 `ERROR … error_code="invalid_request" internal_cause="BOOK_LEARNER_DATA_DIR was relative"`,进程停在对话框(6s 后仍存活;系统日志 `CFUserNotificationDisplayAlert: called from main application thread, will block`),按 pid 结束。门禁:src-tauri 10/1/2、clippy 0、fmt 过;`tauri build --debug --no-bundle` 19s 通过。
 - **事故记录**:一次用 `pgrep -f target/debug/book-learner` 清理"遗留进程"时误杀了 pid 15833(`ps` 显示为已运行 9 天的 "(CGEAMarker)",与本项目无关,匹配原因未明);此后只按 pid 文件结束进程,不再用模糊匹配杀进程。
 - zsh 坑:脚本里 `echo ===X===` 会被 `=cmd` 展开报错并中断 `&&` 链;字符串一律加引号。
+
+## 2026-09-07 · M3:独立连接策略、记忆库根与启动投影恢复
+- `AppState` 增 `database_path/data_root/memory/provider_override`:`open()` 同时 `MemoryStore::init(<data_root>/memory)`(含 git init,故所有壳层测试都要求 git 可用);`open_connection()` 给慢命令用独立连接(含 busy_timeout/外键/迁移),用例证明持有 `with_connection` 守卫期间另一线程经独立连接写入不被串行化;`memory_root()/books_dir()`;`with_provider(Arc<dyn AiProvider+Send+Sync>)` 测试注入点。
+- `ai_provider()`:注入优先;否则 `CodexCliProvider{bin}`,`bin` 取 `setting.codexBin`(绝对路径;不是 `AppSettings` 字段,直接读表)→ `resolve_codex_bin(configured, PATH, HOME, fallback_dirs)` 纯函数:`$PATH` → `/opt/homebrew/bin` → `/usr/local/bin` → `~/.npm-global/bin` → `~/.nvm/versions/node/*/bin`(高版本优先);相对路径 → `invalid_request`,全部失败 → `not_found`("请在设置中填写其绝对路径")。固定目录经参数注入使用例不受本机 `/opt/homebrew/bin/codex` 影响。
+- 启动恢复:`run_startup_recovery(&state)`(独立连接 + `projection::run_pending`)在 setup 内经 `tauri::async_runtime::spawn_blocking` 触发,结果写日志;用例:入队 `init_book` → 恢复处理 1 条并生成 `books/first/_map.md`,再次调用为 0(幂等)。
+- 门禁:src-tauri 13/1/2、clippy 0、fmt 过。

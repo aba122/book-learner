@@ -83,9 +83,9 @@ docs/smoke/mac-m1-native-smoke.md      ← 填写签字
 
 **Files:** `state.rs`, `lib.rs`, `tests/foundation.rs`
 
-- [ ] **M3.1 失败测试**:`AppState::open_connection()` 返回新连接(`db::open(path)`,含 busy_timeout/外键/迁移);用例:持有 `with_connection` 守卫期间,另一线程经 `open_connection()` 完成一次写入不阻塞超过 busy 上限(证明慢命令不会被守卫串行化);`AppState::memory_root()` = `<data_dir>/book-learner/memory`(debug 覆盖同 database_path 规则);`AppState::books_dir()` = `<data_dir>/book-learner/books`。
-- [ ] **M3.2 实现**:`AppState` 增 `database_path/memory_root/books_dir` 字段与三个方法;`memory::MemoryStore::init(memory_root)` 在 setup 内完成;setup 末尾 `tauri::async_runtime::spawn` 一次 `projection::run_pending(open_connection()?, &memory)`(启动恢复,结果写日志);`AppState::ai_provider()` 返回 `CodexCliProvider { bin, extra_args: [] }` 与 `AiPolicy::default()`;`bin` 直接读 `setting` 表键 `codexBin`(`codexBin` **不是** `AppSettings` 字段,勿改 `deny_unknown_fields` 结构),缺省解析 `codex`:Finder 启动的 GUI 不继承 shell PATH,解析顺序为 绝对路径设置 → `$PATH` → `/opt/homebrew/bin` → `/usr/local/bin` → `~/.npm-global/bin` → `~/.nvm/versions/node/*/bin`,全部失败 → `not_found` 并在设置页提示填写绝对路径。
-- [ ] **M3.3** GREEN;commit `feat(mac): 独立连接策略、记忆库根与启动投影恢复 (M3)` + push。
+- [x] **M3.1 失败测试**(三个用例:数据位置+独立连接不被守卫串行化、启动恢复重放 outbox、codex 路径解析纯函数):`AppState::open_connection()` 返回新连接(`db::open(path)`,含 busy_timeout/外键/迁移);用例:持有 `with_connection` 守卫期间,另一线程经 `open_connection()` 完成一次写入不阻塞超过 busy 上限(证明慢命令不会被守卫串行化);`AppState::memory_root()` = `<data_dir>/book-learner/memory`(debug 覆盖同 database_path 规则);`AppState::books_dir()` = `<data_dir>/book-learner/books`。
+- [x] **M3.2 实现**(`resolve_codex_bin` 为纯函数,固定目录经参数注入;`with_provider` 注入点已就位供 M4):`AppState` 增 `database_path/memory_root/books_dir` 字段与三个方法;`memory::MemoryStore::init(memory_root)` 在 setup 内完成;setup 末尾 `tauri::async_runtime::spawn` 一次 `projection::run_pending(open_connection()?, &memory)`(启动恢复,结果写日志);`AppState::ai_provider()` 返回 `CodexCliProvider { bin, extra_args: [] }` 与 `AiPolicy::default()`;`bin` 直接读 `setting` 表键 `codexBin`(`codexBin` **不是** `AppSettings` 字段,勿改 `deny_unknown_fields` 结构),缺省解析 `codex`:Finder 启动的 GUI 不继承 shell PATH,解析顺序为 绝对路径设置 → `$PATH` → `/opt/homebrew/bin` → `/usr/local/bin` → `~/.npm-global/bin` → `~/.nvm/versions/node/*/bin`,全部失败 → `not_found` 并在设置页提示填写绝对路径。
+- [x] **M3.3** GREEN(src-tauri 13/1/2、clippy 0);commit `feat(mac): 独立连接策略、记忆库根与启动投影恢复 (M3)` + push。
 
 ### Task M4: 接线 map 组(5 命令,1 天)
 

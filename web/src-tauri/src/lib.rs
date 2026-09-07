@@ -56,6 +56,12 @@ pub fn initialize_state(platform_data_dir: &Path) -> Result<state::AppState, Ipc
     state::AppState::open(&database_path)
 }
 
+/// 启动恢复:用独立连接重放投影 outbox(SQLite 为事实源,md/git 为投影),返回处理条数。
+pub fn run_startup_recovery(state: &state::AppState) -> Result<usize, IpcError> {
+    let connection = state.open_connection()?;
+    book_learner_core::projection::run_pending(&connection, state.memory()).map_err(IpcError::from)
+}
+
 /// 启动失败的用户可见处理:日志(含 internal_cause)+ 原生阻塞错误框 + 退出码 1。
 fn fail_startup(error: &IpcError) -> ! {
     tracing::error!(
@@ -86,6 +92,19 @@ pub fn run() {
         match initialize_state(&platform_data_dir) {
             Ok(state) => {
                 app.manage(state);
+                // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let state = handle.state::<state::AppState>();
+                    match run_startup_recovery(&state) {
+                        Ok(processed) => tracing::info!(processed, "启动投影恢复完成"),
+                        Err(error) => tracing::error!(
+                            error_code = error.code.as_str(),
+                            internal_cause = error.internal_cause(),
+                            "启动投影恢复失败"
+                        ),
+                    }
+                });
                 Ok(())
             }
             Err(error) => fail_startup(&error),

@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -8,9 +9,10 @@ use book_learner_app::dto::{
     AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, StudyPlanRequest,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
-use book_learner_app::state::{resolve_database_path, AppState};
+use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState};
 use book_learner_core::eval::Scores;
 use book_learner_core::models::{Book, BookStatus, BookType, KnowledgeBlock};
+use book_learner_core::projection;
 use book_learner_core::sched::DailyTask;
 use book_learner_core::CoreError;
 use serde_json::{json, Value};
@@ -373,11 +375,9 @@ fn startup_initialization_returns_typed_errors_instead_of_panicking() {
     // 成功路径:在平台数据目录下创建 book-learner/app.db
     let directory = tempfile::tempdir().unwrap();
     drop(book_learner_app::initialize_state(directory.path()).unwrap());
-    assert!(directory
-        .path()
-        .join("book-learner")
-        .join("app.db")
-        .is_file());
+    let product_root = directory.path().join("book-learner");
+    assert!(product_root.join("app.db").is_file());
+    assert!(product_root.join("memory").join("INDEX.md").is_file());
 
     // 数据目录不可写 → 类型化 io/db 错误且 internal_cause 非空(root 不受权限位约束则跳过)
     let locked = tempfile::tempdir().unwrap();
@@ -402,6 +402,148 @@ fn startup_initialization_returns_typed_errors_instead_of_panicking() {
         Some(value) => std::env::set_var("BOOK_LEARNER_DATA_DIR", value),
         None => std::env::remove_var("BOOK_LEARNER_DATA_DIR"),
     }
+}
+
+#[test]
+fn app_state_exposes_data_locations_and_independent_connections() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("app.db")).unwrap();
+    assert_eq!(state.data_root(), directory.path());
+    assert_eq!(state.memory_root(), directory.path().join("memory"));
+    assert_eq!(state.books_dir(), directory.path().join("books"));
+    assert!(state.memory_root().join("INDEX.md").is_file());
+    assert!(state.memory_root().join(".git").is_dir());
+
+    // 持有 with_connection 守卫期间,另一线程经独立连接完成写入,且不被守卫串行化(远小于 5s busy 上限)
+    let started = std::time::Instant::now();
+    state
+        .with_connection(|_guarded| {
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let connection = state.open_connection().unwrap();
+                        connection
+                            .execute(
+                                "INSERT INTO setting(key,value) VALUES('probe','1') \
+                                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                [],
+                            )
+                            .unwrap();
+                    })
+                    .join()
+                    .unwrap();
+            });
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(4),
+        "independent connection was serialized behind the guard"
+    );
+    let probe: String = state
+        .with_connection(|connection| {
+            Ok(
+                connection.query_row("SELECT value FROM setting WHERE key='probe'", [], |row| {
+                    row.get(0)
+                })?,
+            )
+        })
+        .unwrap();
+    assert_eq!(probe, "1");
+}
+
+#[test]
+fn startup_recovery_replays_pending_projection_outbox() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, _, _) = seeded_state(&directory.path().join("app.db"));
+    state
+        .with_connection(|connection| {
+            projection::enqueue(
+                connection,
+                "init_book:first",
+                "init_book",
+                &json!({"book_id": first}),
+            )
+        })
+        .unwrap();
+    assert_eq!(book_learner_app::run_startup_recovery(&state).unwrap(), 1);
+    assert!(state
+        .memory_root()
+        .join("books")
+        .join("first")
+        .join("_map.md")
+        .is_file());
+    // 幂等:无 pending 行时不再处理
+    assert_eq!(book_learner_app::run_startup_recovery(&state).unwrap(), 0);
+}
+
+#[test]
+fn codex_binary_resolution_prefers_setting_then_path_then_known_directories() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let make = |dir: &Path| {
+        std::fs::create_dir_all(dir).unwrap();
+        let binary = dir.join("codex");
+        std::fs::write(&binary, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        binary
+    };
+    let configured = make(&directory.path().join("configured"));
+    let on_path = make(&directory.path().join("path"));
+    let known = make(&directory.path().join("known"));
+    let home = directory.path().join("home");
+    let npm_global = make(&home.join(".npm-global").join("bin"));
+    let empty = directory.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let path_env = Some(OsString::from(format!(
+        "{}:{}",
+        empty.display(),
+        directory.path().join("path").display()
+    )));
+    let empty_path = Some(OsString::from(empty.as_os_str()));
+    let known_dir = directory.path().join("known");
+    let known_dirs = [known_dir.to_str().unwrap()];
+
+    assert_eq!(
+        resolve_codex_bin(
+            Some(configured.to_str().unwrap()),
+            path_env.clone(),
+            Some(home.clone()),
+            &known_dirs
+        )
+        .unwrap(),
+        configured
+    );
+    assert_eq!(
+        resolve_codex_bin(Some("codex"), None, None, &[])
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        resolve_codex_bin(Some("/nonexistent/codex"), None, None, &[])
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        resolve_codex_bin(None, path_env, Some(home.clone()), &known_dirs).unwrap(),
+        on_path
+    );
+    assert_eq!(
+        resolve_codex_bin(None, empty_path.clone(), Some(home.clone()), &known_dirs).unwrap(),
+        known
+    );
+    assert_eq!(
+        resolve_codex_bin(None, empty_path.clone(), Some(home), &[]).unwrap(),
+        npm_global
+    );
+    assert_eq!(
+        resolve_codex_bin(None, empty_path, Some(directory.path().join("nohome")), &[])
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
 }
 
 #[test]
