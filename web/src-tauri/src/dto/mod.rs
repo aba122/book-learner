@@ -1,10 +1,12 @@
-use book_learner_core::eval::Scores;
+use book_learner_core::eval::{EvalResult, Scores, Verdict, WeakPointItem};
 use book_learner_core::map::{AnchorSegment, MapEditOp};
 use book_learner_core::mapgen::{MapProgress, SpineChapter};
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
 use book_learner_core::sched::DailyTask;
+use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
+use book_learner_core::verdict::{EvaluationView, VerdictOutcome};
 use serde::{Deserialize, Serialize};
 
 use crate::error::IpcError;
@@ -314,6 +316,161 @@ impl From<MapProgress> for MapProgressDto {
             },
             MapProgress::Merging => Self::Merging,
             MapProgress::Done { blocks } => Self::Done { blocks },
+        }
+    }
+}
+
+// ---- 会话组 DTO(M5):camelCase 镜像 core;`clientTurnId`/`eval` 缺省时序列化为 null,非省略 ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvalWeakPointDto {
+    pub title: String,
+    pub detail: String,
+    pub fixed_in_session: bool,
+}
+
+impl From<WeakPointItem> for EvalWeakPointDto {
+    fn from(item: WeakPointItem) -> Self {
+        Self {
+            title: item.title,
+            detail: item.detail,
+            fixed_in_session: item.fixed_in_session,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvalResultDto {
+    /// pass_suggested | relearn_suggested
+    pub verdict: String,
+    pub scores: ScoresDto,
+    pub summary: String,
+    pub weak_points: Vec<EvalWeakPointDto>,
+    pub final_restatement: String,
+    pub observation_note: String,
+}
+
+impl From<EvalResult> for EvalResultDto {
+    fn from(eval: EvalResult) -> Self {
+        let verdict = match eval.verdict {
+            Verdict::PassSuggested => "pass_suggested",
+            Verdict::RelearnSuggested => "relearn_suggested",
+        };
+        Self {
+            verdict: verdict.into(),
+            scores: eval.scores.into(),
+            summary: eval.summary,
+            weak_points: eval.weak_points.into_iter().map(Into::into).collect(),
+            final_restatement: eval.final_restatement,
+            observation_note: eval.observation_note,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnViewDto {
+    pub role: String,
+    pub text: String,
+    pub status: String,
+    pub client_turn_id: Option<String>,
+    pub ready_to_end: bool,
+}
+
+impl From<TurnView> for TurnViewDto {
+    fn from(turn: TurnView) -> Self {
+        Self {
+            role: turn.role,
+            text: turn.text,
+            status: turn.status,
+            client_turn_id: turn.client_turn_id,
+            ready_to_end: turn.ready_to_end,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionViewDto {
+    pub session_id: i64,
+    pub task_id: i64,
+    pub version: i64,
+    pub state: String,
+    pub block_id: i64,
+    pub kind: String,
+    pub transcript: Vec<TurnViewDto>,
+    pub eval: Option<EvalResultDto>,
+}
+
+impl From<SessionView> for SessionViewDto {
+    fn from(view: SessionView) -> Self {
+        Self {
+            session_id: view.session_id,
+            task_id: view.task_id,
+            version: view.version,
+            state: view.state,
+            block_id: view.block_id,
+            kind: view.kind,
+            transcript: view.transcript.into_iter().map(Into::into).collect(),
+            eval: view.eval.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnResultDto {
+    pub student_text: String,
+    pub ready_to_end: bool,
+    pub version: i64,
+}
+
+impl From<TurnResult> for TurnResultDto {
+    fn from(result: TurnResult) -> Self {
+        Self {
+            student_text: result.student_text,
+            ready_to_end: result.ready_to_end,
+            version: result.version,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluationViewDto {
+    pub eval: EvalResultDto,
+    pub version: i64,
+}
+
+impl From<EvaluationView> for EvaluationViewDto {
+    fn from(view: EvaluationView) -> Self {
+        Self {
+            eval: view.eval.into(),
+            version: view.version,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerdictOutcomeDto {
+    pub passed: bool,
+    pub block_status: String,
+    pub task_done: bool,
+    pub outbox_ops: usize,
+    pub version: i64,
+}
+
+impl From<VerdictOutcome> for VerdictOutcomeDto {
+    fn from(outcome: VerdictOutcome) -> Self {
+        Self {
+            passed: outcome.passed,
+            block_status: outcome.block_status,
+            task_done: outcome.task_done,
+            outbox_ops: outcome.outbox_ops,
+            version: outcome.version,
         }
     }
 }

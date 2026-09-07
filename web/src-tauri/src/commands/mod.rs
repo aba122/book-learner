@@ -1,9 +1,10 @@
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::application;
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, SpineChapterDto, StudyPlanRequest,
+    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, EvaluationViewDto, KnowledgeBlockDto,
+    MapEditOpDto, MapProgressDto, MapRevisionDto, SessionViewDto, SpineChapterDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 
 /// 地图作业进度事件名(与 web/src/backend/tauri.ts 的 MAP_JOB_PROGRESS_EVENT 一致)。
@@ -49,11 +50,6 @@ pub const UNSUPPORTED_CAPABILITIES: &[&str] = &[
     "blockSource",
     "epubUrl",
     "stats",
-    "startOrResumeSession",
-    "submitTurn",
-    "requestEvaluation",
-    "confirmSessionVerdict",
-    "abandonSession",
 ];
 
 fn run_command<T>(
@@ -184,14 +180,6 @@ pub fn map_list_anchors_inner(
     })
 }
 
-/// v2 命令占位期(M0):命令已注册、参数已按契约类型化,但 core 用例尚未接线;
-/// 统一返回 `not_implemented`(details.capability = 前端方法名)。M4/M5 逐条替换为真实实现。
-fn placeholder(state: &AppState, command: &'static str, method: &str) -> Result<(), IpcError> {
-    run_command(state, command, || {
-        Err(IpcError::not_implemented(method.to_string()))
-    })
-}
-
 #[tauri::command(async)]
 pub async fn library_list_books(state: State<'_, AppState>) -> Result<Vec<BookDto>, IpcError> {
     library_list_books_inner(&state)
@@ -258,7 +246,70 @@ pub async fn unsupported_capability(
     unsupported_capability_inner(&state, capability)
 }
 
-// ---- 契约 v2 占位命令(M0):参数名/类型对齐 web/src/backend/types.ts,接线时保持签名 ----
+pub fn session_start_or_resume_inner(
+    state: &AppState,
+    task_id: i64,
+    client_request_id: &str,
+    date: &str,
+) -> Result<SessionViewDto, IpcError> {
+    run_command(state, "session_start_or_resume", || {
+        application::start_or_resume_session(state, task_id, client_request_id, date)
+    })
+}
+
+pub fn session_submit_turn_inner(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    client_turn_id: &str,
+    text: &str,
+) -> Result<TurnResultDto, IpcError> {
+    run_command(state, "session_submit_turn", || {
+        application::submit_turn(state, session_id, expected_version, client_turn_id, text)
+    })
+}
+
+pub fn session_request_evaluation_inner(
+    state: &AppState,
+    session_id: i64,
+    request_id: &str,
+) -> Result<EvaluationViewDto, IpcError> {
+    run_command(state, "session_request_evaluation", || {
+        application::request_evaluation(state, session_id, request_id)
+    })
+}
+
+pub fn session_confirm_verdict_inner(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+    pass: bool,
+    date: &str,
+) -> Result<VerdictOutcomeDto, IpcError> {
+    run_command(state, "session_confirm_verdict", || {
+        application::confirm_session_verdict(
+            state,
+            session_id,
+            expected_version,
+            request_id,
+            pass,
+            date,
+        )
+    })
+}
+
+pub fn session_abandon_inner(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+) -> Result<(), IpcError> {
+    run_command(state, "session_abandon", || {
+        application::abandon_session(state, session_id, expected_version)
+    })
+}
+
+// ---- 契约 v2 命令(M4/M5):参数名/类型对齐 web/src/backend/types.ts ----
 
 #[tauri::command(async)]
 pub async fn map_store_spine(
@@ -321,9 +372,8 @@ pub async fn session_start_or_resume(
     task_id: i64,
     client_request_id: String,
     date: String,
-) -> Result<(), IpcError> {
-    let _ = (task_id, client_request_id, date);
-    placeholder(&state, "session_start_or_resume", "startOrResumeSession")
+) -> Result<SessionViewDto, IpcError> {
+    session_start_or_resume_inner(&state, task_id, &client_request_id, &date)
 }
 
 #[tauri::command(async)]
@@ -333,9 +383,8 @@ pub async fn session_submit_turn(
     expected_version: i64,
     client_turn_id: String,
     text: String,
-) -> Result<(), IpcError> {
-    let _ = (session_id, expected_version, client_turn_id, text);
-    placeholder(&state, "session_submit_turn", "submitTurn")
+) -> Result<TurnResultDto, IpcError> {
+    session_submit_turn_inner(&state, session_id, expected_version, &client_turn_id, &text)
 }
 
 #[tauri::command(async)]
@@ -343,22 +392,42 @@ pub async fn session_request_evaluation(
     state: State<'_, AppState>,
     session_id: i64,
     request_id: String,
-) -> Result<(), IpcError> {
-    let _ = (session_id, request_id);
-    placeholder(&state, "session_request_evaluation", "requestEvaluation")
+) -> Result<EvaluationViewDto, IpcError> {
+    session_request_evaluation_inner(&state, session_id, &request_id)
 }
 
 #[tauri::command(async)]
-pub async fn session_confirm_verdict(
+pub async fn session_confirm_verdict<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     session_id: i64,
     expected_version: i64,
     request_id: String,
     pass: bool,
     date: String,
-) -> Result<(), IpcError> {
-    let _ = (session_id, expected_version, request_id, pass, date);
-    placeholder(&state, "session_confirm_verdict", "confirmSessionVerdict")
+) -> Result<VerdictOutcomeDto, IpcError> {
+    let outcome = session_confirm_verdict_inner(
+        &state,
+        session_id,
+        expected_version,
+        &request_id,
+        pass,
+        &date,
+    )?;
+    // 判定已原子落库;md/git 投影在后台阻塞线程重放(独立连接),失败只记日志,启动恢复会补跑
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match crate::run_startup_recovery(&state) {
+            Ok(processed) => tracing::info!(session_id, processed, "判定后投影重放完成"),
+            Err(error) => tracing::error!(
+                session_id,
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "判定后投影重放失败"
+            ),
+        }
+    });
+    Ok(outcome)
 }
 
 #[tauri::command(async)]
@@ -367,6 +436,5 @@ pub async fn session_abandon(
     session_id: i64,
     expected_version: i64,
 ) -> Result<(), IpcError> {
-    let _ = (session_id, expected_version);
-    placeholder(&state, "session_abandon", "abandonSession")
+    session_abandon_inner(&state, session_id, expected_version)
 }

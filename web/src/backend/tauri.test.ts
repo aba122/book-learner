@@ -521,15 +521,24 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     expect((error.details as { path: string }).path).toBe(path)
   })
 
-  it('keeps gated v2 methods on unsupported_capability under the shipped contract', async () => {
+  it('routes v2 methods to real commands under the shipped contract, and gates them only when listed', async () => {
     const calls: string[] = []
     const rejection = { code: 'not_implemented', message: '此功能尚未在 Mac 版中实现', retryable: false }
-    const backend = new TauriBackend(async <_T>(command) => {
+    const invoke = async <_T>(command: string) => {
       calls.push(command)
       throw rejection
-    })
+    }
+    // 出厂契约:Mac M4/M5 已接线,submitTurn 直达 session_submit_turn
+    await expect(new TauriBackend(invoke).submitTurn(1, 0, 'turn-1', 'x')).rejects.toMatchObject(rejection)
+    expect(calls).toEqual(['session_submit_turn'])
 
-    await expect(backend.submitTurn(1, 0, 'turn-1', 'x')).rejects.toMatchObject(rejection)
+    // 仍在 unsupportedCapabilities 里的方法才走 unsupported_capability 门控
+    calls.length = 0
+    const gatedContract = {
+      ...tauriWireContract,
+      unsupportedCapabilities: [...tauriWireContract.unsupportedCapabilities, 'submitTurn'],
+    }
+    await expect(new TauriBackend(invoke, { contract: gatedContract }).submitTurn(1, 0, 'turn-1', 'x')).rejects.toMatchObject(rejection)
     expect(calls).toEqual(['unsupported_capability'])
   })
 

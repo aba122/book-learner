@@ -1,11 +1,14 @@
 use book_learner_core::map::{AnchorSegment, MapEditOp};
 use book_learner_core::mapgen::SpineChapter;
+use book_learner_core::models::BookType;
+use book_learner_core::prompts::FixedContext;
 use book_learner_core::CoreError;
 use rusqlite::OptionalExtension;
 
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, SpineChapterDto, StudyPlanRequest,
+    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, EvaluationViewDto, KnowledgeBlockDto,
+    MapEditOpDto, MapProgressDto, MapRevisionDto, SessionViewDto, SpineChapterDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -151,4 +154,127 @@ pub fn run_map_job(
         Err(error) => return Err(error.into()),
     }
     list_blocks(state, book_id)
+}
+
+// ---- 会话组(M5):回合/评估为慢命令(独立连接 + provider),其余走共享连接 ----
+
+pub fn start_or_resume_session(
+    state: &AppState,
+    task_id: i64,
+    client_request_id: &str,
+    date: &str,
+) -> Result<SessionViewDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::session::start_or_resume_session(
+                connection,
+                task_id,
+                client_request_id,
+                date,
+            )
+        })
+        .map(Into::into)
+}
+
+/// 会话所属块的固定注入上下文与书类型:画像摘要取记忆库 `profile.md` 前两节。
+fn session_context(
+    state: &AppState,
+    session_id: i64,
+) -> Result<(FixedContext, BookType), IpcError> {
+    let block_id = state
+        .with_connection(|connection| {
+            book_learner_core::session::get_session(connection, session_id)
+        })?
+        .block_id;
+    let profile_summary = state.memory().profile_summary().map_err(IpcError::from)?;
+    state.with_connection(|connection| {
+        let context = book_learner_core::session::fixed_context_for_block(
+            connection,
+            block_id,
+            &profile_summary,
+        )?;
+        let book_id = book_learner_core::models::get_block(connection, block_id)?.book_id;
+        let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
+        Ok((context, book_type))
+    })
+}
+
+pub fn submit_turn(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    client_turn_id: &str,
+    text: &str,
+) -> Result<TurnResultDto, IpcError> {
+    let (context, book_type) = session_context(state, session_id)?;
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::session::submit_turn(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        session_id,
+        expected_version,
+        client_turn_id,
+        text,
+        &context,
+        book_type,
+    )
+    .map(Into::into)
+    .map_err(Into::into)
+}
+
+pub fn request_evaluation(
+    state: &AppState,
+    session_id: i64,
+    request_id: &str,
+) -> Result<EvaluationViewDto, IpcError> {
+    let (context, _) = session_context(state, session_id)?;
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::verdict::request_evaluation(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        session_id,
+        request_id,
+        &context,
+    )
+    .map(Into::into)
+    .map_err(Into::into)
+}
+
+/// 判定确认(原子:块状态/任务/薄弱点/outbox 入队);投影重放由 command 层异步触发。
+pub fn confirm_session_verdict(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+    pass: bool,
+    date: &str,
+) -> Result<VerdictOutcomeDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::verdict::confirm_session_verdict(
+                connection,
+                session_id,
+                expected_version,
+                request_id,
+                pass,
+                date,
+            )
+        })
+        .map(Into::into)
+}
+
+pub fn abandon_session(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+) -> Result<(), IpcError> {
+    state.with_connection(|connection| {
+        book_learner_core::session::abandon_session(connection, session_id, expected_version)
+    })
 }

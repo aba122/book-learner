@@ -7,7 +7,7 @@ use book_learner_app::application;
 use book_learner_app::commands;
 use book_learner_app::dto::{
     AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, SpineChapterDto, StudyPlanRequest,
+    MapProgressDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
 use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState};
@@ -385,15 +385,40 @@ fn seed_books(state: &AppState) -> (i64, i64, i64) {
         .unwrap()
 }
 
-/// 两阶段地图作业的假 provider:按 request_id 后缀返回 Stage A 候选 / Stage B 草图;计数用于断言"已有地图不重跑"。
-struct MapMock {
+const DAY: &str = "2026-09-01";
+const EVAL_JSON: &str = r#"{"verdict":"pass_suggested","scores":{"accuracy":4,"completeness":4,"clarity":5},
+    "summary":"讲解到位","weak_points":[{"title":"弹性vs斜率","detail":"曾混淆,未完全修复"}],
+    "final_restatement":"弹性是需求量对价格的相对变化率","observation_note":"举例能力强"}"#;
+
+/// 假 provider:按 request_id 前缀/后缀回应地图 Stage A/B、学生回合(第二回合 READY_TO_END)与评估;
+/// 计数用于断言"已有地图不重跑"与"同 clientTurnId 重放不再调 provider"。
+struct EngineMock {
     calls: Mutex<usize>,
+    turns: Mutex<usize>,
 }
 
-impl AiProvider for MapMock {
+impl EngineMock {
+    fn calls(&self) -> usize {
+        *self.calls.lock().unwrap()
+    }
+}
+
+impl AiProvider for EngineMock {
     fn complete(&self, request: &CompletionRequest) -> book_learner_core::Result<String> {
         *self.calls.lock().unwrap() += 1;
         let id = request.request_id.as_str();
+        if id.starts_with("turn:") {
+            let mut turns = self.turns.lock().unwrap();
+            *turns += 1;
+            return Ok(if *turns == 1 {
+                "那弹性和斜率一样吗?".into()
+            } else {
+                "明白了,讲清楚了。[READY_TO_END]".into()
+            });
+        }
+        if id.starts_with("eval:") {
+            return Ok(EVAL_JSON.into());
+        }
         if id.ends_with(":merge") {
             return Ok(r#"{"modules":[{"name":"供给与需求","blocks":[
                 {"title":"供需弹性","summary":"","source_sections":["ch0.xhtml#第一章"],"prereqs":[]}]}]}"#
@@ -409,9 +434,10 @@ impl AiProvider for MapMock {
     }
 }
 
-fn state_with_map_mock(path: &Path) -> (AppState, Arc<MapMock>) {
-    let mock = Arc::new(MapMock {
+fn state_with_mock(path: &Path) -> (AppState, Arc<EngineMock>) {
+    let mock = Arc::new(EngineMock {
         calls: Mutex::new(0),
+        turns: Mutex::new(0),
     });
     let state = AppState::open(path)
         .unwrap()
@@ -419,10 +445,203 @@ fn state_with_map_mock(path: &Path) -> (AppState, Arc<MapMock>) {
     (state, mock)
 }
 
+/// 给 `first` 加第二块并设"每日 2 新块"的计划,生成 `date` 队列;返回 (block 的任务 id, 第二块的任务 id)。
+fn seed_two_tasks(state: &AppState, first: i64, block: i64, date: &str) -> (i64, i64) {
+    let block2 = state
+        .with_connection(|connection| {
+            book_learner_core::models::insert_block(
+                connection,
+                first,
+                "模块一",
+                2,
+                "第二块",
+                "block-2",
+                &[],
+            )
+        })
+        .unwrap();
+    application::set_plan(
+        state,
+        StudyPlanRequest {
+            book_id: first,
+            deadline: "2026-10-01".into(),
+            daily_new_blocks: 2,
+            daily_cap: 4,
+            remind_time: "21:00".into(),
+        },
+    )
+    .unwrap();
+    let queue = application::today_queue(state, date).unwrap();
+    let task_of = |wanted: i64| {
+        queue
+            .iter()
+            .find(|task| task.block_id == wanted && task.kind == "new")
+            .map(|task| task.id)
+            .unwrap_or_else(|| panic!("no new task for block {wanted}: {queue:?}"))
+    };
+    (task_of(block), task_of(block2))
+}
+
+#[test]
+fn session_group_commands_run_the_feynman_loop_with_idempotent_ids_and_versions() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, mock) = state_with_mock(&directory.path().join("app.db"));
+    let (first, _, block) = seed_books(&state);
+    let (task_a, task_b) = seed_two_tasks(&state, first, block, DAY);
+
+    // 开始/续接:同 clientRequestId 幂等;日期不符 → not_found
+    let view = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY).unwrap();
+    assert_eq!(
+        (
+            view.state.as_str(),
+            view.version,
+            view.block_id,
+            view.kind.as_str()
+        ),
+        ("open", 0, block, "learn")
+    );
+    assert!(view.transcript.is_empty() && view.eval.is_none());
+    let view_json = serde_json::to_value(&view).unwrap();
+    assert_eq!(view_json["eval"], Value::Null);
+    assert_eq!(view_json["sessionId"], json!(view.session_id));
+    let sid = view.session_id;
+    assert_eq!(
+        commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY)
+            .unwrap()
+            .session_id,
+        sid
+    );
+    assert_eq!(
+        commands::session_start_or_resume_inner(&state, task_a, "req-x", "2026-09-02")
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+
+    // 回合:学生追问;同 clientTurnId 重放不再调 provider;过期版本 → conflict;空文本 → invalid_request
+    let turn =
+        commands::session_submit_turn_inner(&state, sid, 0, "turn-1", "弹性是相对变化率").unwrap();
+    assert_eq!(
+        turn,
+        TurnResultDto {
+            student_text: "那弹性和斜率一样吗?".into(),
+            ready_to_end: false,
+            version: 1
+        }
+    );
+    let calls_after_turn = mock.calls();
+    assert_eq!(
+        commands::session_submit_turn_inner(&state, sid, 0, "turn-1", "弹性是相对变化率").unwrap(),
+        turn
+    );
+    assert_eq!(mock.calls(), calls_after_turn);
+    assert_eq!(
+        commands::session_submit_turn_inner(&state, sid, 0, "turn-2", "再讲")
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        commands::session_submit_turn_inner(&state, sid, 1, "turn-2", "  ")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let turn2 =
+        commands::session_submit_turn_inner(&state, sid, 1, "turn-2", "不一样,斜率有单位").unwrap();
+    assert!(turn2.ready_to_end && turn2.version == 2, "{turn2:?}");
+    assert_eq!(turn2.student_text, "明白了,讲清楚了。");
+    let view = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY).unwrap();
+    assert_eq!(view.transcript.len(), 4);
+    let transcript = serde_json::to_value(&view.transcript).unwrap();
+    assert_eq!(transcript[0]["clientTurnId"], json!("turn-1"));
+    assert_eq!(transcript[1]["clientTurnId"], Value::Null);
+    assert_eq!(transcript[3]["readyToEnd"], json!(true));
+
+    // 未评估即判定 → conflict;评估(requestId 固定 'eval')→ camelCase JSON
+    assert_eq!(
+        commands::session_confirm_verdict_inner(&state, sid, 2, "verdict", true, DAY)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    let evaluation = commands::session_request_evaluation_inner(&state, sid, "eval").unwrap();
+    assert_eq!(
+        (evaluation.eval.verdict.as_str(), evaluation.version),
+        ("pass_suggested", 3)
+    );
+    let eval_json = serde_json::to_value(&evaluation).unwrap();
+    assert_eq!(
+        eval_json["eval"]["weakPoints"][0]["fixedInSession"],
+        json!(false)
+    );
+    assert!(eval_json["eval"]["finalRestatement"].is_string());
+    assert!(eval_json["eval"]["observationNote"].is_string());
+
+    // 判定:用户确认通过;同 requestId 重放返回同一结果(忽略版本);块状态流转
+    let outcome =
+        commands::session_confirm_verdict_inner(&state, sid, 3, "verdict", true, DAY).unwrap();
+    assert!(
+        outcome.passed && outcome.task_done && outcome.block_status == "passed",
+        "{outcome:?}"
+    );
+    assert!(
+        outcome.outbox_ops > 0 && outcome.version == 4,
+        "{outcome:?}"
+    );
+    assert_eq!(
+        commands::session_confirm_verdict_inner(&state, sid, 999, "verdict", false, DAY).unwrap(),
+        outcome
+    );
+    assert_eq!(
+        serde_json::to_value(&outcome).unwrap()["blockStatus"],
+        json!("passed")
+    );
+    assert_eq!(
+        commands::map_get_block_inner(&state, block).unwrap().status,
+        "passed"
+    );
+    // 投影重放(command 层异步触发的是同一函数)→ 记忆库出现块 md
+    assert!(book_learner_app::run_startup_recovery(&state).unwrap() > 0);
+    let blocks_dir = state
+        .memory_root()
+        .join("books")
+        .join("first")
+        .join("blocks");
+    assert!(
+        std::fs::read_dir(&blocks_dir).unwrap().next().is_some(),
+        "{blocks_dir:?}"
+    );
+
+    // 已确认会话不可放弃 → conflict;会话 B 可放弃,再次放弃 → conflict;不存在的会话 → not_found
+    assert_eq!(
+        commands::session_abandon_inner(&state, sid, 4)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    let sid_b = commands::session_start_or_resume_inner(&state, task_b, "req-b", DAY)
+        .unwrap()
+        .session_id;
+    commands::session_abandon_inner(&state, sid_b, 0).unwrap();
+    assert_eq!(
+        commands::session_abandon_inner(&state, sid_b, 1)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        commands::session_submit_turn_inner(&state, i64::MAX, 0, "t", "x")
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+}
+
 #[test]
 fn map_run_job_uses_the_injected_provider_reports_progress_and_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
-    let (state, mock) = state_with_map_mock(&directory.path().join("app.db"));
+    let (state, mock) = state_with_mock(&directory.path().join("app.db"));
     let (first, second, _) = seed_books(&state);
     let chapter: SpineChapterDto = serde_json::from_value(spine_chapter_json()).unwrap();
     commands::map_store_spine_inner(&state, second, vec![chapter]).unwrap();
@@ -483,7 +702,7 @@ fn map_run_job_uses_the_injected_provider_reports_progress_and_is_idempotent() {
 #[test]
 fn map_run_job_over_ipc_emits_map_job_progress_events_with_the_job_id() {
     let directory = tempfile::tempdir().unwrap();
-    let (state, _mock) = state_with_map_mock(&directory.path().join("ipc.db"));
+    let (state, _mock) = state_with_mock(&directory.path().join("ipc.db"));
     let (_, second, _) = seed_books(&state);
     let chapter: SpineChapterDto = serde_json::from_value(spine_chapter_json()).unwrap();
     commands::map_store_spine_inner(&state, second, vec![chapter]).unwrap();
@@ -955,13 +1174,7 @@ fn invoke_json(
 }
 
 /// 已注册但尚未接线的 v2 命令(M0 占位);M4/M5 每接一条就从此移除并改为预期 `Ok`。
-const PLACEHOLDER_COMMANDS: &[&str] = &[
-    "session_start_or_resume",
-    "session_submit_turn",
-    "session_request_evaluation",
-    "session_confirm_verdict",
-    "session_abandon",
-];
+const PLACEHOLDER_COMMANDS: &[&str] = &[];
 
 #[test]
 fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
@@ -998,22 +1211,19 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     );
 
     let directory = tempfile::tempdir().unwrap();
-    let (state, first, second, block) = seeded_state(&directory.path().join("ipc.db"));
-    // 地图组命令用无块的 second:先存 spine 并落一张草图(map_run_job 在接线前仍为占位)
+    let (state, _mock) = state_with_mock(&directory.path().join("ipc.db"));
+    let (first, second, block) = seed_books(&state);
+    // 地图组命令用无块的 second:先存 spine 并落一张单块草图
     let second_block = seed_map(&state, second);
-    // 契约循环按 JSON 顺序先调 library_set_active_book 再调 planning_set_plan,
-    // 而主攻书切换要求该书已有学习计划,故先为 first 预置计划
-    application::set_plan(
-        &state,
-        StudyPlanRequest {
-            book_id: first,
-            deadline: "2026-10-01".into(),
-            daily_new_blocks: 1,
-            daily_cap: 4,
-            remind_time: "21:00".into(),
-        },
-    )
-    .unwrap();
+    // 会话组命令:first 两块 + 计划(顺带满足"主攻书切换要求已有计划")→ 今日两任务 →
+    // 会话 A 走完整闭环(开始→回合→评估→判定),会话 B 用于 abandon
+    let (task_a, task_b) = seed_two_tasks(&state, first, block, DAY);
+    let session_a = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY)
+        .unwrap()
+        .session_id;
+    let session_b = commands::session_start_or_resume_inner(&state, task_b, "req-b", DAY)
+        .unwrap()
+        .session_id;
     let app = book_learner_app::register_commands(mock_builder().manage(state))
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -1031,7 +1241,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 "bookId": first, "deadline": "2026-10-01", "dailyNewBlocks": 1,
                 "dailyCap": 4, "remindTime": "21:00"
             }}),
-            "planning_today_queue" => json!({"date": "2026-09-01"}),
+            "planning_today_queue" => json!({"date": DAY}),
             "settings_save" => json!({"settings": {
                 "obsidianVault": "/Notes", "pomodoroMinutes": 25,
                 "breakMinutes": 5, "remindTime": "21:00"
@@ -1048,17 +1258,18 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             }),
             "map_list_anchors" => json!({"blockId": second_block}),
             "session_start_or_resume" => json!({
-                "taskId": 1, "clientRequestId": "req-1", "date": "2026-09-01"
+                "taskId": task_a, "clientRequestId": "req-a", "date": DAY
             }),
             "session_submit_turn" => json!({
-                "sessionId": 1, "expectedVersion": 1, "clientTurnId": "turn-1", "text": "讲授"
+                "sessionId": session_a, "expectedVersion": 0, "clientTurnId": "turn-1",
+                "text": "弹性是相对变化率"
             }),
-            "session_request_evaluation" => json!({"sessionId": 1, "requestId": "eval"}),
+            "session_request_evaluation" => json!({"sessionId": session_a, "requestId": "eval"}),
             "session_confirm_verdict" => json!({
-                "sessionId": 1, "expectedVersion": 1, "requestId": "verdict",
-                "pass": true, "date": "2026-09-01"
+                "sessionId": session_a, "expectedVersion": 2, "requestId": "verdict",
+                "pass": true, "date": DAY
             }),
-            "session_abandon" => json!({"sessionId": 1, "expectedVersion": 1}),
+            "session_abandon" => json!({"sessionId": session_b, "expectedVersion": 0}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对
