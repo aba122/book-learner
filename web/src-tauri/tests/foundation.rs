@@ -354,6 +354,57 @@ fn database_path_appends_exact_product_location_and_debug_override_is_absolute()
 }
 
 #[test]
+fn startup_initialization_returns_typed_errors_instead_of_panicking() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = environment_lock().lock().unwrap();
+    let original = std::env::var_os("BOOK_LEARNER_DATA_DIR");
+
+    #[cfg(debug_assertions)]
+    {
+        std::env::set_var("BOOK_LEARNER_DATA_DIR", "relative/data");
+        let error = book_learner_app::initialize_state(Path::new("/ignored"))
+            .err()
+            .expect("relative override must fail");
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert!(error.message.contains("绝对路径"), "{}", error.message);
+    }
+    std::env::remove_var("BOOK_LEARNER_DATA_DIR");
+
+    // 成功路径:在平台数据目录下创建 book-learner/app.db
+    let directory = tempfile::tempdir().unwrap();
+    drop(book_learner_app::initialize_state(directory.path()).unwrap());
+    assert!(directory
+        .path()
+        .join("book-learner")
+        .join("app.db")
+        .is_file());
+
+    // 数据目录不可写 → 类型化 io/db 错误且 internal_cause 非空(root 不受权限位约束则跳过)
+    let locked = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(locked.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::create_dir(locked.path().join("probe")).is_err() {
+        let error = book_learner_app::initialize_state(locked.path())
+            .err()
+            .expect("unwritable data dir must fail");
+        assert!(
+            matches!(error.code, ErrorCode::IoFailure | ErrorCode::DbUnavailable),
+            "{:?}",
+            error.code
+        );
+        assert!(
+            !format!("{error:?}").contains("internal_cause: \"\""),
+            "{error:?}"
+        );
+    }
+    std::fs::set_permissions(locked.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    match original {
+        Some(value) => std::env::set_var("BOOK_LEARNER_DATA_DIR", value),
+        None => std::env::remove_var("BOOK_LEARNER_DATA_DIR"),
+    }
+}
+
+#[test]
 fn poisoned_connection_mutex_returns_typed_internal_error() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("app.db")).unwrap();

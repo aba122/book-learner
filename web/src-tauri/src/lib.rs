@@ -4,7 +4,12 @@ pub mod dto;
 pub mod error;
 pub mod state;
 
+use std::path::Path;
+
+use book_learner_core::CoreError;
 use tauri::Manager;
+
+use crate::error::IpcError;
 
 pub fn install_tracing() -> bool {
     tracing_subscriber::fmt().try_init().is_ok()
@@ -39,22 +44,56 @@ pub fn application_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tau
     register_commands(builder)
 }
 
+/// 启动初始化(F3):解析数据库路径 → 建目录 → 打开状态。任何失败都返回类型化错误,
+/// 由 `run()` 以原生对话框展示并写日志后退出,而不是 panic。
+pub fn initialize_state(platform_data_dir: &Path) -> Result<state::AppState, IpcError> {
+    let database_path = state::resolve_database_path(platform_data_dir)?;
+    let database_directory = database_path
+        .parent()
+        .ok_or_else(|| IpcError::internal("resolved database path has no parent directory"))?;
+    std::fs::create_dir_all(database_directory)
+        .map_err(|error| IpcError::from(CoreError::Io(error)))?;
+    state::AppState::open(&database_path)
+}
+
+/// 启动失败的用户可见处理:日志(含 internal_cause)+ 原生阻塞错误框 + 退出码 1。
+fn fail_startup(error: &IpcError) -> ! {
+    tracing::error!(
+        error_code = error.code.as_str(),
+        internal_cause = error.internal_cause(),
+        "book-learner 启动初始化失败"
+    );
+    // setup 在主线程且事件循环尚未启动:tauri-plugin-dialog 的 blocking_show 经
+    // run_on_main_thread 派发会死锁;rfd 的同步 NSAlert(runModal 自带循环)可直接在主线程使用
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("book-learner 无法启动")
+        .set_description(format!("{}\n\n详细原因已写入日志。", error.message))
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+    std::process::exit(1)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().setup(|app| {
-        let platform_data_dir = app.path().data_dir()?;
-        let database_path = state::resolve_database_path(&platform_data_dir)
-            .map_err(|error| std::io::Error::other(error.message))?;
-        let database_directory = database_path.parent().ok_or_else(|| {
-            std::io::Error::other("resolved database path has no parent directory")
-        })?;
-        std::fs::create_dir_all(database_directory)?;
-        let state = state::AppState::open(&database_path)
-            .map_err(|error| std::io::Error::other(error.message))?;
-        app.manage(state);
-        Ok(())
+        let platform_data_dir = match app.path().data_dir() {
+            Ok(directory) => directory,
+            Err(error) => fail_startup(&IpcError::internal(format!(
+                "platform data dir unavailable: {error}"
+            ))),
+        };
+        match initialize_state(&platform_data_dir) {
+            Ok(state) => {
+                app.manage(state);
+                Ok(())
+            }
+            Err(error) => fail_startup(&error),
+        }
     });
-    application_builder(builder)
-        .run(tauri::generate_context!())
-        .expect("book-learner Tauri runtime failed");
+    if let Err(error) = application_builder(builder).run(tauri::generate_context!()) {
+        fail_startup(&IpcError::internal(format!(
+            "tauri runtime failed: {error}"
+        )));
+    }
 }

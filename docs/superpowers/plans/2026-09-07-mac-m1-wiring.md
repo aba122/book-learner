@@ -70,9 +70,9 @@ docs/smoke/mac-m1-native-smoke.md      ← 填写签字
 
 **Files:** `web/src-tauri/src/lib.rs`, `web/src-tauri/Cargo.toml`(`tauri-plugin-dialog`), `tests/foundation.rs`
 
-- [ ] **M1.1 失败测试**:把 `setup` 闭包内逻辑抽为 `pub fn initialize_state(platform_data_dir: &Path) -> Result<AppState, IpcError>`;用例(须持 `foundation.rs` 既有的 `environment_lock()`,因既有用例也改写 `BOOK_LEARNER_DATA_DIR` 且并行运行):`BOOK_LEARNER_DATA_DIR` 为相对路径 → `Err(code=InvalidRequest, message 含 "绝对路径")`;数据目录不可写(chmod 000,root 跳过)→ `Err(code=IoFailure|DbUnavailable)`,`internal_cause` 非空。
-- [ ] **M1.2 实现**:`run()` 中 setup 失败 → `tauri_plugin_dialog` 阻塞式错误对话框(标题"book-learner 无法启动",正文 `error.message` + "详细原因已写入日志"),`tracing::error!(code, internal_cause)`,然后 `std::process::exit(1)`;**不再 `expect` panic**。
-- [ ] **M1.3** GREEN;手工:设置 `BOOK_LEARNER_DATA_DIR=relative` 启动 → 看到对话框而非崩溃。commit `fix(mac): 启动失败显示原生错误对话框并记录日志,不再 panic (M1, F3)` + push。
+- [x] **M1.1 失败测试**(`startup_initialization_returns_typed_errors_instead_of_panicking`):把 `setup` 闭包内逻辑抽为 `pub fn initialize_state(platform_data_dir: &Path) -> Result<AppState, IpcError>`;用例(须持 `foundation.rs` 既有的 `environment_lock()`,因既有用例也改写 `BOOK_LEARNER_DATA_DIR` 且并行运行):`BOOK_LEARNER_DATA_DIR` 为相对路径 → `Err(code=InvalidRequest, message 含 "绝对路径")`;数据目录不可写(chmod 000,root 跳过)→ `Err(code=IoFailure|DbUnavailable)`,`internal_cause` 非空。
+- [x] **M1.2 实现**(偏差:对话框用 `rfd` 直连而非 tauri-plugin-dialog,原因见 DEVLOG):`run()` 中 setup 失败 → `tauri_plugin_dialog` 阻塞式错误对话框(标题"book-learner 无法启动",正文 `error.message` + "详细原因已写入日志"),`tracing::error!(code, internal_cause)`,然后 `std::process::exit(1)`;**不再 `expect` panic**。
+- [x] **M1.3** GREEN;手工(以无人值守脚本 `~/Developer/f3-smoke.sh` 替代:进程停在对话框、日志含 error_code/internal_cause):设置 `BOOK_LEARNER_DATA_DIR=relative` 启动 → 看到对话框而非崩溃。commit `fix(mac): 启动失败显示原生错误对话框并记录日志,不再 panic (M1, F3)` + push。
 
 ### Task M2: Foundation 原生门禁(半天,手工)
 
