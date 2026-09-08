@@ -59,7 +59,7 @@
 
 **M3 验收**:全程语音学完一个块;导出后在 Obsidian 中链接与 frontmatter 正确;一本书完整学完产出学习报告;打包后的 app 在干净 macOS 用户下可运行。执行记录见 `docs/smoke/m3-gate.md`。
 
-**明确范围外(回写自 M3 计划)**:`profile.md`"个人情境"的 AI 提取与确认流(2.3 后半)继续延后;应用内下载 whisper 模型不做(终端下载后导入);Developer ID 签名与 notarization 只写文档、不执行(需用户证书);霞鹜文楷字体内置待 dmg 体积评估;手动锚点校正 UI 留 M4。
+**明确范围外(回写自 M3 计划)**:PDF 原生导入(pdf.js 抽取 + 按页锚点 + PDF 阅读视图,估 2–3 天基础版;当前用 Calibre 转 EPUB,见 `docs/pdf-import.md`);`profile.md`"个人情境"的 AI 提取与确认流(2.3 后半)继续延后;应用内下载 whisper 模型不做(终端下载后导入);Developer ID 签名与 notarization 只写文档、不执行(需用户证书);霞鹜文楷字体内置待 dmg 体积评估;手动锚点校正 UI 留 M4。
 
 ## 实施顺序注意
 

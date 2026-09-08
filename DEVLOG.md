@@ -536,3 +536,10 @@
 - **文档回写**:TECH_DESIGN §2(数据目录:models/snapshots/restore-pending)、§3.4(outbox 提交、push 通道退避、快照不进记忆库)、§4(v6–v8、`setting` 直读键)、§8(T3 已写);ADR-0001 增"推送通道例外"修订;IMPLEMENTATION_PLAN M3 表按 PR 勾选 + 明确范围外;CLAUDE.md 环境要求(cmake)与状态;`docs/smoke/m3-gate.md` 签字。
 - 数字:core 166/27/1/1、clippy 0、fmt;web 321/2、lint 0、`pnpm build`;src-tauri Mac `cargo test` 33/4/1(含 codex 路径用例)、clippy 0、fmt。
 - **文案巡检表(2026-09-08,子代理输出摘要)**:书架 `正在打开书架…`/`书架还空着——导入一本 EPUB 开始。`;地图 `正在展开地图…`/(新增零块文案);阅读器 `正在打开书籍…`/`(本书没有目录)`/`还没有书签…`;今日 `正在取回今日队列…`/`今天没有排定的任务`+鼓励语;费曼 `准备费曼讲授`/`你的学生已经坐好了…`;终评 `正在准备终评…`;统计 `正在统计…`/`书架为空;…`/`尚无评估;…`/`近 30 天没有间隔复习记录。`/(新增零投入);设置 `正在读取设置…`/`还没有快照;…`/(codex 字段启用);导入向导分步进度。保留的英文/术语:`Cmd/Ctrl + Enter 发送`、`Aa`、`Obsidian`/`git`/`whisper`/`codex`(产品名词)。
+
+## 2026-09-08 · PDF 过渡方案:Calibre 转 EPUB 再导入
+- **决定**:PDF 原生导入(pdf.js 抽取、按页锚定、PDF 阅读视图,估 2–3 天基础版)不立项;用户选择先用 Calibre `ebook-convert x.pdf x.epub` 转成 EPUB 再导入。学习闭环与格式无关,只有阅读器看到的是转换后排版。
+- **改动**:导入向导文件选择器接受 `.pdf`,选到 PDF 时不导入、显示针对该文件的 `ebook-convert "书.pdf" "书.epub" --enable-heuristics` 命令与扫描版/文档提示,换选 EPUB 继续(library 用例 +1);`docs/pdf-import.md`(安装、参数、页眉页脚正则、切章、限制、验证记录);`docs/smoke/scripts/pdf-roundtrip.sh`。
+- **Mac 环境**:Homebrew cask 走官方站经代理只有 3–4 MB/min,改从 GitHub Releases 拉 dmg 手动复制到 `/Applications/calibre.app`(与 cask 等效,记 CLAUDE.md 环境要求为可选)。
+- **验证**:公版《道德經》EPUB → PDF(4 s)→ EPUB(2 s,书名/作者保留)→ 向导选 PDF 只给提示 → 选转换 EPUB 导入成功(6 章、21 块、544 s)。观察:章节名为 Calibre 拆分文件名,锚点全部整章回退——写进文档作为可选调参项。
+- 数字:web 322/2、lint 0、build;core/壳层未改。
