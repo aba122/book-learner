@@ -484,3 +484,10 @@
 - **mac-m1 门禁**:脚本 `docs/smoke/scripts/gate-mac-m1.sh` 在 Mac 上无人值守跑通 §1–§3(seed → 首启检查 → 退出 → 同 fixture 重启 → 设置 37 保留),文档已回填并签字;§4 浏览器 Mock 对照与生产路径引用既有用例与 M8.2 实测。tag `mac-m1` 待本 PR 合并后打在 main。
 - **过程失误**:把脚本命名为与 `bl-run.sh` 会话同名的 `bridge-build.sh`,被其包装脚本覆盖成自调用 → 递归 fork 至 "fork failed: resource temporarily unavailable";进程自行回退、确认无残留后改名 `*-cmd.sh` 重跑。规则:传给 bl-run 的脚本一律 `<name>-cmd.sh`。
 
+## 2026-09-08 · m1-e2e 门禁(真书 + 真 codex)经 SSH 执行并签字
+- **执行**:`docs/smoke/scripts/gate-m1-e2e.sh`(七步主跑,41 分钟)+ `gate-m1-step4.sh`(第 4 步补跑 ×2)+ `gate-m1-day2.sh`(第 7 步第 2 天),`tauri dev` + 调试自动化桥 + 真实 codex-cli 0.153.0;书为 Gutenberg #7337《道德經》(公版,按"教材"模板,记为偏差)。观察值全部来自页面文本、日志、SQLite 与记忆库文件,已回填 `docs/smoke/m1-e2e-gate.md` 并签字。
+- **数据**:导入 + 地图 148 s(Stage A 9 s + 87 s,merge 49 s;10 块);首轮讲授 codex 往返 10 s;评估 35 s;超时路径 3×120 s + 退避 = 362 s;`projection_outbox` 全 done;日志无原文/复述泄漏。
+- **修复的缺陷(门禁发现)**:①`tauri dev`(React StrictMode)下快问 opener 永远"学生思考中"——`useBackendOperation` 卸载清理清空 generations,模拟重挂载后在飞 opener 被判过期(PR #21,加 StrictMode 回归用例);②codex 超时映射为不可重试的 `internal`,页面无"重试"入口(PR #22:`Ai/EvalParse → ai_unavailable` retryable)。
+- **产品发现(列入 M3 T6 收尾)**:①导入书名取文件名而非 EPUB `dc:title`;②重考评估会新增措辞略异的重复薄弱点(现有去重只按标题精确匹配,建议同块内按归一化标题/相似度去重或重考不新增);③单章 HTML 的书所有块都是 `chapter_fallback`,费曼 prompt 注入整章原文(26 KB),可考虑按块小节切片。
+- **脚本教训**:发送前必须等学生回复渐显结束(`▍` 消失),否则前端按设计忽略发送;`a click` 对多个同名按钮取 DOM 首个,对话框内按钮要限定在 `[aria-label]` 容器内;macOS `pgrep` 无 `-c`。
+
