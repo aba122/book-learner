@@ -34,9 +34,10 @@ import_book() { # file typeLabel deadlineDays
   echo "[$(ts)] imported $(basename $1) as $2 in $(( $(date +%s) - T0 ))s"
   BOOK_TITLE=$(sql "select title from book order by id desc limit 1"); BOOK_ID=$(sql "select id from book order by id desc limit 1")
   a click "$BOOK_TITLE" >/dev/null; a wait "知识地图" 30 >/dev/null
-  a click "确认定稿" exact >/dev/null; a wait "设定攻克目标" 60 >/dev/null
-  a type 'input[type=date]' $(date -v+${3}d +%F) >/dev/null; sleep 1
-  a click "开始学习" exact >/dev/null; a wait "今日学习" 30 >/dev/null
+  a click "编辑地图" exact; sleep 1
+  a click "确认定稿" exact; a wait "设定攻克目标" 60
+  a type 'input[type=date]' $(date -v+${3}d +%F); sleep 1
+  a click "开始学习" exact; a wait "今日学习" 30
   echo "book=$BOOK_ID title=$BOOK_TITLE blocks=$(sql "select count(*) from knowledge_block where book_id=$BOOK_ID") plan=$(sql "select deadline,daily_new_blocks,active from study_plan where book_id=$BOOK_ID")"
 }
 
