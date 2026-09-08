@@ -636,36 +636,42 @@ fn save_settings_rejects_invalid_durations_and_time_before_writing() {
             pomodoro_minutes: 0,
             break_minutes: 5,
             remind_time: "21:00".into(),
+            evening_remind_time: "22:00".into(),
         },
         settings::AppSettings {
             obsidian_vault: "~/Vault".into(),
             pomodoro_minutes: 181,
             break_minutes: 5,
             remind_time: "21:00".into(),
+            evening_remind_time: "22:00".into(),
         },
         settings::AppSettings {
             obsidian_vault: "~/Vault".into(),
             pomodoro_minutes: 25,
             break_minutes: 181,
             remind_time: "21:00".into(),
+            evening_remind_time: "22:00".into(),
         },
         settings::AppSettings {
             obsidian_vault: "~/Vault".into(),
             pomodoro_minutes: 25,
             break_minutes: 5,
             remind_time: "9:00".into(),
+            evening_remind_time: "22:00".into(),
         },
         settings::AppSettings {
             obsidian_vault: "~/Vault".into(),
             pomodoro_minutes: 25,
             break_minutes: 5,
             remind_time: " 9:00".into(),
+            evening_remind_time: "22:00".into(),
         },
         settings::AppSettings {
             obsidian_vault: "~/Vault".into(),
             pomodoro_minutes: 25,
             break_minutes: 5,
             remind_time: "09: 0".into(),
+            evening_remind_time: "22:00".into(),
         },
     ];
 
@@ -683,7 +689,7 @@ fn save_settings_rejects_invalid_durations_and_time_before_writing() {
 }
 
 #[test]
-fn save_settings_persists_exactly_four_keys_across_reopen() {
+fn save_settings_persists_exactly_five_keys_across_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.db");
     let conn = db::open(&path).unwrap();
@@ -697,6 +703,7 @@ fn save_settings_persists_exactly_four_keys_across_reopen() {
         pomodoro_minutes: 45,
         break_minutes: 10,
         remind_time: "08:15".into(),
+        evening_remind_time: "22:00".into(),
     };
 
     settings::save_settings(&conn, &expected).unwrap();
@@ -715,6 +722,7 @@ fn save_settings_persists_exactly_four_keys_across_reopen() {
         values,
         vec![
             ("breakMinutes".into(), "10".into()),
+            ("eveningRemindTime".into(), "22:00".into()),
             ("obsidianVault".into(), "/Users/test/Notes".into()),
             ("pomodoroMinutes".into(), "45".into()),
             ("remindTime".into(), "08:15".into()),
@@ -783,6 +791,7 @@ fn save_settings_rolls_back_all_keys_when_one_write_fails() {
         pomodoro_minutes: 40,
         break_minutes: 8,
         remind_time: "08:30".into(),
+        evening_remind_time: "22:00".into(),
     };
 
     let error = settings::save_settings(&conn, &value).unwrap_err();

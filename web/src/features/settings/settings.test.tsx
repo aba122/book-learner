@@ -52,6 +52,7 @@ describe('设置页', () => {
       pomodoroMinutes: 30,
       breakMinutes: 5,
       remindTime: '21:00',
+      eveningRemindTime: '22:00',
     })
     expect(await screen.findByText('已保存')).toBeInTheDocument()
   })
@@ -114,12 +115,14 @@ describe('设置页', () => {
       pomodoroMinutes: 30,
       breakMinutes: 5,
       remindTime: '21:00',
+      eveningRemindTime: '22:00',
     })
     expect(save).toHaveBeenNthCalledWith(2, {
       obsidianVault: '~/Obsidian/book-learner',
       pomodoroMinutes: 30,
       breakMinutes: 10,
       remindTime: '21:00',
+      eveningRemindTime: '22:00',
     })
     expect(await screen.findByText('已保存')).toBeInTheDocument()
     expect(screen.queryByText('设置保存失败')).not.toBeInTheDocument()
@@ -178,6 +181,7 @@ describe('设置页', () => {
       pomodoroMinutes: 45,
       breakMinutes: 8,
       remindTime: '20:30',
+      eveningRemindTime: '22:00',
     }))
     expect(await screen.findByLabelText('番茄钟(分钟)')).toHaveValue(45)
     await act(async () => olderAttempt.reject(new BackendError({
@@ -204,6 +208,7 @@ describe('设置页', () => {
       pomodoroMinutes: 45,
       breakMinutes: 8,
       remindTime: '20:30',
+      eveningRemindTime: '22:00',
     }))
     expect(await screen.findByLabelText('番茄钟(分钟)')).toHaveValue(45)
     await act(async () => olderAttempt.resolve({
@@ -211,6 +216,7 @@ describe('设置页', () => {
       pomodoroMinutes: 10,
       breakMinutes: 2,
       remindTime: '08:00',
+      eveningRemindTime: '22:00',
     }))
 
     expect(screen.getByLabelText('番茄钟(分钟)')).toHaveValue(45)

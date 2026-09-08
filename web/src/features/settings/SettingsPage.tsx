@@ -143,6 +143,17 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
               />
             )}
           </Field>
+          <Field label="晚间提醒(当日未完成时)">
+            {id => (
+              <input
+                id={id}
+                type="time"
+                value={form.eveningRemindTime}
+                onChange={e => update({ eveningRemindTime: e.target.value })}
+                className={inputCls}
+              />
+            )}
+          </Field>
         </Card>
 
         <Card className="divide-y divide-line px-6 py-2">

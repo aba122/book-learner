@@ -3,6 +3,7 @@ pub mod commands;
 pub mod dto;
 pub mod error;
 pub mod import;
+pub mod notify;
 pub mod state;
 
 use std::path::Path;
@@ -153,6 +154,7 @@ fn fail_startup(error: &IpcError) -> ! {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         // 关窗 = 隐藏(留在 Dock 与托盘),Cmd+Q / 托盘"退出"才真正退出
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -183,6 +185,8 @@ pub fn run() {
                         // 托盘不可用不致命:主窗口与 Cmd+Q 仍可用
                         tracing::warn!(%error, "托盘初始化失败");
                     }
+                    // 每日/晚间系统通知(常驻线程,30s 轮询,判定在 core::notify)
+                    notify::spawn_reminder_thread(app.handle().clone());
                     // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn_blocking(move || {
