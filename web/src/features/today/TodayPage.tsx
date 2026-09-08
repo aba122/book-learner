@@ -64,10 +64,15 @@ export default function TodayPage() {
     return ok
   }
 
+  // 重考/复习直达快问会话(M2 T1);新块先进阅读器再讲授
   const start = (task: DailyTask) => {
     setCurrentTaskId(task.id)
-    if (task.kind === 'weak_retest') navigate(`/feynman/${task.id}`)
+    if (task.kind === 'weak_retest' || task.kind === 'review') navigate(`/feynman/${task.id}`)
     else navigate(`/reader/${task.blockId}?task=${task.id}`)
+  }
+  const read = (task: DailyTask) => {
+    setCurrentTaskId(task.id)
+    navigate(`/reader/${task.blockId}?task=${task.id}`)
   }
 
   const complete = (task: DailyTask) => {
@@ -154,6 +159,7 @@ export default function TodayPage() {
                   onStart={start}
                   onComplete={complete}
                   onFocus={setFocusTask}
+                  onRead={read}
                   completing={completion.pending.has(task.id) && !completionUnavailable}
                   completionUnavailable={completionUnavailable}
                 />

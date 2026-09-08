@@ -16,6 +16,8 @@ pub const READY_MARKER: &str = "[READY_TO_END]";
 pub const SOURCE_TEXT_LIMIT_BYTES: usize = 60 * 1024;
 /// 对话轮次超时(TECH_DESIGN §5.1)
 const TURN_TIMEOUT_SECS: u64 = 120;
+/// 快问会话(review/retest)的学生回合上限:达到后强制带 READY_TO_END 收尾(M2 T1)。
+pub const MAX_QUIZ_STUDENT_TURNS: i64 = 6;
 const UNCONFIRMED_STATES: &str = "('open','evaluating','evaluated')";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -428,8 +430,20 @@ pub fn submit_turn(
         })?
         .collect::<rusqlite::Result<_>>()?;
     drop(st);
+    // 会话种类决定 system prompt:learn → 费曼学生;review/retest → 复习考官快问(§6.7)
+    let kind: String = conn.query_row(
+        "SELECT kind FROM feynman_session WHERE id=?1",
+        [session_id],
+        |r| r.get(0),
+    )?;
+    let quiz = matches!(kind.as_str(), "review" | "retest");
+    let system = if quiz {
+        prompts::review_quiz_system(ty, ctx, &kind)
+    } else {
+        prompts::feynman_system(ty, ctx)
+    };
     let req = CompletionRequest {
-        system: prompts::feynman_system(ty, ctx),
+        system,
         messages,
         workdir: workdir.to_path_buf(),
         read_only: true,
@@ -453,6 +467,21 @@ pub fn submit_turn(
         &accept,
     )?
     .into_text();
+    // 快问会话到达回合上限仍未收尾 → 强制收尾(不让复习无限追问)
+    let raw = if quiz && !raw.contains(READY_MARKER) {
+        let student_turns: i64 = conn.query_row(
+            "SELECT count(*) FROM session_turn WHERE session_id=?1 AND role='student' AND status='done'",
+            [session_id],
+            |r| r.get(0),
+        )?;
+        if student_turns + 1 >= MAX_QUIZ_STUDENT_TURNS {
+            format!("{raw} {READY_MARKER}")
+        } else {
+            raw
+        }
+    } else {
+        raw
+    };
     // ④ 事务 B:落库学生回复,version+1
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     let (state, version) = session_state(&tx, session_id)?;

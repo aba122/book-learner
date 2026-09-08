@@ -88,6 +88,42 @@ function hydrateWith(patch: Partial<SessionView>) {
 const retryable = (message: string) => new BackendError({ code: 'io_failure', message, retryable: true })
 const fatal = (message: string) => new BackendError({ code: 'conflict', message, retryable: false })
 
+describe('快问会话(M2 T1)', () => {
+  it('复习任务进入空会话后自动以固定 opener 发起快问,显示提示与开场提示条', async () => {
+    const submit = vi.spyOn(backendModule.backend, 'submitTurn')
+    await renderFeynman('/feynman/2')
+    await act(async () => {})
+    expect(submit).toHaveBeenCalledTimes(1)
+    const [, expectedVersion, clientTurnId, text] = submit.mock.calls[0]
+    expect([expectedVersion, clientTurnId, text]).toEqual([0, 'opener', '请开始快问'])
+    expect(screen.getByText('间隔复习 · 快问,约 5 分钟')).toBeInTheDocument()
+    expect(screen.getByText('请开始快问')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^复习:/)
+  })
+
+  it('重考任务 opener 文案针对薄弱点;重挂载水合后不再重复开场', async () => {
+    const submit = vi.spyOn(backendModule.backend, 'submitTurn')
+    const first = await renderFeynman('/feynman/1')
+    await act(async () => {})
+    expect(submit.mock.calls[0][2]).toBe('opener')
+    expect(submit.mock.calls[0][3]).toBe('请针对我的薄弱点提问')
+    expect(screen.getByText('薄弱点重考 · 优先讲清曾经混淆之处')).toBeInTheDocument()
+    first.unmount()
+    await renderFeynman('/feynman/1')
+    await act(async () => {})
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('请针对我的薄弱点提问')).toBeInTheDocument()
+  })
+
+  it('新块任务不自动开场', async () => {
+    const submit = vi.spyOn(backendModule.backend, 'submitTurn')
+    await renderFeynman('/feynman/3')
+    await act(async () => {})
+    expect(submit).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^讲授:/)
+  })
+})
+
 describe('费曼对话页(契约 v2)', () => {
   it('发送复述后学生第 1 条渐显;startOrResumeSession/submitTurn 参数符合契约', async () => {
     const start = vi.spyOn(backendModule.backend, 'startOrResumeSession')

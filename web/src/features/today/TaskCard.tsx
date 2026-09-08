@@ -21,6 +21,7 @@ export default function TaskCard({
   onStart,
   onComplete,
   onFocus,
+  onRead,
   completing = false,
   completionUnavailable = false,
 }: {
@@ -29,6 +30,8 @@ export default function TaskCard({
   onStart: (task: DailyTask) => void
   onComplete: (task: DailyTask) => void
   onFocus: (task: DailyTask) => void
+  /** 回读原文(review 卡):进入阅读器而非开始会话 */
+  onRead?: (task: DailyTask) => void
   completing?: boolean
   completionUnavailable?: boolean
 }) {
@@ -77,13 +80,15 @@ export default function TaskCard({
               {task.kind === 'review' && (
                 <>
                   <Button
-                    variant="primary"
                     disabled={completing || completionUnavailable}
                     onClick={() => onComplete(task)}
                   >
                     {completionUnavailable ? '完成暂不可用' : completing ? '处理中…' : '完成'}
                   </Button>
-                  <Button onClick={() => onStart(task)}>回读原文</Button>
+                  <Button onClick={() => (onRead ?? onStart)(task)}>回读原文</Button>
+                  <Button variant="primary" onClick={() => onStart(task)}>
+                    开始复习
+                  </Button>
                 </>
               )}
             </>

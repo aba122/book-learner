@@ -141,6 +141,18 @@ pub fn on_block_passed(conn: &Connection, block_id: i64, date: &str) -> Result<(
 /// 复习结果:pass → 下一档(due=结果日期+下一档天数),14 档通过 → consolidated;
 /// fail → 生成薄弱点并重置回 1 天档。PRODUCT_SPEC §5。
 pub fn on_review_result(conn: &Connection, sched_id: i64, pass: bool, date: &str) -> Result<()> {
+    on_review_result_with(conn, sched_id, pass, date, false)
+}
+
+/// 同 `on_review_result`;`has_specific_weak_points=true` 时失败不再插通用条目"间隔复习未通过"
+/// (调用方已按评估落库了具体薄弱点,M2 T1)。
+pub fn on_review_result_with(
+    conn: &Connection,
+    sched_id: i64,
+    pass: bool,
+    date: &str,
+    has_specific_weak_points: bool,
+) -> Result<()> {
     let (block_id, stage): (i64, i64) = conn.query_row(
         "SELECT block_id,stage FROM review_schedule WHERE id=?1",
         [sched_id],
@@ -175,11 +187,13 @@ pub fn on_review_result(conn: &Connection, sched_id: i64, pass: bool, date: &str
             "UPDATE review_schedule SET status='failed' WHERE id=?1",
             [sched_id],
         )?;
-        conn.execute(
-            "INSERT INTO weak_point(block_id,title,detail,created_at) \
-                      VALUES(?1,'间隔复习未通过','复习快问未答出,需重考',?2)",
-            rusqlite::params![block_id, date],
-        )?;
+        if !has_specific_weak_points {
+            conn.execute(
+                "INSERT INTO weak_point(block_id,title,detail,created_at) \
+                          VALUES(?1,'间隔复习未通过','复习快问未答出,需重考',?2)",
+                rusqlite::params![block_id, date],
+            )?;
+        }
         conn.execute(
             "INSERT INTO review_schedule(block_id,stage,due_date) VALUES(?1,1,?2)",
             rusqlite::params![block_id, add_days(date, 1)?],
@@ -204,6 +218,35 @@ pub fn on_weak_retest(conn: &Connection, weak_id: i64, pass: bool, date: &str) -
         conn.execute("UPDATE weak_point SET pass_streak=0 WHERE id=?1", [weak_id])?;
     }
     Ok(())
+}
+
+/// 复习/重考判定时按评估落库**新增**薄弱点(未当场修复者),同块同标题仍 open 的不重复;
+/// 返回评估中未修复薄弱点的数量(含被去重者),供调用方决定是否还插通用条目。(M2 T1)
+pub fn insert_new_weak_points(
+    conn: &Connection,
+    block_id: i64,
+    eval: &crate::eval::EvalResult,
+    date: &str,
+) -> Result<usize> {
+    let mut specific = 0usize;
+    for wp in eval.weak_points.iter().filter(|w| !w.fixed_in_session) {
+        specific += 1;
+        conn.execute(
+            "INSERT INTO weak_point(block_id,title,detail,anchor_json,created_at) \
+             SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS \
+               (SELECT 1 FROM weak_point WHERE block_id=?1 AND title=?2 AND status='open')",
+            rusqlite::params![
+                block_id,
+                wp.title,
+                wp.detail,
+                wp.anchor
+                    .as_ref()
+                    .map(|a| serde_json::to_string(a).unwrap()),
+                date
+            ],
+        )?;
+    }
+    Ok(specific)
 }
 
 /// 在调用方事务内按**显式** verdict 落库(判定确认用;用户判定可覆盖 eval.verdict):

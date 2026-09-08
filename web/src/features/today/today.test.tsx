@@ -311,6 +311,30 @@ describe('今日学习页', () => {
     expect(screen.getByTestId('loc')).toHaveTextContent('/reader/4?task=3')
   })
 
+  it('重考/复习卡"开始"直达 /feynman/:taskId;review 卡"回读原文"进阅读器(M2 T1)', async () => {
+    const user = userEvent.setup()
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    await user.click(within(cards[0]).getByRole('button', { name: '开始重考' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/1')
+  })
+
+  it('review 卡"开始复习"直达 /feynman/2', async () => {
+    const user = userEvent.setup()
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    await user.click(within(cards[1]).getByRole('button', { name: '开始复习' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/feynman/2')
+  })
+
+  it('review 卡"回读原文"跳 /reader/:blockId?task=<taskId>', async () => {
+    const user = userEvent.setup()
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    await user.click(within(cards[1]).getByRole('button', { name: '回读原文' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/reader/1?task=2')
+  })
+
   it('review 卡可直接完成:completeTask 被调且卡片变完成态', async () => {
     const user = userEvent.setup()
     renderToday()
