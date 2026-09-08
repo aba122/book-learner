@@ -31,4 +31,8 @@ ebook-convert "书名.pdf" "书名.epub" --enable-heuristics
 
 ## 验证记录(2026-09-08)
 
-{ROUNDTRIP}
+脚本 `docs/smoke/scripts/pdf-roundtrip.sh`(Mac,Calibre 9.14.0,真 codex):
+
+- 用公版《道德經》EPUB 先转成 PDF(制造一本带文字层的 PDF,4 s,429 KB),再 `ebook-convert 道德經.pdf 道德經-from-pdf.epub --enable-heuristics`:2 s,84 KB;OPF `dc:title` 道德經、`dc:creator` Laozi 保留。
+- 攻书导入向导先选 PDF:只显示转换命令,不建书;再选转换后的 EPUB:导入成功,书架 `道德經 / Laozi`,spine 6 章,AI 生成 21 个知识块(544 s,含 codex 分析),学习流程可用。
+- 观察:转换后的章节名是 Calibre 的拆分文件名(`index_split_001.html`、`Start`、`LICENSE`),正文集中在其中一两章;块锚点全部为"整章回退"(回读原文跳到章首,注入整章文本)。想要更细的章节与锚点,转换时加 `--chapter`/`--level1-toc` 按标题切章,或在 Calibre 编辑器里给章节加标题后再导入。

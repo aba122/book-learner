@@ -27,7 +27,7 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 
 ## 开发环境要求
 
-前端/core 可在 Linux 开发;Tauri 原生发布门禁需 macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、**cmake**(`brew install cmake`,whisper.cpp 经 whisper-rs 编译;M3 T3 起)、codex CLI 已安装并登录(`codex exec "hi"` 可用)。语音转写模型不随 app 分发:下载 `ggml-*.bin` 后在设置页导入。
+前端/core 可在 Linux 开发;Tauri 原生发布门禁需 macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、**cmake**(`brew install cmake`,whisper.cpp 经 whisper-rs 编译;M3 T3 起)、codex CLI 已安装并登录(`codex exec "hi"` 可用)。语音转写模型不随 app 分发:下载 `ggml-*.bin` 后在设置页导入。PDF 书籍先用 Calibre 转 EPUB(可选安装,`docs/pdf-import.md`)。
 
 ## 约定
 
