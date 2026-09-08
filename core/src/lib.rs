@@ -9,6 +9,7 @@ pub mod models;
 pub mod notify;
 pub mod orchestrate;
 pub mod planning;
+pub mod pomodoro;
 pub mod projection;
 pub mod prompts;
 pub mod sched;

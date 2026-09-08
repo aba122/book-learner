@@ -654,6 +654,105 @@ fn planning_check_behind_and_get_plan_expose_replan_numbers() {
     );
 }
 
+#[test]
+fn finish_book_freezes_the_plan_and_rejects_reactivation() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, _second, block) = seeded_state(&directory.path().join("app.db"));
+    seed_two_tasks(&state, first, block, DAY); // first 为主攻并有计划
+    commands::library_finish_book_inner(&state, first).unwrap();
+    let books = commands::library_list_books_inner(&state).unwrap();
+    assert_eq!(
+        books.iter().find(|b| b.id == first).unwrap().status,
+        "finished"
+    );
+    assert!(books.iter().all(|b| b.status != "active"));
+    assert_eq!(
+        commands::library_set_active_book_inner(&state, first)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        commands::library_finish_book_inner(&state, i64::MAX)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    // 已学完的书计划冻结:次日队列不再为它产新块
+    let queue = commands::planning_today_queue_inner(&state, "2026-09-02".into()).unwrap();
+    assert!(queue.iter().all(|t| t.kind != "new"), "{queue:?}");
+}
+
+#[test]
+fn pomodoro_commands_drive_the_machine_and_persist_focus_minutes() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, _, block) = seeded_state(&directory.path().join("app.db"));
+    let (task_a, _) = seed_two_tasks(&state, first, block, DAY);
+    assert_eq!(
+        commands::pomodoro_state_inner(&state).unwrap().phase,
+        "idle"
+    );
+    assert_eq!(
+        commands::pomodoro_stop_inner(&state).unwrap_err().code,
+        ErrorCode::Conflict
+    );
+    let snap = commands::pomodoro_start_inner(&state, task_a, DAY).unwrap();
+    assert_eq!(
+        (snap.phase.as_str(), snap.task_id, snap.date.as_deref()),
+        ("work", Some(task_a), Some(DAY))
+    );
+    assert!(snap.ends_at.is_some() && snap.remaining_secs > 0 && snap.remaining_secs <= 25 * 60);
+    assert_eq!(
+        serde_json::to_value(&snap).unwrap()["remainingSecs"],
+        json!(snap.remaining_secs)
+    );
+    assert_eq!(
+        commands::pomodoro_start_inner(&state, task_a, DAY)
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    let paused = commands::pomodoro_pause_inner(&state).unwrap();
+    assert_eq!(
+        (
+            paused.phase.as_str(),
+            paused.paused_phase.as_deref(),
+            paused.ends_at
+        ),
+        ("paused", Some("work"), None)
+    );
+    assert_eq!(
+        commands::pomodoro_resume_inner(&state).unwrap().phase,
+        "work"
+    );
+    // 立即结束:不足 1 分钟不落库
+    assert_eq!(commands::pomodoro_stop_inner(&state).unwrap().phase, "idle");
+    let rows: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row("SELECT count(*) FROM study_minutes", [], |r| r.get(0))?)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+    assert_eq!(
+        commands::pomodoro_start_inner(&state, task_a, "2026/09/01")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    // 直接用 core 落 25 分钟,stats 取较大者
+    state
+        .with_connection(|c| {
+            book_learner_core::pomodoro::record_minutes(c, DAY, Some(first), Some(task_a), 25)
+        })
+        .unwrap();
+    assert_eq!(
+        commands::stats_get_inner(&state, DAY)
+            .unwrap()
+            .minutes_today,
+        25
+    );
+}
+
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
     let state = AppState::open(path).unwrap();
     let (first, second, block) = seed_books(&state);
@@ -1664,6 +1763,12 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "stats_get" => json!({"date": DAY}),
             "planning_check_behind" => json!({"bookId": first, "date": DAY}),
             "planning_get_plan" => json!({"bookId": first}),
+            "library_finish_book" => json!({"bookId": second}),
+            "pomodoro_start" => json!({"taskId": task_b, "date": DAY}),
+            "pomodoro_pause" => json!({}),
+            "pomodoro_resume" => json!({}),
+            "pomodoro_stop" => json!({}),
+            "pomodoro_state" => json!({}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对

@@ -13,7 +13,7 @@ pub struct Stats {
     pub streak_days: i64,
     pub open_weak_points: i64,
     pub fixed_weak_points: i64,
-    /// 当日已完成任务的预估分钟之和(番茄钟精确计时属 M2)
+    /// 当日投入分钟:max(已完成任务预估分钟之和, 番茄钟实际专注分钟之和)
     pub minutes_today: i64,
 }
 
@@ -69,7 +69,20 @@ pub fn compute(conn: &Connection, date: &str) -> Result<Stats> {
             .map(|id| Box::new(*id) as Box<dyn rusqlite::ToSql>)
             .collect();
         params.push(Box::new(date.to_string()));
-        conn.query_row(&sql, params_from_iter(params.iter()), |r| r.get(0))?
+        let estimated: i64 = conn.query_row(&sql, params_from_iter(params.iter()), |r| r.get(0))?;
+        // 番茄钟实际专注分钟(M2 T3):与预估取较大者,避免两套口径相加重复计数
+        let pomodoro_sql = format!(
+            "SELECT COALESCE(sum(minutes),0) FROM study_minutes WHERE date=?{}{}",
+            scope.len() + 1,
+            if active.is_some() {
+                " AND book_id=?1"
+            } else {
+                ""
+            }
+        );
+        let pomodoro: i64 =
+            conn.query_row(&pomodoro_sql, params_from_iter(params.iter()), |r| r.get(0))?;
+        estimated.max(pomodoro)
     };
     let done_dates: HashSet<NaiveDate> = {
         let mut st = conn.prepare(&format!(
@@ -198,6 +211,10 @@ mod tests {
         );
         let stats = compute(&conn, "2026-09-06").unwrap();
         assert_eq!((stats.streak_days, stats.minutes_today), (2, 30));
+        // 番茄钟分钟与预估取较大者(主攻书范围)
+        crate::pomodoro::record_minutes(&conn, "2026-09-06", Some(first), Some(1), 50).unwrap();
+        crate::pomodoro::record_minutes(&conn, "2026-09-06", Some(second), None, 99).unwrap();
+        assert_eq!(compute(&conn, "2026-09-06").unwrap().minutes_today, 50);
         assert_eq!(compute(&conn, "2026-09-09").unwrap().streak_days, 0);
 
         // 无主攻书 → 全库

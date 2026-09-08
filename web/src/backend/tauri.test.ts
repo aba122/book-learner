@@ -396,7 +396,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -449,6 +449,35 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect((calls[0].payload as { date: string }).date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     const bad = new TauriBackend(async <T>() => ({ ...stats, streakDays: 'three' }) as T)
     await expect(bad.stats()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('pomodoro commands decode snapshots and the changed event feeds subscribers (Mac M2 T3)', async () => {
+    const snap = { phase: 'work', taskId: 3, date: '2026-09-08', endsAt: 1_800_000_000, remainingSecs: 1500, pausedPhase: null }
+    const { calls, invoke } = recorder({ pomodoro_start: snap, pomodoro_pause: { ...snap, phase: 'paused', endsAt: null, pausedPhase: 'work' }, pomodoro_state: snap })
+    type Handler = (event: { payload: unknown }) => void
+    const handlers: Handler[] = []
+    const listen = async (_event: string, handler: Handler) => { handlers.push(handler); return () => {} }
+    const backend = new TauriBackend(invoke, { listen })
+    expect(await backend.pomodoroStart(3, '2026-09-08')).toEqual(snap)
+    expect((await backend.pomodoroPause()).pausedPhase).toBe('work')
+    expect(await backend.pomodoroState()).toEqual(snap)
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['pomodoro_start', { taskId: 3, date: '2026-09-08' }], ['pomodoro_pause', {}], ['pomodoro_state', {}],
+    ])
+    const seen: unknown[] = []
+    await backend.subscribePomodoro(s => seen.push(s))
+    handlers[0]({ payload: { ...snap, phase: 'break' } })
+    handlers[0]({ payload: { phase: 'nap' } })
+    expect(seen).toEqual([{ ...snap, phase: 'break' }])
+    const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
+    await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('finishBook sends the id and accepts a unit reply (Mac M2 T8)', async () => {
+    const { calls, invoke } = recorder({ library_finish_book: null })
+    await new TauriBackend(invoke).finishBook(3)
+    expect(calls.map(c => [c.command, c.payload])).toEqual([['library_finish_book', { bookId: 3 }]])
+    await expect(new TauriBackend(invoke).finishBook(1.5)).rejects.toMatchObject({ code: 'invalid_request' })
   })
 
   it('decodes replan reports (optional counters) and nullable plans (Mac M2 T4)', async () => {

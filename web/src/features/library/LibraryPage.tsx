@@ -14,8 +14,13 @@ import ImportWizard from './ImportWizard'
 
 const STATUS_LABEL: Record<BookStatus, string> = {
   active: '主攻中',
-  paused: '暂候',
-  finished: '已读完',
+  paused: '已暂停',
+  finished: '已学完',
+}
+/** 非主攻书的说明:计划冻结不产新块,到期复习照常汇入今日队列(PRODUCT_SPEC §5) */
+const STATUS_NOTE: Partial<Record<BookStatus, string>> = {
+  paused: '计划冻结 · 复习照常',
+  finished: '复习照常 · 不再主攻',
 }
 
 /* 封面色:按书名首字符稳定取三任务色之一,纸上仅作书脊点缀 */
@@ -26,6 +31,7 @@ export default function LibraryPage() {
   const setActiveBookId = useSession(s => s.setActiveBookId)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<Book | null>(null)
+  const [finishTarget, setFinishTarget] = useState<Book | null>(null)
 
   const books = useAsyncResource(useCallback(async () => {
     const list = await backend.listBooks()
@@ -45,8 +51,26 @@ export default function LibraryPage() {
   const switching = switchOp.pending.has('switch')
   const switchError = switchOp.errors.get('switch')
 
+  const finishOp = useBackendOperation(
+    (bookId: number) => backend.finishBook(bookId),
+    {
+      onCommitted: async () => {
+        setFinishTarget(null)
+        void books.reload()
+      },
+    },
+  )
+  const finishing = finishOp.pending.has('finish')
+  const finishError = finishOp.errors.get('finish')
+  const confirmFinish = () => {
+    if (!finishTarget) return
+    finishOp.clearError('finish')
+    void finishOp.run('finish', finishTarget.id)
+  }
+
+  // 主攻书与已学完的书直接看地图;暂停的书需确认切换
   const open = (book: Book) => {
-    if (book.status === 'active') navigate(`/map/${book.id}`)
+    if (book.status === 'active' || book.status === 'finished') navigate(`/map/${book.id}`)
     else {
       switchOp.clearError('switch')
       setSwitchTarget(book)
@@ -94,10 +118,10 @@ export default function LibraryPage() {
       ) : (
         <div className="grid grid-cols-3 gap-6 sm:grid-cols-4">
           {list.map(book => (
+            <div key={book.id} className="group">
             <button
-              key={book.id}
               onClick={() => open(book)}
-              className="group cursor-pointer text-left"
+              className="w-full cursor-pointer text-left"
             >
               <div
                 className={`relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-m border border-line bg-paper-2 shadow-card transition-shadow group-hover:shadow-pop ${
@@ -124,6 +148,18 @@ export default function LibraryPage() {
                 </Tag>
               </div>
             </button>
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-4">
+              <span>{STATUS_NOTE[book.status] ?? ''}</span>
+              {book.status !== 'finished' && (
+                <button
+                  className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline"
+                  onClick={() => { finishOp.clearError('finish'); setFinishTarget(book) }}
+                >
+                  标记为已学完
+                </button>
+              )}
+            </div>
+            </div>
           ))}
         </div>
       )}
@@ -132,7 +168,7 @@ export default function LibraryPage() {
       <Confirm
         open={switchTarget !== null}
         title="切换主攻书?"
-        message={`当前进行中的书会暂停,《${switchTarget?.title ?? ''}》将成为唯一主攻书。今日队列明天起按新书生成。`}
+        message={`当前进行中的书会暂停(计划冻结、复习照常),《${switchTarget?.title ?? ''}》将成为唯一主攻书。今日队列明天起按新书生成。`}
         confirmText={switching ? '切换中…' : '切换'}
         confirmDisabled={switching}
         cancelDisabled={switching}
@@ -142,6 +178,22 @@ export default function LibraryPage() {
         {switchError && (
           <div className="mt-4">
             <AsyncError error={switchError} onRetry={confirmSwitch} variant="compact" />
+          </div>
+        )}
+      </Confirm>
+      <Confirm
+        open={finishTarget !== null}
+        title="标记为已学完?"
+        message={`《${finishTarget?.title ?? ''}》的学习计划将冻结,不再安排新块;已排定的间隔复习照常进入今日队列。之后不能再把它设为主攻书。`}
+        confirmText={finishing ? '处理中…' : '标记为已学完'}
+        confirmDisabled={finishing}
+        cancelDisabled={finishing}
+        onConfirm={confirmFinish}
+        onCancel={() => { if (!finishing) setFinishTarget(null) }}
+      >
+        {finishError && (
+          <div className="mt-4">
+            <AsyncError error={finishError} onRetry={confirmFinish} variant="compact" />
           </div>
         )}
       </Confirm>

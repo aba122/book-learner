@@ -70,3 +70,9 @@ export interface SessionView {
 export interface TurnResult { studentText: string; readyToEnd: boolean; version: number }
 export interface EvaluationView { eval: EvalResult; version: number }
 export interface VerdictOutcome { passed: boolean; blockStatus: BlockStatus; taskDone: boolean; outboxOps: number; version: number }
+/** 番茄钟快照(core pomodoro::Snapshot,M2 T3):endsAt 为 unix 秒;暂停/空闲为 null。倒计时由前端按 endsAt 本地渲染 */
+export type PomodoroPhase = 'idle' | 'work' | 'break' | 'paused'
+export interface PomodoroSnapshot {
+  phase: PomodoroPhase; taskId: number | null; date: string | null; endsAt: number | null
+  remainingSecs: number; pausedPhase: 'work' | 'break' | null
+}

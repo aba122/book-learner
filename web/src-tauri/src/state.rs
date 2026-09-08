@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use book_learner_core::ai::{AiProvider, CodexCliProvider};
 use book_learner_core::memory::MemoryStore;
 use book_learner_core::orchestrate::AiPolicy;
+use book_learner_core::pomodoro::Machine;
 use book_learner_core::{CoreError, Result as CoreResult};
 use rusqlite::{Connection, OptionalExtension};
 
@@ -86,6 +87,7 @@ pub struct AppState {
     memory: MemoryStore,
     import: ImportStore,
     jobs: Arc<JobRegistry>,
+    pomodoro: Mutex<Machine>,
     provider_override: Option<SharedProvider>,
 }
 
@@ -111,6 +113,7 @@ impl AppState {
             memory,
             import,
             jobs: Arc::new(JobRegistry::default()),
+            pomodoro: Mutex::new(Machine::new()),
             provider_override: None,
         })
     }
@@ -175,6 +178,11 @@ impl AppState {
     /// 慢命令在调用 core 前 `begin()` 持有守卫;退出时 `wait_idle`。
     pub fn jobs(&self) -> &Arc<JobRegistry> {
         &self.jobs
+    }
+
+    /// 番茄钟状态机(纯);命令与 ticker 线程都经此锁访问,锁内不做 I/O。
+    pub fn pomodoro(&self) -> &Mutex<Machine> {
+        &self.pomodoro
     }
 
     /// AI provider 与策略:注入优先;否则 codex CLI,`bin` 取 `setting.codexBin`(绝对路径)或按

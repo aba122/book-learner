@@ -25,7 +25,13 @@
     { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] },
     { "method": "stats", "command": "stats_get", "payloadKeys": ["date"] },
     { "method": "checkBehind", "command": "planning_check_behind", "payloadKeys": ["bookId", "date"] },
-    { "method": "getPlan", "command": "planning_get_plan", "payloadKeys": ["bookId"] }
+    { "method": "getPlan", "command": "planning_get_plan", "payloadKeys": ["bookId"] },
+    { "method": "finishBook", "command": "library_finish_book", "payloadKeys": ["bookId"] },
+    { "method": "pomodoroStart", "command": "pomodoro_start", "payloadKeys": ["taskId", "date"] },
+    { "method": "pomodoroPause", "command": "pomodoro_pause", "payloadKeys": [] },
+    { "method": "pomodoroResume", "command": "pomodoro_resume", "payloadKeys": [] },
+    { "method": "pomodoroStop", "command": "pomodoro_stop", "payloadKeys": [] },
+    { "method": "pomodoroState", "command": "pomodoro_state", "payloadKeys": [] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

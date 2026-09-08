@@ -446,3 +446,10 @@
 - **壳层**:`tauri-plugin-notification` + capability `notification:default`;`notify::spawn_reminder_thread`:持一条长连接,30s 轮询,`chrono::Local` 取日期/时刻(与前端本地日历日一致;DEV 受控日期不影响提醒),只在晚间窗口内触碰当日队列(幂等生成)取 pending 数,发通知后记标记;启动时请求通知权限并记日志。`AppSettingsDto` 增字段;foundation 夹具同步。**macOS 通知需以 bundle 运行**,目检项在 `docs/smoke/m2-gate.md` §1。
 - **web**:`AppSettings.eveningRemindTime`,解码/校验,设置页"晚间提醒(当日未完成时)"字段(不用 `hint`——它渲染为 `role=alert` 会撞现有断言);夹具补字段(tauri.test 的计划对象不含该字段)。
 - 门禁:core 136/27/1/1、web 265/2、lint 0、tsc;src-tauri 与通知插件编译由 CI 验证。
+
+## 2026-09-08 · T8 补完(过程失误记录)与 M2 T3:Rust 番茄钟 + 托盘倒计时
+- **过程失误**:PR #12(T8)实际只包含 core/application/文档——当时 `git stash pop` 冲突后整条 `&&` 链静默中止,壳层命令、六处契约、Mock/解码器、书架 UI 与用例都没执行;我看到 web 用例数没有增加却没有追查。CI 因为没有任何引用而通过。本 PR 第一笔提交补齐 T8 的全部遗漏(`library_finish_book` 命令与契约、Mock `finishBook`/已学完不可再主攻、书架徽标与"标记为已学完"确认、foundation/tauri/library 用例)。**规则更新**:改动脚本单独执行、不挂在 `&&` 链尾;每个 Task 的用例数变化必须核对。
+- **T3 core**:`pomodoro::Machine` 纯状态机(Idle/Work/Break/Paused,时间由调用方以 unix 秒传入):`start`(仅空闲;分钟 1..=180)→ `tick` 到点 Work→Break(`WorkDone{minutes}`)、Break→Idle(`BreakDone`);`pause/resume` 保留剩余秒与已专注秒;`stop` 专注阶段按整分钟计(不足 1 分钟不落库)、休息阶段不再计;`Snapshot{phase, taskId, date, endsAt, remainingSecs, pausedPhase}`;`record_minutes` 落 `study_minutes`。`stats::compute.minutes_today = max(预估完成分钟, 番茄分钟)`(TECH_DESIGN §4 规则),按主攻书范围。
+- **T3 壳层**:`AppState.pomodoro: Mutex<Machine>`;`pomodoro.rs`:命令层 `start/pause/resume/stop/snapshot`(锁内只改状态,落分钟在锁外;`date` 来自前端),ticker 线程每 1s `tick(now)`:阶段变化 → 落分钟、发事件 `pomodoro_changed{snapshot}`、系统通知;托盘标题 `●MM:SS`/`○MM:SS`/`‖MM:SS`(仅在文本变化时写,无托盘时静默);`orderly_shutdown` 前 `stop_for_shutdown` 落分钟。五条命令 `pomodoro_start[taskId,date]/pause/resume/stop/state`,六处契约同步(事件名只作常量,`ARCHITECTURE.md` 已注)。
+- **T3 web**:`Backend` 增五个方法 + `subscribePomodoro`;Mock 用 `setTimeout` 镜像阶段切换并广播;`Pomodoro.tsx` 只按快照渲染(`endsAt − Date.now()` 每秒重绘,暂停/继续/结束经 `useBackendOperation`,订阅推送);TodayPage 挂载取 `pomodoroState`,"专注"经 `pomodoroStart(taskId, today)`;用例改为经后端启动/暂停/继续/结束。
+- 门禁:core 139/27/1/1、web 269/2、lint 0、tsc;src-tauri 由 CI 验证。

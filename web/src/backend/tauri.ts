@@ -4,7 +4,7 @@ import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Replan, ReplanStatus, Scores, SessionKind, SessionState,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Replan, ReplanStatus, Scores, SessionKind, SessionState,
   SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -29,6 +29,8 @@ export interface TauriBackendOptions {
 }
 /** runMapJob 进度事件名与 payload:{ jobId, progress: MapProgress } */
 export const MAP_JOB_PROGRESS_EVENT = 'map_job_progress'
+/** 番茄钟阶段变化事件,payload 为 PomodoroSnapshot(M2 T3) */
+export const POMODORO_CHANGED_EVENT = 'pomodoro_changed'
 /** 原生导入(ADR-0004 选项 B):分块为原始请求体,元数据走头部;与 src-tauri commands 常量一致 */
 export const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024
 export const IMPORT_OP_ID_HEADER = 'x-op-id'
@@ -435,6 +437,21 @@ function decodePlanOrNull(value: unknown): StudyPlan | null {
   }
 }
 
+const POMODORO_PHASES = ['idle', 'work', 'break', 'paused'] as const satisfies readonly PomodoroPhase[]
+const PAUSED_PHASES = ['work', 'break'] as const
+
+function decodePomodoro(value: unknown): PomodoroSnapshot {
+  const wire = objectAt(value, 'pomodoro')
+  return {
+    phase: enumAt(wire.phase, 'pomodoro.phase', POMODORO_PHASES),
+    taskId: wire.taskId === null ? null : safeIntegerAt(wire.taskId, 'pomodoro.taskId'),
+    date: wire.date === null ? null : stringAt(wire.date, 'pomodoro.date'),
+    endsAt: wire.endsAt === null ? null : safeIntegerAt(wire.endsAt, 'pomodoro.endsAt'),
+    remainingSecs: safeIntegerAt(wire.remainingSecs, 'pomodoro.remainingSecs'),
+    pausedPhase: wire.pausedPhase === null ? null : enumAt(wire.pausedPhase, 'pomodoro.pausedPhase', PAUSED_PHASES),
+  }
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -547,6 +564,13 @@ export class TauriBackend implements Backend {
     await this.decode('library_set_active_book', { bookId }, value => unitAt(value, 'library_set_active_book'))
   }
 
+  async finishBook(bookId: number): Promise<void> {
+    return this.gated('finishBook', async () => {
+      outboundInteger(bookId, 'bookId')
+      await this.decode('library_finish_book', { bookId }, value => unitAt(value, 'library_finish_book'))
+    })
+  }
+
   async listBlocks(bookId: number): Promise<KnowledgeBlock[]> {
     outboundInteger(bookId, 'bookId')
     return this.decode('map_list_blocks', { bookId }, value => arrayAt(value, 'blocks', decodeBlock))
@@ -634,6 +658,36 @@ export class TauriBackend implements Backend {
       return this.toAssetUrl(path)
     })
   }
+  async pomodoroStart(taskId: number, date: string): Promise<PomodoroSnapshot> {
+    return this.gated('pomodoroStart', () => {
+      outboundInteger(taskId, 'taskId')
+      outboundString(date, 'date')
+      return this.decode('pomodoro_start', { taskId, date }, decodePomodoro)
+    })
+  }
+  async pomodoroPause(): Promise<PomodoroSnapshot> {
+    return this.gated('pomodoroPause', () => this.decode('pomodoro_pause', {}, decodePomodoro))
+  }
+  async pomodoroResume(): Promise<PomodoroSnapshot> {
+    return this.gated('pomodoroResume', () => this.decode('pomodoro_resume', {}, decodePomodoro))
+  }
+  async pomodoroStop(): Promise<PomodoroSnapshot> {
+    return this.gated('pomodoroStop', () => this.decode('pomodoro_stop', {}, decodePomodoro))
+  }
+  async pomodoroState(): Promise<PomodoroSnapshot> {
+    return this.gated('pomodoroState', () => this.decode('pomodoro_state', {}, decodePomodoro))
+  }
+  /** 阶段变化事件:畸形 payload 忽略(快照仍可经 pomodoroState 取回) */
+  async subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void> {
+    return this.listen(POMODORO_CHANGED_EVENT, event => {
+      try {
+        handler(decodePomodoro(event.payload))
+      } catch {
+        // 忽略畸形事件
+      }
+    })
+  }
+
   /** 统计以本地日历日为"今天"(core 不读系统时间) */
   async stats(): Promise<Stats> {
     return this.gated('stats', () => this.decode('stats_get', { date: localCalendarDate() }, decodeStats))

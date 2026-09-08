@@ -63,6 +63,38 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe('单主攻书补完(M2 T8)', () => {
+  it('暂停书显示"计划冻结 · 复习照常";标记为已学完经确认调用 finishBook 并更新徽标', async () => {
+    const user = userEvent.setup()
+    const { bookId } = await backendModule.backend.importEpub(new File(['x'], '系统之美.epub'), 'methodology')
+    const finishBook = vi.spyOn(backendModule.backend, 'finishBook')
+    renderLibrary()
+    expect(await screen.findByText('系统之美')).toBeInTheDocument()
+    expect(screen.getByText('已暂停')).toBeInTheDocument()
+    expect(screen.getByText('计划冻结 · 复习照常')).toBeInTheDocument()
+
+    const buttons = screen.getAllByRole('button', { name: '标记为已学完' })
+    await user.click(buttons[buttons.length - 1])
+    const dialog = screen.getByRole('dialog', { name: '标记为已学完?' })
+    expect(dialog).toHaveTextContent('复习照常')
+    await user.click(within(dialog).getByRole('button', { name: '标记为已学完' }))
+    expect(finishBook).toHaveBeenCalledWith(bookId)
+    expect(await screen.findByText('已学完')).toBeInTheDocument()
+    expect(screen.getByText('复习照常 · 不再主攻')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('点击已学完的书直接看地图,不弹切换确认', async () => {
+    const user = userEvent.setup()
+    const { bookId } = await backendModule.backend.importEpub(new File(['x'], '旧书.epub'), 'humanities')
+    await backendModule.backend.finishBook(bookId)
+    renderLibrary()
+    await user.click(await screen.findByText('旧书'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('loc')).toHaveTextContent(`/map/${bookId}`)
+  })
+})
+
 describe('书架页', () => {
   it('渲染种子书与"主攻中"状态徽标', async () => {
     renderLibrary()
