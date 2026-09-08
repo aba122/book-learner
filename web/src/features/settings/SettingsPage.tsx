@@ -50,7 +50,12 @@ interface LoadedSettings {
 
 /** 学习者画像(M2 T6):独立加载/保存;知识背景与个人情境可编辑,误区模式与已掌握概念由 AI 积累、只读展示 */
 function ProfileSection() {
-  const profile = useAsyncResource(useCallback(() => backend.profileGet(), []))
+  // 与设置表单同款:以加载代次为 key 重挂载表单,后端新数据到达即丢弃本地编辑
+  const generation = useRef(0)
+  const profile = useAsyncResource(useCallback(async () => ({
+    profile: await backend.profileGet(),
+    version: ++generation.current,
+  }), []))
   if (profile.data === null) {
     return (
       <Card className="px-6 py-4">
@@ -61,7 +66,7 @@ function ProfileSection() {
       </Card>
     )
   }
-  return <ProfileForm key={profile.version} initial={profile.data} />
+  return <ProfileForm key={profile.data.version} initial={profile.data.profile} />
 }
 
 function ProfileForm({ initial }: { initial: Profile }) {
