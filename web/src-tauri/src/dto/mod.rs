@@ -3,6 +3,7 @@ use book_learner_core::map::{AnchorSegment, MapEditOp};
 use book_learner_core::mapgen::{MapProgress, SpineChapter};
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
+use book_learner_core::pomodoro::Snapshot;
 use book_learner_core::sched::{DailyTask, Replan, ReplanReport};
 use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
@@ -580,6 +581,34 @@ impl From<StudyPlan> for StudyPlanDto {
             daily_new_blocks: plan.daily_new_blocks,
             daily_cap: plan.daily_cap,
             remind_time: plan.remind_time,
+        }
+    }
+}
+
+// ---- 番茄钟(M2 T3)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PomodoroSnapshotDto {
+    /// idle | work | break | paused
+    pub phase: String,
+    pub task_id: Option<i64>,
+    pub date: Option<String>,
+    /// unix 秒;暂停/空闲时为 null
+    pub ends_at: Option<i64>,
+    pub remaining_secs: i64,
+    pub paused_phase: Option<String>,
+}
+
+impl From<Snapshot> for PomodoroSnapshotDto {
+    fn from(snapshot: Snapshot) -> Self {
+        Self {
+            phase: snapshot.phase,
+            task_id: snapshot.task_id,
+            date: snapshot.date,
+            ends_at: snapshot.ends_at,
+            remaining_secs: snapshot.remaining_secs,
+            paused_phase: snapshot.paused_phase,
         }
     }
 }

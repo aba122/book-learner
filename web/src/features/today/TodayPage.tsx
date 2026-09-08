@@ -11,7 +11,7 @@ import { readPref } from '../../lib/prefs'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { Book, DailyTask, KnowledgeBlock, Replan } from '../../types'
+import type { Book, DailyTask, KnowledgeBlock, PomodoroSnapshot, Replan } from '../../types'
 import Pomodoro from './Pomodoro'
 import ReplanDialog from './ReplanDialog'
 import TaskCard from './TaskCard'
@@ -29,7 +29,12 @@ export default function TodayPage() {
   const setCurrentTaskId = useSession(s => s.setCurrentTaskId)
   // 挂载时固定队列日期:跨午夜重试仍使用同一日期
   const [today] = useState(localCalendarDate)
-  const [focusTask, setFocusTask] = useState<DailyTask | null>(null)
+  // 番茄钟快照:挂载时向后端取当前状态(可能已在运行),之后由面板订阅推送更新
+  const [pomodoro, setPomodoro] = useState<PomodoroSnapshot | null>(null)
+  const pomodoroState = useAsyncResource(useCallback(() => backend.pomodoroState(), []))
+  const focusOp = useBackendOperation(async (task: DailyTask) => {
+    setPomodoro(await backend.pomodoroStart(task.id, today))
+  })
   const [replanDismissed, setReplanDismissed] = useState(() => readPref(REPLAN_DISMISSED_KEY) === today)
   // 一次性跨页提示:挂载时取走并清空 store(zustand set 非 React setState)
   const [notice] = useState(() => useSession.getState().pendingNotice)
@@ -182,7 +187,7 @@ export default function TodayPage() {
                   block={blocks.get(task.blockId)}
                   onStart={start}
                   onComplete={complete}
-                  onFocus={setFocusTask}
+                  onFocus={task => { focusOp.clearError('focus'); void focusOp.run('focus', task) }}
                   onRead={read}
                   completing={completion.pending.has(task.id) && !completionUnavailable}
                   completionUnavailable={completionUnavailable}
@@ -210,12 +215,18 @@ export default function TodayPage() {
         />
       )}
 
-      {focusTask && (
-        <Pomodoro
-          taskTitle={blocks.get(focusTask.blockId)?.title ?? `任务 #${focusTask.id}`}
-          onStop={() => setFocusTask(null)}
-        />
+      {focusOp.errors.get('focus') && (
+        <div className="mt-6">
+          <AsyncError error={focusOp.errors.get('focus')!} onRetry={() => void focusOp.retry('focus')} variant="compact" />
+        </div>
       )}
+      {(() => {
+        const snapshot = pomodoro ?? pomodoroState.data
+        if (!snapshot || snapshot.phase === 'idle') return null
+        const task = snapshot.taskId === null ? undefined : tasks?.find(t => t.id === snapshot.taskId)
+        const title = task ? (blocks.get(task.blockId)?.title ?? `任务 #${task.id}`) : '专注'
+        return <Pomodoro snapshot={snapshot} taskTitle={title} onSnapshot={setPomodoro} />
+      })()}
     </div>
   )
 }

@@ -99,10 +99,10 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/{pomodoro.rs(新),stats.rs}`, `web/src-tauri/src/{pomodoro.rs,commands/mod.rs,lib.rs,state.rs}`, 契约六处, `web/src/backend/{types,mock,tauri}.ts`, `web/src/features/today/{Pomodoro,TodayPage}.tsx`, `TECH_DESIGN.md` §4
 
-- [ ] **T3.1 失败测试(core)**:`pomodoro::Machine`:`start(task_id, date, now, work_min, break_min)` → `Work{ends_at}`;`tick(now)` 到点 → `Break` + `Transition::WorkDone{minutes,date,task_id}`;Break 到点 → `Idle` + `BreakDone`;`pause/resume` 保留剩余秒;`stop` → `Idle` + 已专注整分钟;`Snapshot{phase, endsAt, taskId, remainingSecs}` 可序列化;`WorkDone`/`stop` 落 `study_minutes`(date 来自 `start` 的前端日期);`stats::compute.minutes_today = max(est_done_sum, pomodoro_sum)`。
-- [ ] **T3.2 实现(壳层)**:`AppState` 持 `Mutex<Machine>`;command `pomodoro_start[taskId, date]`、`pomodoro_pause`、`pomodoro_resume`、`pomodoro_stop`、`pomodoro_state` → `PomodoroSnapshotDto`;ticker 线程每 1s `tick`:阶段变化时发事件 `POMODORO_CHANGED_EVENT`(常量)+ 系统通知;托盘标题 `●MM:SS`/`○MM:SS`(空闲清空;**无托盘时静默跳过**);`orderly_shutdown` 前 `stop` 并落分钟。契约六处 + Mock(`setTimeout` 模拟)。
-- [ ] **T3.3 web**:`Pomodoro.tsx` 订阅快照(启动 `pomodoroState()` + 事件),倒计时用 `endsAt - Date.now()` 渲染;TodayPage 任务卡"开始专注";vitest:快照渲染、事件更新、停止回写。
-- [ ] **T3.4** 门禁(壳层用例:command 往返、退出前停表落分钟);桌面目检入 `m2-gate.md`;DEVLOG;PR `feat/m2-t3-pomodoro`。
+- [x] **T3.1 失败测试(core)**:`pomodoro::Machine`:`start(task_id, date, now, work_min, break_min)` → `Work{ends_at}`;`tick(now)` 到点 → `Break` + `Transition::WorkDone{minutes,date,task_id}`;Break 到点 → `Idle` + `BreakDone`;`pause/resume` 保留剩余秒;`stop` → `Idle` + 已专注整分钟;`Snapshot{phase, endsAt, taskId, remainingSecs}` 可序列化;`WorkDone`/`stop` 落 `study_minutes`(date 来自 `start` 的前端日期);`stats::compute.minutes_today = max(est_done_sum, pomodoro_sum)`。
+- [x] **T3.2 实现(壳层)**(由 CI macos 任务编译验证;托盘倒计时/通知目检待桌面会话):`AppState` 持 `Mutex<Machine>`;command `pomodoro_start[taskId, date]`、`pomodoro_pause`、`pomodoro_resume`、`pomodoro_stop`、`pomodoro_state` → `PomodoroSnapshotDto`;ticker 线程每 1s `tick`:阶段变化时发事件 `POMODORO_CHANGED_EVENT`(常量)+ 系统通知;托盘标题 `●MM:SS`/`○MM:SS`(空闲清空;**无托盘时静默跳过**);`orderly_shutdown` 前 `stop` 并落分钟。契约六处 + Mock(`setTimeout` 模拟)。
+- [x] **T3.3 web**:`Pomodoro.tsx` 订阅快照(启动 `pomodoroState()` + 事件),倒计时用 `endsAt - Date.now()` 渲染;TodayPage 任务卡"开始专注";vitest:快照渲染、事件更新、停止回写。
+- [x] **T3.4** 门禁(壳层用例:command 往返、退出前停表落分钟);桌面目检入 `m2-gate.md`;DEVLOG;PR `feat/m2-t3-pomodoro`。
 
 ### Task T6: 学习者画像编辑(半天;不依赖 T0)
 

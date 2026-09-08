@@ -53,4 +53,4 @@ src/
 | 契约门控(TS 解码器/出站校验已落地;Mac 接线 Rust command 后从 `unsupportedCapabilities` 移除即生效) | `storeSpine`, `runMapJob`, `confirmMap`, `setAnchorSegments`, `listAnchors`, `startOrResumeSession`, `submitTurn`, `requestEvaluation`, `confirmSessionVerdict`, `abandonSession` |
 | 显式 `not_implemented` | `importEpub`, `completeTask`, `blockSource`, `epubUrl`, `stats` |
 
-command 名、payload 顶层 key 与门控/未支持列表由 `../shared/tauri-wire-contract.json` 统一约束(`TauriBackend` 按该列表决定走真实 command 还是 `unsupported_capability`)。页面不根据运行时分叉业务成功路径;真实原生失败一律保留并呈现。`runMapJob` 进度经 Tauri event `map_job_progress`(payload `{ jobId, progress }`)按 jobId 过滤。
+command 名、payload 顶层 key 与门控/未支持列表由 `../shared/tauri-wire-contract.json` 统一约束(`TauriBackend` 按该列表决定走真实 command 还是 `unsupported_capability`)。页面不根据运行时分叉业务成功路径;真实原生失败一律保留并呈现。`runMapJob` 进度经 Tauri event `map_job_progress`(payload `{ jobId, progress }`)按 jobId 过滤。 番茄钟阶段变化经 event `pomodoro_changed`(payload 为 `PomodoroSnapshot`),页面只经 `backend.subscribePomodoro` 订阅,不直连 Tauri event API。
