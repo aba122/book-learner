@@ -3,10 +3,10 @@ use tauri::{Emitter, Manager, State};
 use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto,
-    SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto,
-    VerdictOutcomeDto,
+    ExtraOutcomeDto, FinalReportDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto,
+    MapEditOpDto, MapProgressDto, MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto,
+    SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
+    TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -79,6 +79,13 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ),
     // M2 T7:统计详情三区
     ("stats_detail", &["date"]),
+    // M3 T1:整书终评(回合复用 session_submit_turn)
+    ("final_exam_eligible", &["bookId"]),
+    ("final_exam_start", &["bookId", "clientRequestId"]),
+    (
+        "final_exam_finish",
+        &["sessionId", "expectedVersion", "requestId"],
+    ),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -467,6 +474,33 @@ pub fn stats_detail_inner(state: &AppState, date: &str) -> Result<StatsDetailDto
     })
 }
 
+pub fn final_exam_eligible_inner(state: &AppState, book_id: i64) -> Result<bool, IpcError> {
+    run_command(state, "final_exam_eligible", || {
+        application::final_exam_eligible(state, book_id)
+    })
+}
+
+pub fn final_exam_start_inner(
+    state: &AppState,
+    book_id: i64,
+    client_request_id: &str,
+) -> Result<SessionViewDto, IpcError> {
+    run_command(state, "final_exam_start", || {
+        application::final_exam_start(state, book_id, client_request_id)
+    })
+}
+
+pub fn final_exam_finish_inner(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+) -> Result<FinalReportDto, IpcError> {
+    run_command(state, "final_exam_finish", || {
+        application::final_exam_finish(state, session_id, expected_version, request_id)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -802,4 +836,46 @@ pub async fn automation_report(id: String, result: String) -> Result<(), IpcErro
             "automation_report called in release build",
         ))
     }
+}
+
+// ---- 整书终评命令(M3 T1)----
+
+#[tauri::command(async)]
+pub async fn final_exam_eligible(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<bool, IpcError> {
+    final_exam_eligible_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn final_exam_start(
+    state: State<'_, AppState>,
+    book_id: i64,
+    client_request_id: String,
+) -> Result<SessionViewDto, IpcError> {
+    final_exam_start_inner(&state, book_id, &client_request_id)
+}
+
+/// 报告落库后在后台重放投影(归档 + 地图镜像 + git commit)。
+#[tauri::command(async)]
+pub async fn final_exam_finish<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    session_id: i64,
+    expected_version: i64,
+    request_id: String,
+) -> Result<FinalReportDto, IpcError> {
+    let report = final_exam_finish_inner(&state, session_id, expected_version, &request_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if let Err(error) = crate::run_startup_recovery(&state) {
+            tracing::error!(
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "终评报告归档投影重放失败"
+            );
+        }
+    });
+    Ok(report)
 }

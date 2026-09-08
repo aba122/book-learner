@@ -61,6 +61,9 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::extra_start,
         commands::extra_finish,
         commands::stats_detail,
+        commands::final_exam_eligible,
+        commands::final_exam_start,
+        commands::final_exam_finish,
         commands::automation_report,
     ])
 }

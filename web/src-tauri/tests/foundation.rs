@@ -874,6 +874,110 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 }
 
 #[test]
+fn final_exam_runs_after_all_blocks_passed_and_archives_the_report() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, mock) = state_with_mock(&directory.path().join("final.db"));
+    let (first, _second, block) = seed_books(&state);
+    let (task_a, _task_b) = seed_two_tasks(&state, first, block, DAY);
+    assert!(!commands::final_exam_eligible_inner(&state, first).unwrap());
+    assert_eq!(
+        commands::final_exam_start_inner(&state, first, "final-1")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::Conflict
+    );
+    // 一块走真实闭环通过,另一块直接置通过
+    let session = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY).unwrap();
+    commands::session_submit_turn_inner(&state, session.session_id, 0, "t1", "弹性是相对变化率")
+        .unwrap();
+    let evaluated =
+        commands::session_request_evaluation_inner(&state, session.session_id, "eval").unwrap();
+    commands::session_confirm_verdict_inner(
+        &state,
+        session.session_id,
+        evaluated.version,
+        "verdict",
+        true,
+        DAY,
+    )
+    .unwrap();
+    state
+        .with_connection(|c| {
+            c.execute(
+                "UPDATE knowledge_block SET status='passed', passed_at=?2 WHERE book_id=?1 AND status<>'passed'",
+                rusqlite::params![first, DAY],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(commands::final_exam_eligible_inner(&state, first).unwrap());
+    let exam = commands::final_exam_start_inner(&state, first, "final-1").unwrap();
+    assert_eq!(
+        (
+            exam.kind.as_str(),
+            exam.book_id,
+            exam.task_id,
+            exam.extra_kind.is_none()
+        ),
+        ("final_exam", Some(first), 0, true)
+    );
+    assert_eq!(
+        commands::final_exam_start_inner(&state, first, "final-2")
+            .unwrap()
+            .session_id,
+        exam.session_id
+    );
+    commands::session_submit_turn_inner(&state, exam.session_id, 0, "f-opener", "请开始终评")
+        .unwrap();
+    assert_eq!(
+        commands::session_request_evaluation_inner(&state, exam.session_id, "e")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::Conflict
+    );
+    commands::session_submit_turn_inner(&state, exam.session_id, 1, "f-2", "全书分两块").unwrap();
+    commands::session_submit_turn_inner(&state, exam.session_id, 2, "f-3", "主线是均衡").unwrap();
+    let calls_before = mock.calls();
+    let report = commands::final_exam_finish_inner(&state, exam.session_id, 3, "fin").unwrap();
+    assert_eq!(
+        (
+            report.overall,
+            report.strongest_module.as_str(),
+            report.version
+        ),
+        (4, "供给与需求", 4)
+    );
+    assert!(report.content_md.contains("## 最弱模块"));
+    assert_eq!(mock.calls(), calls_before + 1);
+    assert_eq!(
+        commands::final_exam_finish_inner(&state, exam.session_id, 4, "fin").unwrap(),
+        report
+    );
+    assert_eq!(mock.calls(), calls_before + 1);
+    let books = commands::library_list_books_inner(&state).unwrap();
+    assert_eq!(
+        books.iter().find(|b| b.id == first).unwrap().status,
+        "finished"
+    );
+    assert!(book_learner_app::run_startup_recovery(&state).unwrap() >= 3);
+    let report_md = std::fs::read_dir(state.memory_root().join("books"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("_report.md"))
+        .find(|p| p.exists())
+        .expect("_report.md");
+    assert!(std::fs::read_to_string(report_md)
+        .unwrap()
+        .contains("## 最弱模块"));
+    let log = std::process::Command::new("git")
+        .arg("-C")
+        .arg(state.memory_root())
+        .args(["log", "--oneline"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&log.stdout).contains("report: 整书终评"));
+}
+
+#[test]
 fn profile_round_trips_through_memory_and_enqueues_a_git_commit() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("app.db")).unwrap();
@@ -994,6 +1098,9 @@ impl AiProvider for EngineMock {
         }
         if id.starts_with("eval:") {
             return Ok(EVAL_JSON.into());
+        }
+        if id.starts_with("final:") {
+            return Ok("<!-- overall:4 strongest:供给与需求 weakest:供给与需求 -->\n## 总体掌握度\n扎实\n## 最强模块\n供给与需求\n## 最弱模块\n供给与需求\n## 薄弱点修复历程\n略\n## 建议重读章节\n无\n## 终评对话要点\n略".into());
         }
         if id.starts_with("extra:") {
             return Ok("## 题目\n实验定价\n## 评语\n运用正确\n## 掌握判断\n已掌握迁移能力".into());
@@ -1925,6 +2032,42 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "map_block_source" => json!({"blockId": second_block}),
             "stats_get" => json!({"date": DAY}),
             "stats_detail" => json!({"date": DAY}),
+            "final_exam_eligible" => json!({"bookId": first}),
+            "final_exam_start" => {
+                // 契约顺序在 session_confirm_verdict 之后:把 first 其余块也置为通过,满足终评前置
+                let state = app.state::<AppState>();
+                state
+                    .with_connection(|c| {
+                        c.execute(
+                            "UPDATE knowledge_block SET status='passed', passed_at=?2 WHERE book_id=?1 AND status<>'passed'",
+                            rusqlite::params![first, DAY],
+                        )?;
+                        Ok(())
+                    })
+                    .unwrap();
+                json!({"bookId": first, "clientRequestId": "final-a"})
+            }
+            "final_exam_finish" => {
+                let state = app.state::<AppState>();
+                let final_session: i64 = state
+                    .with_connection(|c| {
+                        Ok(c.query_row(
+                            "SELECT id FROM feynman_session WHERE kind='final_exam'",
+                            [],
+                            |r| r.get(0),
+                        )?)
+                    })
+                    .unwrap();
+                for (version, id, text) in [
+                    (0, "f-opener", "请开始终评"),
+                    (1, "f-2", "全书分两块"),
+                    (2, "f-3", "主线是均衡"),
+                ] {
+                    commands::session_submit_turn_inner(&state, final_session, version, id, text)
+                        .unwrap();
+                }
+                json!({"sessionId": final_session, "expectedVersion": 3, "requestId": "final-fin"})
+            }
             "planning_check_behind" => json!({"bookId": first, "date": DAY}),
             "planning_get_plan" => json!({"bookId": first}),
             "library_finish_book" => json!({"bookId": second}),

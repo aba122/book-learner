@@ -41,6 +41,8 @@ pub struct SessionView {
     pub kind: String,
     /// 通过后附加环节种类(application|methodology|discussion,M2 T5);普通会话为 None
     pub extra_kind: Option<String>,
+    /// 整书终评会话所属的书(M3 T1);普通会话为 None(block_id 为占位块)
+    pub book_id: Option<i64>,
     pub transcript: Vec<TurnView>,
     pub eval: Option<EvalResult>,
 }
@@ -77,7 +79,7 @@ fn session_state(conn: &Connection, session_id: i64) -> Result<(String, i64)> {
 
 pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
     #[allow(clippy::type_complexity)]
-    let (task_id, version, state, block_id, kind, eval_json, extra_kind): (
+    let (task_id, version, state, block_id, kind, eval_json, extra_kind, book_id): (
         Option<i64>,
         i64,
         String,
@@ -85,9 +87,10 @@ pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
         String,
         Option<String>,
         Option<String>,
+        Option<i64>,
     ) = conn
         .query_row(
-            "SELECT task_id,version,state,block_id,kind,eval_json,extra_kind FROM feynman_session WHERE id=?1",
+            "SELECT task_id,version,state,block_id,kind,eval_json,extra_kind,book_id FROM feynman_session WHERE id=?1",
             [session_id],
             |r| {
                 Ok((
@@ -98,6 +101,7 @@ pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
                     r.get(4)?,
                     r.get(5)?,
                     r.get(6)?,
+                    r.get(7)?,
                 ))
             },
         )
@@ -139,6 +143,7 @@ pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
         block_id,
         kind,
         extra_kind,
+        book_id,
         transcript,
         eval,
     })
@@ -438,25 +443,45 @@ pub fn submit_turn(
     drop(st);
     // 会话种类决定 system prompt:learn → 费曼学生;review/retest → 复习考官快问(§6.7);
     // 附加环节(extra_kind,M2 T5)→ 出题/引导/讨论 prompt(§6.4–6.6)
-    let (kind, extra_kind): (String, Option<String>) = conn.query_row(
-        "SELECT kind,extra_kind FROM feynman_session WHERE id=?1",
+    let (kind, extra_kind, session_book): (String, Option<String>, Option<i64>) = conn.query_row(
+        "SELECT kind,extra_kind,book_id FROM feynman_session WHERE id=?1",
         [session_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     let extra = extra_kind
         .as_deref()
         .map(crate::extra::ExtraKind::parse)
         .transpose()?;
     let quiz = matches!(kind.as_str(), "review" | "retest");
+    let final_exam = kind == "final_exam";
     let system = if let Some(extra) = extra {
         prompts::extra_system(extra, ctx)
+    } else if final_exam {
+        // 整书终评(M3 T1):上下文由会话自查——全书地图与状态 + 画像摘要;阶段按学生回合数推进
+        let book_id = session_book.ok_or_else(|| {
+            CoreError::Other(format!("final exam session {session_id} has no book_id"))
+        })?;
+        let map_summary = crate::final_exam::map_summary(conn, book_id)?;
+        let student_turns: i64 = conn.query_row(
+            "SELECT count(*) FROM session_turn WHERE session_id=?1 AND role='student' AND status='done'",
+            [session_id],
+            |r| r.get(0),
+        )?;
+        let phase = if student_turns < crate::final_exam::FRAMEWORK_PHASE_TURNS {
+            1
+        } else {
+            2
+        };
+        prompts::final_exam_system(ty, &ctx.profile_summary, &map_summary, phase)
     } else if quiz {
         prompts::review_quiz_system(ty, ctx, &kind)
     } else {
         prompts::feynman_system(ty, ctx)
     };
-    // 学生回合上限:快问 6、附加环节按种类;普通讲授不限
-    let turn_cap = extra.map(|k| k.max_student_turns()).or(if quiz {
+    // 学生回合上限:快问 6、附加环节按种类、终评 8;普通讲授不限
+    let turn_cap = extra.map(|k| k.max_student_turns()).or(if final_exam {
+        Some(crate::final_exam::MAX_FINAL_STUDENT_TURNS)
+    } else if quiz {
         Some(MAX_QUIZ_STUDENT_TURNS)
     } else {
         None

@@ -207,6 +207,30 @@ pub fn run_ai_json<T>(
     policy: &AiPolicy,
     parse: &dyn Fn(&str) -> Result<T>,
 ) -> Result<T> {
+    run_ai_parsed(
+        conn,
+        provider,
+        request_id,
+        kind,
+        req,
+        policy,
+        parse,
+        "请只输出满足要求的 JSON。",
+    )
+}
+
+/// `run_ai_json` 的通用版(M3 T1):解析失败时按 `correction_hint` 纠错重试(如"只输出以元注释开头的 markdown")。
+#[allow(clippy::too_many_arguments)]
+pub fn run_ai_parsed<T>(
+    conn: &Connection,
+    provider: &dyn AiProvider,
+    request_id: &str,
+    kind: &str,
+    req: &CompletionRequest,
+    policy: &AiPolicy,
+    parse: &dyn Fn(&str) -> Result<T>,
+    correction_hint: &str,
+) -> Result<T> {
     let mut req = req.clone();
     let mut corrections = 0u32;
     loop {
@@ -232,9 +256,8 @@ pub fn run_ai_json<T>(
                 match reason {
                     Some(reason) if corrections < policy.json_corrective_retries => {
                         corrections += 1;
-                        req.system.push_str(&format!(
-                            "\n\n上一次输出不可用:{reason}。请只输出满足要求的 JSON。"
-                        ));
+                        req.system
+                            .push_str(&format!("\n\n上一次输出不可用:{reason}。{correction_hint}"));
                     }
                     _ => return Err(e),
                 }

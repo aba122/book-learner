@@ -408,6 +408,8 @@ pub struct SessionViewDto {
     pub kind: String,
     /// 通过后附加环节种类(M2 T5);普通会话为 null
     pub extra_kind: Option<String>,
+    /// 整书终评所属的书(M3 T1);普通会话为 null
+    pub book_id: Option<i64>,
     pub transcript: Vec<TurnViewDto>,
     pub eval: Option<EvalResultDto>,
 }
@@ -422,6 +424,7 @@ impl From<SessionView> for SessionViewDto {
             block_id: view.block_id,
             kind: view.kind,
             extra_kind: view.extra_kind,
+            book_id: view.book_id,
             transcript: view.transcript.into_iter().map(Into::into).collect(),
             eval: view.eval.map(Into::into),
         }
@@ -779,6 +782,31 @@ impl From<ProfileDto> for ProfileSections {
             mastered: profile.mastered,
             pitfalls: profile.pitfalls,
             context: profile.context,
+        }
+    }
+}
+
+/// 整书终评报告(M3 T1)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinalReportDto {
+    pub artifact_id: i64,
+    pub version: i64,
+    pub content_md: String,
+    pub overall: u8,
+    pub strongest_module: String,
+    pub weakest_module: String,
+}
+
+impl From<book_learner_core::final_exam::FinalReport> for FinalReportDto {
+    fn from(report: book_learner_core::final_exam::FinalReport) -> Self {
+        Self {
+            artifact_id: report.artifact_id,
+            version: report.version,
+            content_md: report.content_md,
+            overall: report.overall,
+            strongest_module: report.strongest_module,
+            weakest_module: report.weakest_module,
         }
     }
 }

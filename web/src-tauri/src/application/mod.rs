@@ -7,9 +7,10 @@ use rusqlite::OptionalExtension;
 
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto,
-    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    ExtraOutcomeDto, FinalReportDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto,
+    MapEditOpDto, MapProgressDto, MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto,
+    SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto,
+    VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -184,16 +185,30 @@ fn session_context(
     session_id: i64,
 ) -> Result<(FixedContext, BookType), IpcError> {
     // 先取书类型,再按类型取画像摘要(教材/方法论追加"个人情境",M2 T6)
-    let (block_id, book_type) = state.with_connection(|connection| {
-        let block_id = book_learner_core::session::get_session(connection, session_id)?.block_id;
-        let book_id = book_learner_core::models::get_block(connection, block_id)?.book_id;
+    let (block_id, book_type, final_exam) = state.with_connection(|connection| {
+        let view = book_learner_core::session::get_session(connection, session_id)?;
+        let book_id = book_learner_core::models::get_block(connection, view.block_id)?.book_id;
         let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
-        Ok((block_id, book_type))
+        Ok((view.block_id, book_type, view.kind == "final_exam"))
     })?;
     let profile_summary = state
         .memory()
         .profile_summary_for(book_type)
         .map_err(IpcError::from)?;
+    if final_exam {
+        // 整书终评(M3 T1):上下文由会话自查全书地图,这里不算占位块的原文
+        return Ok((
+            FixedContext {
+                profile_summary,
+                block_title: "整书终评".into(),
+                block_source_text: String::new(),
+                eval_history: String::new(),
+                related_weakpoints: String::new(),
+                prereq_status: String::new(),
+            },
+            book_type,
+        ));
+    }
     state.with_connection(|connection| {
         let context = book_learner_core::session::fixed_context_for_block(
             connection,
@@ -467,6 +482,46 @@ pub fn extra_finish(
         expected_version,
         request_id,
         &context,
+    )
+    .map(Into::into)
+    .map_err(Into::into)
+}
+
+// ---- 整书终评(M3 T1):全部块通过后;回合复用 submit_turn;结束产出学习报告并归档 ----
+
+pub fn final_exam_eligible(state: &AppState, book_id: i64) -> Result<bool, IpcError> {
+    state.with_connection(|connection| book_learner_core::final_exam::eligible(connection, book_id))
+}
+
+pub fn final_exam_start(
+    state: &AppState,
+    book_id: i64,
+    client_request_id: &str,
+) -> Result<SessionViewDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::final_exam::start(connection, book_id, client_request_id)
+        })
+        .map(Into::into)
+}
+
+pub fn final_exam_finish(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+) -> Result<FinalReportDto, IpcError> {
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::final_exam::finish(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        session_id,
+        expected_version,
+        request_id,
     )
     .map(Into::into)
     .map_err(Into::into)

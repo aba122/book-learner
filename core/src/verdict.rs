@@ -80,17 +80,30 @@ pub fn request_evaluation(
     let full_id = eval_request_id(session_id, request_id);
     // 短事务 A:状态检查与 open→evaluating
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    let (state, version, eval_json, extra_kind): (String, i64, Option<String>, Option<String>) = tx
+    #[allow(clippy::type_complexity)]
+    let (state, version, eval_json, extra_kind, kind): (
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        String,
+    ) = tx
         .query_row(
-            "SELECT state,version,eval_json,extra_kind FROM feynman_session WHERE id=?1",
+            "SELECT state,version,eval_json,extra_kind,kind FROM feynman_session WHERE id=?1",
             [session_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?
         .ok_or_else(|| CoreError::NotFound(format!("session {session_id}")))?;
     if extra_kind.is_some() {
         return Err(CoreError::Conflict(format!(
             "session {session_id} is an extra stage; close it with extra::finish"
+        )));
+    }
+    // 终评会话不写 eval_json(M3 T1):由 final_exam::finish 产出报告
+    if kind == "final_exam" {
+        return Err(CoreError::Conflict(format!(
+            "session {session_id} is a final exam; close it with final_exam::finish"
         )));
     }
     let existing_ids: Vec<String> = {
