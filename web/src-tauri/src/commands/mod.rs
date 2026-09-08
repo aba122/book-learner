@@ -788,3 +788,18 @@ pub async fn stats_detail(
 ) -> Result<StatsDetailDto, IpcError> {
     stats_detail_inner(&state, &date)
 }
+
+// ---- 调试自动化桥回传(不进契约;release 构建恒拒绝)----
+
+#[tauri::command(async)]
+pub async fn automation_report(id: String, result: String) -> Result<(), IpcError> {
+    if cfg!(debug_assertions) {
+        crate::automation::report(id, result);
+        Ok(())
+    } else {
+        Err(IpcError::invalid_request(
+            "自动化桥仅在调试构建可用",
+            "automation_report called in release build",
+        ))
+    }
+}

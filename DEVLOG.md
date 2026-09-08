@@ -478,3 +478,9 @@
 - **回写**:`docs/smoke/m2-gate.md` 补齐 T3(番茄钟/托盘 5 项)、T5(附加环节 5 项)、T6(画像 2 项)、T7(统计 1 项)目检项;IMPLEMENTATION_PLAN M2 节加实施状态(2.1–2.5 代码全入 main;2.3 的"个人情境 AI 提取与确认流"未做,留 M3);CLAUDE.md 状态区;TECH_DESIGN §10 实现说明(notify::decide、30s 轮询线程、番茄钟状态机/托盘/事件)。
 - **待桌面会话**:`docs/smoke/m2-gate.md` §1–§8 目检并签字 → main 打 `m2`;`mac-m1`/`m1` 两个 tag 同样待相应冒烟签字。
 
+## 2026-09-08 · 桌面门禁改经 SSH 执行:调试自动化桥 + mac-m1 签字
+- **背景**:三份桌面门禁(mac-m1 / m1-e2e / m2)原定需用户桌面会话;用户要求经隧道由我完成,并选择"两条路都开":①给 SSH 进程授 macOS 辅助功能(已生效)与屏幕录制(待授);②允许 debug-only 自动化桥。
+- **自动化桥**(`web/src-tauri/src/automation.rs`):仅 debug 构建、且设置 `BOOK_LEARNER_AUTOMATION_SOCK` 时监听 unix socket;一行 JSON 请求 → `{"js"}` 在主 WebView `eval` 并经 `automation_report` 命令回传结果、`{"tray_title"}` 读番茄钟 ticker 记录的托盘标题、`{"quit"}` 走 `app.exit(0)`(= Cmd+Q 的 `ExitRequested` 路径)。**不进 IPC 契约**(`WIRE_COMMANDS`/JSON 不含它),release 构建 `maybe_spawn` 为 no-op、`automation_report` 恒返回 invalid_request。驱动器 `docs/smoke/scripts/bl-auto.py`(text/click/type/file/wait/go/tray/quit)。
+- **mac-m1 门禁**:脚本 `docs/smoke/scripts/gate-mac-m1.sh` 在 Mac 上无人值守跑通 §1–§3(seed → 首启检查 → 退出 → 同 fixture 重启 → 设置 37 保留),文档已回填并签字;§4 浏览器 Mock 对照与生产路径引用既有用例与 M8.2 实测。tag `mac-m1` 待本 PR 合并后打在 main。
+- **过程失误**:把脚本命名为与 `bl-run.sh` 会话同名的 `bridge-build.sh`,被其包装脚本覆盖成自调用 → 递归 fork 至 "fork failed: resource temporarily unavailable";进程自行回退、确认无残留后改名 `*-cmd.sh` 重跑。规则:传给 bl-run 的脚本一律 `<name>-cmd.sh`。
+

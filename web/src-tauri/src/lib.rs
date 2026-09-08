@@ -1,4 +1,5 @@
 pub mod application;
+pub mod automation;
 pub mod commands;
 pub mod dto;
 pub mod error;
@@ -60,6 +61,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::extra_start,
         commands::extra_finish,
         commands::stats_detail,
+        commands::automation_report,
     ])
 }
 
@@ -195,6 +197,8 @@ pub fn run() {
                         )));
                     }
                     app.manage(state);
+                    // 调试自动化桥:仅 debug 构建且设置了 BOOK_LEARNER_AUTOMATION_SOCK 时才监听
+                    automation::maybe_spawn(app.handle().clone());
                     if let Err(error) = install_tray(app.handle()) {
                         // 托盘不可用不致命:主窗口与 Cmd+Q 仍可用
                         tracing::warn!(%error, "托盘初始化失败");

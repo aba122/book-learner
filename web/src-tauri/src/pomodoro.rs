@@ -169,6 +169,7 @@ pub fn spawn_ticker<R: Runtime>(app: AppHandle<R>) {
                     if let Some(tray) = app.tray_by_id("main") {
                         let _ = tray.set_title(title.as_deref());
                     }
+                    crate::automation::record_tray_title(title.as_deref());
                     last_title = title;
                 }
             }
