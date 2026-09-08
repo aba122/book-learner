@@ -134,7 +134,7 @@ describe('知识地图页', () => {
     expect(normalize).not.toHaveBeenCalled()
   })
 
-  it('编辑模式:跳过与上移在定稿时传给 confirmMap', async () => {
+  it('编辑模式:跳过与上移在定稿时差分为稳定 id 操作集并带修订号', async () => {
     const user = userEvent.setup()
     const spy = vi.spyOn(backendModule.backend, 'confirmMap')
     renderMap()
@@ -145,11 +145,70 @@ describe('知识地图页', () => {
     await user.click(screen.getByRole('button', { name: '确认定稿' }))
 
     expect(spy).toHaveBeenCalledTimes(1)
-    const [bookId, blocks] = spy.mock.calls[0]
-    expect(bookId).toBe(1)
-    expect(blocks[0].title).toBe('供给曲线与市场均衡')
-    expect(blocks[1].title).toBe('需求曲线与需求定律')
-    expect(blocks.find(b => b.title === '价格管制与市场干预')?.skipped).toBe(true)
+    expect(spy.mock.calls[0]).toEqual([1, 1, [
+      { op: 'setSkipped', blockId: 4, skipped: true },
+      { op: 'reorder', blockIds: [2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+    ]])
+    // 成功后修订号刷新:第二次定稿带 expectedRevision=2
+    await screen.findByRole('dialog', { name: '目标设定' })
+    await user.click(screen.getByRole('button', { name: '稍后再定' }))
+    await user.click(screen.getByRole('button', { name: '编辑地图' }))
+    await user.click(within(screen.getAllByTestId('block-item')[0]).getByRole('button', { name: '跳过' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    expect(spy.mock.calls[1][1]).toBe(2)
+  })
+
+  it('改模块名差分为 renameModule 且排在首位', async () => {
+    const user = userEvent.setup()
+    const spy = vi.spyOn(backendModule.backend, 'confirmMap')
+    renderMap()
+    await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    const input = screen.getByLabelText('模块名:供给与需求')
+    fireEvent.change(input, { target: { value: '新模块' } })
+    fireEvent.blur(input)
+    await user.click(within(screen.getAllByTestId('block-item')[5]).getByRole('button', { name: '跳过' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    expect(spy.mock.calls[0][2]).toEqual([
+      { op: 'renameModule', from: '供给与需求', to: '新模块' },
+      { op: 'setSkipped', blockId: 6, skipped: true },
+    ])
+  })
+
+  it('无改动定稿:不调用后端,退出编辑态并打开目标设定', async () => {
+    const user = userEvent.setup()
+    const spy = vi.spyOn(backendModule.backend, 'confirmMap')
+    renderMap()
+    await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    expect(spy).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '目标设定' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '确认定稿' })).not.toBeInTheDocument()
+  })
+
+  it('修订号冲突(不可重试):错误可见、无重试、编辑保留', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'confirmMap').mockRejectedValue(new BackendError({
+      code: 'conflict', message: '数据状态冲突，请刷新后重试', retryable: false,
+    }))
+    renderMap()
+    await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    await user.click(within(screen.getAllByTestId('block-item')[3]).getByRole('button', { name: '跳过' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('数据状态冲突')
+    expect(within(alert).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(within(screen.getAllByTestId('block-item')[3]).getByRole('button', { name: '恢复' })).toBeEnabled()
+  })
+
+  it('浏览模式显示已跳过的块,编辑初值沿用其 skipped', async () => {
+    const user = userEvent.setup()
+    await backendModule.backend.confirmMap(1, 1, [{ op: 'setSkipped', blockId: 4, skipped: true }])
+    renderMap()
+    const item = (await screen.findAllByTestId('block-item'))[3]
+    expect(within(item).getByText('已跳过')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '编辑地图' }))
+    expect(within(screen.getAllByTestId('block-item')[3]).getByRole('button', { name: '恢复' })).toBeInTheDocument()
+    expect(screen.getByText(/11 个知识块/)).toBeInTheDocument()
   })
 
   it('不可重试的地图定稿失败保留全部编辑且不提供重试', async () => {
@@ -200,6 +259,7 @@ describe('知识地图页', () => {
     renderMap()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    await user.click(within(screen.getAllByTestId('block-item')[3]).getByRole('button', { name: '跳过' }))
     const confirm = screen.getByRole('button', { name: '确认定稿' })
     fireEvent.click(confirm)
     fireEvent.click(confirm)
@@ -215,9 +275,11 @@ describe('知识地图页', () => {
     const user = userEvent.setup()
     const planSpy = vi.spyOn(backendModule.backend, 'setPlan')
     const activeSpy = vi.spyOn(backendModule.backend, 'setActiveBook')
+    const confirmSpy = vi.spyOn(backendModule.backend, 'confirmMap')
     renderMap()
     await user.click(await screen.findByRole('button', { name: '编辑地图' }))
     await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    expect(confirmSpy).not.toHaveBeenCalled() // 无改动:不调用后端,但目标设定必须可达
 
     const deadline = await screen.findByLabelText('完成期限')
     fireEvent.change(deadline, { target: { value: '2026-09-09' } })

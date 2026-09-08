@@ -11,6 +11,10 @@
    写入一律经 `lib/useBackendOperation`(按 key 同步守卫 + committed-awaiting-refresh 持锁 + 逐 key 错误)。
    **页面禁止自持 generation/mounted/guard ref**;路由参数变化用 `key` 重挂载而非手工失效。
    歧义成功不自动重发;失败必须通过 `AsyncError` 或操作内联错误可见,不得留在永久 spinner。改重试/错误策略只动 lib/ 两个文件。
+6. **id 与版本单点(2026-09-05,契约 v2)**:非幂等写操作的客户端 id(`clientRequestId`/`clientTurnId`/`jobId`)在触发时由 `lib/ids.ts` 生成一次并进入操作 args,
+   重试复用同一 id(服务端重放/续跑);评估与判定用每会话常量 id(`'eval'`/`'verdict'`,core 按会话命名空间化)。
+   `expectedVersion`/`expectedRevision` 只取服务端返回(会话视图 / 书目 `mapRevision`),页面不推算、不缓存旧值。
+   会话页面以服务端视图为唯一事实源水合(以 sessionId 为 key 重挂载,不在 effect 里 setState)。
 
 ## 目录导览
 
@@ -25,7 +29,12 @@ src/
 ├─ lib/
 │  ├─ useAsyncResource.ts    读资源 hook(全部页面读取的唯一实现)
 │  ├─ useBackendOperation.ts 写操作 hook(全部页面写入的唯一实现)
+│  ├─ ids.ts                 客户端 id 生成(规则同 core validate_client_id)
 │  └─ localDate.ts           本地日历日
+├─ epub/
+│  ├─ headings.ts            纯逻辑:标题归一化/匹配(重复标题按序消费)、文本归一化(vitest)
+│  ├─ extract.ts             epub.js:打开、有序 spine 抽取(带标题层级标记)、整章纯文本
+│  └─ anchors.ts             epub.js:小节标题 → 有序多段点 CFI(exact / 整章 chapter_fallback)、往返还原(Playwright)
 ├─ backend/
 │  ├─ types.ts           Backend 接口(后端能力唯一契约)
 │  ├─ mock.ts            MockBackend(内存种子数据+学生剧本)
@@ -36,11 +45,12 @@ src/
 └─ features/<页面>/      功能切片(today/library/map/reader/feynman/stats/settings)
 ```
 
-## Mac Foundation 能力矩阵
+## 能力矩阵(2026-09-05,契约 v2)
 
 | 状态 | Backend 方法 |
 |---|---|
 | SQLite 原生支持 | `listBooks`, `setActiveBook`, `listBlocks`, `getBlock`, `setPlan`, `todayQueue`, `getSettings`, `saveSettings` |
-| 显式 `not_implemented` | `importEpub`, `generateMap`, `confirmMap`, `completeTask`, `blockSource`, `epubUrl`, `startSession`, `studentReply`, `endSession`, `confirmVerdict`, `stats` |
+| 契约门控(TS 解码器/出站校验已落地;Mac 接线 Rust command 后从 `unsupportedCapabilities` 移除即生效) | `storeSpine`, `runMapJob`, `confirmMap`, `setAnchorSegments`, `listAnchors`, `startOrResumeSession`, `submitTurn`, `requestEvaluation`, `confirmSessionVerdict`, `abandonSession` |
+| 显式 `not_implemented` | `importEpub`, `completeTask`, `blockSource`, `epubUrl`, `stats` |
 
-command 名、payload 顶层 key 与未支持能力列表由 `../shared/tauri-wire-contract.json` 统一约束。页面不根据运行时分叉业务成功路径;真实原生失败一律保留并呈现。
+command 名、payload 顶层 key 与门控/未支持列表由 `../shared/tauri-wire-contract.json` 统一约束(`TauriBackend` 按该列表决定走真实 command 还是 `unsupported_capability`)。页面不根据运行时分叉业务成功路径;真实原生失败一律保留并呈现。`runMapJob` 进度经 Tauri event `map_job_progress`(payload `{ jobId, progress }`)按 jobId 过滤。

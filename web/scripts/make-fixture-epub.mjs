@@ -7,43 +7,53 @@ import JSZip from 'jszip'
 
 const outPath = join(dirname(fileURLToPath(import.meta.url)), '../public/fixtures/sample.epub')
 
-const xhtml = (title, paras) => `<?xml version="1.0" encoding="UTF-8"?>
+const xhtml = (title, intro, sections) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN" lang="zh-CN">
 <head><title>${title}</title></head>
 <body>
 <h1>${title}</h1>
-${paras.map(p => `<p>${p}</p>`).join('\n')}
+${intro.map(p => `<p>${p}</p>`).join('\n')}
+${sections.map(s => `<h2>${s.heading}</h2>\n${s.paras.map(p => `<p>${p}</p>`).join('\n')}`).join('\n')}
 </body>
 </html>`
 
+// 小节标题刻意包含:章内重复("小结"×2)、跨章重复(chap2 也有"小结")、嵌套节点(<em>)——供 anchors 冒烟覆盖
 const chapters = [
   {
     href: 'chap1.xhtml',
     title: '第一章 供给与需求',
-    paras: [
+    intro: [
       '市场由买者与卖者的相互作用构成。买者的购买意愿与能力汇成需求,卖者的出售意愿与能力汇成供给,两股力量在价格上相遇。',
-      '需求定律说的是:在其他条件不变时,价格上升,需求量下降。这条向右下方倾斜的曲线,是经济学里最先学、也最常被误读的一条线。',
-      '当价格暂时偏离均衡,过剩或短缺会把它拉回来。均衡不是静止,而是无数次微小调整的结果——价格是市场的语言。',
-      '弹性衡量反应的灵敏程度:价格变动百分之一,需求量变动百分之几。它决定了降价究竟是让收入增加,还是让收入流失。',
+    ],
+    sections: [
+      { heading: '需求定律', paras: ['需求定律说的是:在其他条件不变时,价格上升,需求量下降。这条向右下方倾斜的曲线,是经济学里最先学、也最常被误读的一条线。'] },
+      { heading: '均衡与弹性', paras: [
+        '当价格暂时偏离均衡,过剩或短缺会把它拉回来。均衡不是静止,而是无数次微小调整的结果——价格是市场的语言。',
+        '弹性衡量反应的灵敏程度:价格变动百分之一,需求量变动百分之几。它决定了降价究竟是让收入增加,还是让收入流失。',
+      ] },
+      { heading: '小结', paras: ['需求与供给在价格上相遇;弹性告诉你相遇之后谁让步更多。'] },
+      { heading: '练习', paras: ['练习:画出一条需求曲线,并标出弹性大于一与小于一的区段。'] },
+      { heading: '小结', paras: ['练习之后再一次小结:把弹性和斜率分开,是本章最重要的一件事。'] },
     ],
   },
   {
     href: 'chap2.xhtml',
     title: '第二章 消费者选择',
-    paras: [
-      '效用是满足感的度量。第一杯水价值连城,第十杯水弃之不惜——边际效用递减,是理解消费行为的钥匙。',
-      '无差异曲线描绘"同样满意"的组合;预算线框定"买得起"的范围。最优选择发生在两者相切之处:意愿与能力达成和解。',
-      '收入变动时,人们沿着新的预算线重新安放欲望;价格变动时,替代效应与收入效应一明一暗,共同改写购物篮。',
+    intro: ['效用是满足感的度量。第一杯水价值连城,第十杯水弃之不惜——边际效用递减,是理解消费行为的钥匙。'],
+    sections: [
+      { heading: '效用与边际', paras: ['无差异曲线描绘"同样满意"的组合;预算线框定"买得起"的范围。最优选择发生在两者相切之处:意愿与能力达成和解。'] },
+      { heading: '小结', paras: ['收入变动时,人们沿着新的预算线重新安放欲望;价格变动时,替代效应与收入效应一明一暗,共同改写购物篮。'] },
     ],
   },
   {
     href: 'chap3.xhtml',
     title: '第三章 生产与成本',
-    paras: [
-      '生产函数把投入变成产出。短期里总有些要素动弹不得,于是边际产量先升后降——这是短期成本曲线呈 U 形的根源。',
-      '会计师看账面成本,经济学家看机会成本:放弃的最好选择,才是真正的代价。利润的定义因此而不同。',
-      '长期里一切要素皆可调整,规模经济与规模不经济决定企业的边界。完全竞争市场中,价格最终被压向长期平均成本的最低点。',
+    intro: [],
+    sections: [
+      { heading: '生产函数', paras: ['生产函数把投入变成产出。短期里总有些要素动弹不得,于是边际产量先升后降——这是短期成本曲线呈 U 形的根源。'] },
+      { heading: '机会<em>成本</em>', paras: ['会计师看账面成本,经济学家看机会成本:放弃的最好选择,才是真正的代价。利润的定义因此而不同。'] },
+      { heading: '规模经济', paras: ['长期里一切要素皆可调整,规模经济与规模不经济决定企业的边界。完全竞争市场中,价格最终被压向长期平均成本的最低点。'] },
     ],
   },
 ]
@@ -93,7 +103,7 @@ zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
 zip.file('META-INF/container.xml', containerXml)
 zip.file('OEBPS/content.opf', contentOpf)
 zip.file('OEBPS/nav.xhtml', navXhtml)
-for (const c of chapters) zip.file(`OEBPS/${c.href}`, xhtml(c.title, c.paras))
+for (const c of chapters) zip.file(`OEBPS/${c.href}`, xhtml(c.title, c.intro, c.sections))
 
 const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
 await mkdir(dirname(outPath), { recursive: true })

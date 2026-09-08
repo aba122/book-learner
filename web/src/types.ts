@@ -4,11 +4,17 @@ export type BlockStatus = 'unlearned' | 'learning' | 'passed' | 'weak' | 'consol
 export type TaskKind = 'new' | 'weak_retest' | 'review'
 export type Verdict = 'pass_suggested' | 'relearn_suggested'
 
-export interface Book { id: number; title: string; author: string; type: BookType; slug: string; status: BookStatus }
+export interface Book {
+  id: number; title: string; author: string; type: BookType; slug: string; status: BookStatus
+  /** 地图乐观并发修订号(core book.map_revision;草图落库置 1,每次 confirmMap +1) */
+  mapRevision: number
+}
 export interface Scores { accuracy: number; completeness: number; clarity: number }
 export interface KnowledgeBlock {
   id: number; bookId: number; moduleName: string; seq: number; title: string; slug: string
   prereqIds: number[]; status: BlockStatus; scores?: Scores; passedAt?: string
+  /** 地图编辑"跳过"标记(不物理删除) */
+  skipped: boolean
 }
 export interface DailyTask {
   id: number; bookId: number; blockId: number; kind: TaskKind; seq: number
@@ -23,3 +29,38 @@ export interface StudyPlan { bookId: number; deadline: string; dailyNewBlocks: n
 export interface ChatMessage { role: 'user' | 'student'; text: string }
 export interface Stats { totalBlocks: number; passedBlocks: number; streakDays: number; openWeakPoints: number; fixedWeakPoints: number; minutesToday: number }
 export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string }
+
+// ---- 契约 v2(Plan B,与 core 用例同名;camelCase 镜像 core 结构)----
+export interface SpineChapter { idx: number; href: string; title: string; text: string }
+export type AnchorPrecision = 'exact' | 'chapter_fallback'
+export interface AnchorSegment {
+  spineHref: string; cfiStart: string; cfiEnd: string; precision: AnchorPrecision
+  /** 原文小节标题(阅读器据此解析 CFI) */
+  hint: string
+  /** 段纯文本(exact 段回填;空则用整章文本) */
+  text: string
+}
+export type MapProgress =
+  | { stage: 'chapter'; index: number; total: number; title: string }
+  | { stage: 'merging' }
+  | { stage: 'done'; blocks: number }
+export type MapEditOp =
+  | { op: 'rename'; blockId: number; title: string }
+  | { op: 'renameModule'; from: string; to: string }
+  | { op: 'reorder'; blockIds: number[] }
+  | { op: 'setSkipped'; blockId: number; skipped: boolean }
+  | { op: 'merge'; into: number; from: number[] }
+  | { op: 'split'; blockId: number }
+export type SessionState = 'open' | 'evaluating' | 'evaluated' | 'confirmed' | 'abandoned'
+export type SessionKind = 'learn' | 'retest' | 'review' | 'final_exam'
+export interface TurnView {
+  role: 'user' | 'student'; text: string; status: 'pending' | 'done' | 'failed'
+  clientTurnId: string | null; readyToEnd: boolean
+}
+export interface SessionView {
+  sessionId: number; taskId: number; version: number; state: SessionState; blockId: number
+  kind: SessionKind; transcript: TurnView[]; eval: EvalResult | null
+}
+export interface TurnResult { studentText: string; readyToEnd: boolean; version: number }
+export interface EvaluationView { eval: EvalResult; version: number }
+export interface VerdictOutcome { passed: boolean; blockStatus: BlockStatus; taskDone: boolean; outboxOps: number; version: number }

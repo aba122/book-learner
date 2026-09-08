@@ -6,16 +6,19 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 
 1. `PRODUCT_SPEC.md` — 产品定义:界面、流程、三类书模板、调度与节奏规则(需求的唯一权威来源)
 2. `TECH_DESIGN.md` — 技术设计:架构、记忆库、数据模型、codex 集成、全部 AI prompt、EPUB/语音/导出
-3. `IMPLEMENTATION_PLAN.md` — 三期任务拆解与验收标准(按此开工)
+3. `IMPLEMENTATION_PLAN.md` — 三期任务拆解与验收标准
+4. **Mac 会话从这里开始**:`docs/superpowers/plans/2026-09-07-mac-m1-wiring.md`(M0–M8 逐 Task 执行计划:推送/PR、契约同步、F3、原生门禁、10+3 条 command 接线、ADR-0004、tray、E2E → tag `m1`);接线映射真值见 `DEVLOG.md` 末段"Mac 阶段需接线的 command 清单";Node 级状态见 `docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md`
 
 ## 当前状态
 
 - [x] 产品与技术设计定稿(2026-08-30,与用户四轮问答确认)
 - [x] L1 core crate(Linux,feat/l1-core):db/models/eval/memory/ai/sched,31 测试绿
 - [x] L2 React 前端(Linux,feat/l2-web):七页面 + MockBackend,浏览器闭环可跑,27 测试绿
-- [x] Mac Foundation 本地实现(feat/mac-m1):Tauri 2 壳、类型化 IPC、8 个 SQLite 能力、11 个显式未实现能力、七路由失败态
-- [ ] Mac Foundation 发布门禁:在 Apple Silicon 完成原生退出/重启持久化冒烟,推送分支并通过 macOS CI、PR 与 `mac-m1` tag
-- [ ] 产品 M1:EPUB 导入/抽取/CFI、地图生成与定稿、Codex 费曼闭环、评估一致性(见 IMPLEMENTATION_PLAN)
+- [x] Mac Foundation 本地实现(feat/mac-m1):Tauri 2 壳、类型化 IPC、8 个 SQLite 能力、显式未实现能力、七路由失败态
+- [x] M1 加固切片(Linux,已并入 feat/mac-m1):公共异步 hook、费曼页错误态、Codex 子进程卫生、记忆库原子写、schema v3、并发策略
+- [x] M1 core 引擎(Linux,feat/m1-core-engine,tag `m1-linux-a`):schema v4、AI 幂等编排、地图作业、地图确认、会话/回合、原子判定、投影 outbox,core 127+27+1+1 绿
+- [x] M1 web 契约 v2(Linux,feat/m1-web-contract,tag `m1-linux-b`):契约/Mock/门控解码器、费曼/地图/导入向导接新契约、EPUB 抽取与多段 CFI 锚定(Playwright),web 247/2 绿
+- [ ] **Mac 阶段(按 `docs/superpowers/plans/2026-09-07-mac-m1-wiring.md` M0–M8)**:推送与三个堆叠 PR → Rust 侧契约常量同步 → F3 → Foundation 原生门禁(tag `mac-m1`)→ 连接策略/启动恢复 → 接线 map 组/session 组 → ADR-0004 与原生导入 → stats/tray → 端到端门禁(tag `m1`)
 - [ ] M2 学习系统 / M3 体验完善(见 IMPLEMENTATION_PLAN)
 
 ## 开发环境要求

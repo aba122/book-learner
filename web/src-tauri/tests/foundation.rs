@@ -52,6 +52,7 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
             clarity: 5,
         }),
         passed_at: Some("2026-09-01".into()),
+        skipped: false,
     })
     .unwrap();
     assert_eq!(

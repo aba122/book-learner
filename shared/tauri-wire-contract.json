@@ -8,19 +8,33 @@
     { "method": "todayQueue", "command": "planning_today_queue", "payloadKeys": ["date"] },
     { "method": "getSettings", "command": "settings_get", "payloadKeys": [] },
     { "method": "saveSettings", "command": "settings_save", "payloadKeys": ["settings"] },
-    { "method": "unsupported", "command": "unsupported_capability", "payloadKeys": ["capability"] }
+    { "method": "unsupported", "command": "unsupported_capability", "payloadKeys": ["capability"] },
+    { "method": "storeSpine", "command": "map_store_spine", "payloadKeys": ["bookId", "chapters"] },
+    { "method": "runMapJob", "command": "map_run_job", "payloadKeys": ["bookId", "jobId"] },
+    { "method": "confirmMap", "command": "map_confirm", "payloadKeys": ["bookId", "expectedRevision", "ops"] },
+    { "method": "setAnchorSegments", "command": "map_set_anchor_segments", "payloadKeys": ["blockId", "segments"] },
+    { "method": "listAnchors", "command": "map_list_anchors", "payloadKeys": ["blockId"] },
+    { "method": "startOrResumeSession", "command": "session_start_or_resume", "payloadKeys": ["taskId", "clientRequestId", "date"] },
+    { "method": "submitTurn", "command": "session_submit_turn", "payloadKeys": ["sessionId", "expectedVersion", "clientTurnId", "text"] },
+    { "method": "requestEvaluation", "command": "session_request_evaluation", "payloadKeys": ["sessionId", "requestId"] },
+    { "method": "confirmSessionVerdict", "command": "session_confirm_verdict", "payloadKeys": ["sessionId", "expectedVersion", "requestId", "pass", "date"] },
+    { "method": "abandonSession", "command": "session_abandon", "payloadKeys": ["sessionId", "expectedVersion"] }
   ],
   "unsupportedCapabilities": [
     "importEpub",
-    "generateMap",
     "confirmMap",
     "completeTask",
     "blockSource",
     "epubUrl",
-    "startSession",
-    "studentReply",
-    "endSession",
-    "confirmVerdict",
-    "stats"
+    "stats",
+    "storeSpine",
+    "runMapJob",
+    "setAnchorSegments",
+    "listAnchors",
+    "startOrResumeSession",
+    "submitTurn",
+    "requestEvaluation",
+    "confirmSessionVerdict",
+    "abandonSession"
   ]
 }

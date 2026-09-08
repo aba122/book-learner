@@ -70,6 +70,8 @@ pub struct KnowledgeBlock {
     pub status: String,
     pub scores: Option<crate::eval::Scores>,
     pub passed_at: Option<String>,
+    /// 地图编辑"跳过"标记(不物理删除;队列与落后重排都排除它)
+    pub skipped: bool,
 }
 
 pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
@@ -137,7 +139,7 @@ pub fn insert_block(
 }
 
 const BLOCK_COLS: &str =
-    "id,book_id,module_name,seq,title,slug,prereq_ids,status,scores_json,passed_at";
+    "id,book_id,module_name,seq,title,slug,prereq_ids,status,scores_json,passed_at,skipped";
 
 type RawBlock = (
     i64,
@@ -150,6 +152,7 @@ type RawBlock = (
     String,
     Option<String>,
     Option<String>,
+    i64,
 );
 
 fn row_to_raw_block(r: &rusqlite::Row) -> rusqlite::Result<RawBlock> {
@@ -164,12 +167,24 @@ fn row_to_raw_block(r: &rusqlite::Row) -> rusqlite::Result<RawBlock> {
         r.get(7)?,
         r.get(8)?,
         r.get(9)?,
+        r.get(10)?,
     ))
 }
 
 fn parse_block(raw: RawBlock) -> Result<KnowledgeBlock> {
-    let (id, book_id, module_name, seq, title, slug, prereq_raw, status, scores_raw, passed_at) =
-        raw;
+    let (
+        id,
+        book_id,
+        module_name,
+        seq,
+        title,
+        slug,
+        prereq_raw,
+        status,
+        scores_raw,
+        passed_at,
+        skipped,
+    ) = raw;
     if !matches!(
         status.as_str(),
         "unlearned" | "learning" | "passed" | "weak" | "consolidated"
@@ -206,6 +221,7 @@ fn parse_block(raw: RawBlock) -> Result<KnowledgeBlock> {
         status,
         scores,
         passed_at,
+        skipped: skipped != 0,
     })
 }
 
@@ -304,5 +320,21 @@ mod tests {
             .map(|k| k.seq)
             .collect();
         assert_eq!(next, vec![2, 3]);
+    }
+
+    #[test]
+    fn list_blocks_reports_skipped_flag() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let b = super::insert_book(&conn, "书", "", super::BookType::Textbook, "bk").unwrap();
+        super::insert_block(&conn, b, "m", 1, "块1", "b1", &[]).unwrap();
+        super::insert_block(&conn, b, "m", 2, "块2", "b2", &[]).unwrap();
+        conn.execute("UPDATE knowledge_block SET skipped=1 WHERE seq=2", [])
+            .unwrap();
+        let blocks = super::list_blocks(&conn, b).unwrap();
+        assert_eq!(
+            blocks.iter().map(|k| k.skipped).collect::<Vec<_>>(),
+            vec![false, true]
+        );
+        assert!(super::get_block(&conn, blocks[1].id).unwrap().skipped);
     }
 }

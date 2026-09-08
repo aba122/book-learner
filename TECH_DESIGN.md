@@ -34,7 +34,9 @@
 - **领域类型单源**:`web/src/types.ts`(镜像 core 模型,camelCase)。
 - **设计代币**:`web/src/theme/tokens.css`(双主题全部视觉参数,经 `@theme inline` 映射为 Tailwind 类名);**行为参数**:`web/src/config.ts`(复习间隔/番茄钟/队列上限/字号档/打字机速度)。
 - **功能切片**:`web/src/features/{today,library,map,reader,feynman,stats,settings}/`,切片间禁止互相 import。
-- EPUB fixture:`web/scripts/make-fixture-epub.mjs` 生成 `web/public/fixtures/sample.epub`(3 章中文 EPUB3,章 href 与 MockBackend.blockSource 对齐)。
+- EPUB fixture:`web/scripts/make-fixture-epub.mjs` 生成 `web/public/fixtures/sample.epub`(3 章中文 EPUB3,章 href 与 MockBackend.blockSource 对齐;2026-09-05 起每章带 h2 小节、重复"小结"与嵌套 `<em>` 标题,供锚定冒烟)。
+- **契约 v2(2026-09-05,Plan B,与 core 用例同名)**:`storeSpine(bookId, chapters)`、`runMapJob(bookId, jobId, onProgress)`(作业 + 草图落库,同 jobId 幂等,进度 `MapProgress`)、`confirmMap(bookId, expectedRevision, ops: MapEditOp[]) → {revision}`、`setAnchorSegments`/`listAnchors`、`startOrResumeSession(taskId, clientRequestId, date) → SessionView`、`submitTurn(sessionId, expectedVersion, clientTurnId, text) → TurnResult`、`requestEvaluation(sessionId, requestId) → EvaluationView`、`confirmSessionVerdict(sessionId, expectedVersion, requestId, pass, date) → VerdictOutcome`、`abandonSession(sessionId, expectedVersion)`。v1 的 `generateMap/startSession/studentReply/endSession/confirmVerdict` 已删除;`completeTask` 保留给今日页复习直接完成(原生仍 unsupported)。id/版本规则见 `web/ARCHITECTURE.md` 规则 6;`TauriBackend` 按 `unsupportedCapabilities` 门控,Mac 接线后逐条移除。
+- **EPUB JS 侧(ADR-0004)**:`web/src/epub/extract.ts`(有序 spine 抽取 → `storeSpine`)、`web/src/epub/anchors.ts`(小节标题 → 多段点 CFI → `setAnchorSegments`)、`web/src/epub/headings.ts`(纯逻辑);真浏览器冒烟 `web/e2e/anchors-smoke.spec.ts`(harness `web/anchors-smoke.html`)。导入向导:importEpub → 抽取 → storeSpine → runMapJob(进度文案)。
 
 ### 1.2 Mac Foundation 已实现边界(2026-09-02)
 
@@ -46,7 +48,7 @@
 - **显式未支持 11 项**:`importEpub`、`generateMap`、`confirmMap`、`completeTask`、`blockSource`、`epubUrl`、`startSession`、`studentReply`、`endSession`、`confirmVerdict`、`stats`;统一调用 `unsupported_capability` 返回不可重试的 `not_implemented`,七个页面都有真实失败态。
 - **数据路径**:生产模式由 Tauri platform data root 显式追加 `book-learner/app.db`,macOS 对应 `~/Library/Application Support/book-learner/app.db`;仅 debug 模式允许绝对路径 `BOOK_LEARNER_DATA_DIR` 覆盖。
 
-Mac Foundation 是原生合同与 SQLite 竖片,不是产品 M1。EPUB、Codex、评估落库、Markdown/Git、Whisper、tray 和导出仍属后续里程碑。
+Mac Foundation 是原生合同与 SQLite 竖片,不是产品 M1。EPUB、Codex、评估落库、Markdown/Git、Whisper、tray 和导出仍属后续里程碑。（2026-09-05 后的能力矩阵以 `web/ARCHITECTURE.md` 为准:8 项原生支持、10 项契约门控待接线、5 项显式未支持。）
 
 ## 2. 数据目录布局
 
@@ -274,9 +276,11 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 - 标题匹配失败时回退为整章范围,并在地图页标记"锚点粗略"供手动校正(阅读器内选区→"设为块起点/终点")。
 - 用户合并块 → CFI 范围数组合并;拆分块 → 进入阅读器选区指定分界点。
 - 学习模式高亮用 epub.js annotations API 对块范围加下划线色层。
+- **已实现(2026-09-05,JS 侧,`web/src/epub/anchors.ts`)**:`resolveBlockAnchors(book, [{spineHref, hint}])`——标题归一化(去编号/NFKC/折叠空白)后精确优先、其次包含匹配;同章同名标题按出现顺序消费;段 = [标题首个文本节点起, 下一同级或更高级标题起),存**两个点 CFI** + 归一化段文本,精度 `exact`;未命中/空 hint → 整章 `chapter_fallback`(文本为整章纯文本)。往返还原 `restoreSegmentText` 用 EpubCFI.toRange 两点组合。手动校正 UI 与阅读器多段高亮留 Mac(Node 7)。
 
 ### 7.3 文本抽取
 - 导入时逐 spine 抽取纯文本(DOM textContent,保留标题层级)缓存进 SQLite,供 prompt 注入与全文搜索,避免每次调用重新解析。
+- **已实现(2026-09-05,JS 侧,`web/src/epub/extract.ts`)**:`extractSpine(book)` 顺序遍历 spine,每章 `{idx, href, title, text}`——title = TOC label(href 匹配)?? 首个 h1..h3 ?? href;text 以 `# `/`## ` 标记标题层级、块级元素分段、段落以空行分隔(与 core Stage A 的 `\n\n` 切片边界一致);同 href 只保留首个;经 `storeSpine` 写入 `spine_item`。
 
 ## 8. 语音链路
 

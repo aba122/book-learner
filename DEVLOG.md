@@ -278,3 +278,76 @@
 - 回写:TECH_DESIGN §3.1(块文件命名 + 历史行幂等标记)、§3.3(outbox 投影已实现)、§4(v4 与 AI 期不持事务)、§5.1/5.2(编排与限额、CompletionRequest.request_id)、§6.1/6.2/6.3 已实现标注与 §6.4–6.8 prompt-only 标注、§7.2(锚点段 + hint);IMPLEMENTATION_PLAN 加 Plan A 注记;基线文档 Node 1/4/5/6/8/9 状态。
 - **Mac 阶段需接线的 command 清单(按 Plan B 契约 v2 命名 → core 用例)**:`storeSpine(bookId, chapters)` → `mapgen::store_spine`;`runMapJob(bookId, jobId)`(进度 `MapProgress` 经 Tauri event)→ `mapgen::run_map_job` + 完成后 `map::apply_draft_map`;`confirmMap(bookId, expectedRevision, ops)` → `map::confirm_map`;`setAnchorSegments(blockId, segments)`/`listAnchors(blockId)` → `map::*`;`startOrResumeSession(taskId, clientRequestId)` → `session::start_or_resume_session`(date=本地日历日);`getSession(sessionId)` → `session::get_session`;`submitTurn(sessionId, expectedVersion, clientTurnId, text)` → `session::fixed_context_for_block`(profile 摘要取 memory/profile.md 前两节)+ `session::submit_turn`(workdir=记忆库根);`abandonSession(sessionId, expectedVersion)` → `session::abandon_session`;`requestEvaluation(sessionId, requestId)` → `verdict::request_evaluation`;`confirmSessionVerdict(sessionId, expectedVersion, requestId, pass)` → `verdict::confirm_session_verdict`,随后异步 `projection::run_pending`;`runProjection()`(启动恢复与后台同步)→ `projection::run_pending`;设置页"测试连接" → `ai::CodexCliProvider::validate/test_connection`;`completeTask` 保持 unsupported。所有慢调用不得持 `Mutex<Connection>`(核心已保证 AI 期无事务,壳层需在调用期间释放连接守卫或使用独立连接)。
 - **待推送**:`feat/m1-core-engine`(A-T0…A-T10 共 12 提交,基于 linux-local)。Plan B 分支将基于本分支。
+
+## 2026-09-05 · Plan B 评审通过与启动(feat/m1-web-contract,Linux)
+- Plan B(`docs/superpowers/plans/2026-09-05-m1-web-contract-linux.md`)独立评审两轮:第一轮 2 条 Issue(unsupported 列表重复 confirmMap;无改动定稿必须仍打开目标设定)+ 6 条建议(评估/判定 id 用每会话常量 `'eval'`/`'verdict'`、契约加 `date`、tauri fixture 补字段、往返还原用 EpubCFI.toRange、门控用例用拒绝型假 invoke、bundle 显式列 tag)全部并入后 **Approved**;末轮 2 条 advisory(evaluating 态禁用输入、放弃用水合版本)亦已写入。
+- 范围:契约 v2(追加式演进,B7 删旧)、MockBackend v2 语义、TauriBackend 门控解码器、费曼页/地图页/导入向导接新契约、EPUB JS 侧抽取与多段 CFI 锚定(Playwright)、回写与 tag `m1-linux-b` + bundle。
+- 基线(独立复跑):web vitest 186 passed / 2 skipped(16 files)、oxlint 0 warnings、build 181 modules、Playwright 1 passed(需 `PLAYWRIGHT_BROWSERS_PATH=/bigtemp/fzv6en/book-learner/playwright-browsers`,浏览器不在 ~/.cache——计划已更新命令);core gate 126+27+1+1。
+
+## 2026-09-05 · B-T1 契约 v2 追加、MockBackend v2 语义、Tauri 门控存根完成(补记:本条与 B-T2 条目在各自 commit 时未成功追加,于 B-T3 补入)
+- core:`KnowledgeBlock.skipped`(BLOCK_COLS/RawBlock/parse + 用例)。web:`types.ts` 增 SpineChapter/AnchorSegment/MapProgress/MapEditOp/SessionState/SessionKind/TurnView/SessionView/TurnResult/EvaluationView/VerdictOutcome,`Book.mapRevision`、`KnowledgeBlock.skipped`;`Backend` 接口追加 9 个 v2 方法(confirmMap 旧签名保留到 B4);wire 契约追加 10 条 command、unsupported 列表 11+9;`lib/ids.ts`(`newClientId`,规则同 core `validate_client_id`,randomUUID 回退)。
+- MockBackend v2:一任务一未确认会话 + clientRequestId 重放;`submitTurn` 同 clientTurnId 重放/版本冲突/空文本拒绝;`requestEvaluation` 同 id 重放、异 id 冲突;`confirmSessionVerdict` 原子(new:pass→passed+scores+passedAt=date+task done,relearn→learning;weak/review 不改块)、同 requestId 重放、outboxOps 4/3;`abandonSession`;`storeSpine`/`runMapJob`(进度 chapter×N→merging→done、块由章标题生成、每块一段 chapter_fallback 锚点、同 jobId 幂等、jobId 跨书冲突)/`setAnchorSegments`/`listAnchors`(blockSource 取段文本)。错误码/文案与 tauri.ts IPC_ERRORS 一致。
+- TauriBackend:`decodeBook.mapRevision`/`decodeBlock.skipped` 缺省时默认 0/false(Mac DTO 待补,接线清单);9 个 v2 方法显式 `unsupported`。传输用例的"受支持命令"过滤改为排除 unsupportedCapabilities 门控项。
+- RED:vitest 15 failed(含 ids 模块缺失)、core 编译错;GREEN:web 199 passed / 2 skipped(17 files)、tsc、oxlint 0、build;core gate 127+27+1+1。
+
+## 2026-09-05 · B-T2 TauriBackend v2 解码器与契约门控完成(补记)
+- `TauriBackend(invokeFn, { contract?, listen? })`:`gated(method, run)` 按契约 `unsupportedCapabilities` 门控(在列 → 显式 `not_implemented`;Mac 接线后移除条目即启用);9 个 v2 方法落地 command 名/payload/出站校验(`outboundClientId` 规则同 core、chapters/segments/pass/date)与解码器(SessionView/TurnView/Eval/TurnResult/EvaluationView/VerdictOutcome/AnchorSegment/MapProgress,路径化 `invalid_response`);`runMapJob` 经注入的 `listen` 订阅 `map_job_progress`(按 jobId 过滤、畸形事件忽略、invoke 结束/失败后 unlisten;无回调不订阅),默认动态加载 `@tauri-apps/api/event`。
+- RED:25 failed;GREEN:web 225 passed / 2 skipped(17 files)、tsc、oxlint 0、build。实现修正:`gated` 须为 async,出站校验的同步 throw 才成为 rejection。
+
+## 2026-09-05 · B-T3 费曼页接会话契约 v2 完成
+- `FeynmanPage`:初始化管线末步 `startOrResumeSession(taskId, clientRequestId(挂载一次), today)`,幂等故允许重试初始化(删除单次守卫);`TeachingRoom` 以 sessionId 为 key 从服务端视图水合(done 回合 → 对话流、version、readyToEnd、evaluated → 直接评估卡、pending 用户回合 → 显示 + "上次发送未完成" 重试、evaluating → 输入禁用 + "继续评估")。发送:`clientTurnId` 触发时生成一次进入 args,重试复用(同 id、同旧版本);评估/判定 id 为每会话常量 `'eval'`/`'verdict'`;确认走 `confirmSessionVerdict(sessionId, version, 'verdict', pass, today)` 单步原子(不再 completeTask/pendingNotice);放弃走 `abandonSession(sessionId, version)`,失败留在页面可重试。
+- 测试重写 20 条(fireEvent+act):契约参数、4 轮→评估→原子判定回今日(版本 5)、重挂载水合同会话、已评估/评估中/pending 回合水合、失败重试参数完全相同、版本冲突、放弃成功/失败、初始化失败重试沿用同一 clientRequestId、既有错误隔离用例。
+- GREEN:web **228 passed / 2 skipped(17 files)**、tsc、oxlint 0、build。
+
+## 2026-09-05 · B-T4 地图页接稳定 id 操作集与修订号乐观并发完成
+- 契约:`confirmMap(bookId, expectedRevision, ops) → { revision }`(删 `MapEditBlock`);Mock 在工作副本上按序应用 rename/renameModule/reorder(须全排列)/setSkipped/merge(来源 skipped、锚点段复制、prereq 重映射)/split(invalid_request),全部合法才提交,修订号不符 conflict、成功 +1;TauriBackend `map_confirm` 门控 + `outboundOps` 逐变体校验 + `decodeRevision`。
+- MapPage:`listBooks` 资源改为 `{title, mapRevision}`;编辑初值沿用 `block.skipped`,浏览模式显示"已跳过",目标换算只计未跳过块;`finalize` 用 `features/map/mapOps.ts` 的 `diffMapOps`(renameModule → setSkipped → reorder)差分,无差异不调后端但仍退出编辑并打开目标设定;成功后重载块与修订号(第二次定稿带新修订号);conflict 不可重试、编辑保留。
+- 测试:Mock confirmMap 3 条(操作集生效且不触碰已通过块、非法操作原子拒绝、merge);Tauri 命令/出站/入站各补 confirmMap;地图页 5 条新用例 + 2 条既有用例按计划调整("进行中双击"先做一个编辑;"定稿后目标设定"断言不调后端)。
+- GREEN:web **239 passed / 2 skipped(17 files)**、tsc、oxlint 0(`diffMapOps` 从页面文件移到 `mapOps.ts` 以满足 only-export-components)、build。
+
+## 2026-09-05 · B-T5 EPUB spine 抽取与小节标题多段 CFI 锚定完成(Playwright 真浏览器覆盖)
+- fixture:`make-fixture-epub.mjs` 每章增 h2 小节(chap1 "小结"×2 章内重复、chap2 "小结" 跨章重复、chap3 `机会<em>成本</em>` 嵌套节点),h1/href 不变,重生成 `public/fixtures/sample.epub`(3823 B);既有 cfi-smoke 仍通过。
+- `epub/headings.ts`(纯逻辑,vitest 6 条):`normalizeHeading`(NFKC、去"第X章/节/1.2/一、/(三)"编号、折叠空白、小写)、`normalizeText`(行内折叠、空行去除、段落 "\n\n" 分隔——与 core Stage A 切片边界一致)、`pickHeading`(精确 > 包含;重复标题按 used 依次消费;空 hint → null)、`segmentEnd`(下一个 level ≤ 本级的标题)。
+- `epub/extract.ts`:`openEpub`、`spineSections`(spine.each)、`loadSection`、`chapterMarkdownText`(标题层级 "# "/"## " 标记 + 块级分段)、`chapterPlainText`(无标记,fallback 段用)、`extractSpine`(TOC label 匹配 href ?? 首个 h1..h3 ?? href;href 去重;每章 unload)。`epub/anchors.ts`:`resolveBlockAnchors`(命中 → [标题首个文本节点起, 下一同级/更高级标题首个文本节点起) exact 段,两个**点** CFI + 归一化文本;未命中/空 hint → 整章 chapter_fallback)、`restoreSegmentText`(EpubCFI.toRange 两点组合 Range)。
+- harness `anchors-smoke.html`/`src/anchors-smoke.ts` + `e2e/anchors-smoke.spec.ts`:spine 3 章/标题/标记文本、精确段在下一小节前结束、章内重复标题 CFI 不同且按序、跨章同名独立、嵌套节点可匹配、缺失/空 hint 回退整章且文本等于 chapterPlainText(≠ 带标记的 spine 文本)、7 段中 5 个 exact 段往返还原相等、多段顺序保持。
+- GREEN:vitest **245 passed / 2 skipped(18 files)**、tsc、oxlint 0、build、Playwright 2/2(`PLAYWRIGHT_BROWSERS_PATH=/bigtemp/fzv6en/book-learner/playwright-browsers`)。
+
+## 2026-09-05 · B-T6 导入向导接 spine 抽取、storeSpine 与地图作业进度完成
+- `ImportWizard`:attempt 记 `{file, type, jobId(选类型时 newClientId 一次), bookId?, chapters?}`;op 依次 importEpub(已导入跳过)→ `openEpub(file.arrayBuffer()) + extractSpine`(已抽取跳过;失败映射为不可重试 `invalid_request`"无法解析这个 EPUB 文件",book 一律 destroy)→ `storeSpine` → `runMapJob(bookId, jobId, p => setProgress(progressLabel(p)))`;重试复用同一 attempt(同 jobId)。`features/library/importProgress.ts` 的 `progressLabel`:chapter → "正在分析第 i/n 章:标题"、merging → "正在整合知识地图…"、done → "已生成 N 个知识块"。
+- 测试(vi.mock 抽取模块;真实抽取由 Playwright 覆盖):完整进度链路与跳转、作业失败重试只重跑作业且 jobId 相同(导入/抽取各 1 次)、抽取失败不可重试并保留文件与类型、既有可重试导入/原生不支持/进行中防重复用例(storeSpine 对假 bookId 需 stub;vi.mock 工厂的 vi.fn 需在 beforeEach mockClear)。
+- GREEN:web **247 passed / 2 skipped(18 files)**、tsc、oxlint 0、build(门禁脚本 `/bigtemp/fzv6en/book-learner/webgate.sh`,取代此前会静默跳过的 && 链)。
+
+## 2026-09-05 · B-T7 移除旧契约、回写文档,Plan B 收尾(tag m1-linux-b)
+- 删除 v1 契约:`Backend` 接口/Mock/TauriBackend 的 `generateMap/startSession/studentReply/endSession/confirmVerdict` 与 `MapEditBlock`;wire `unsupportedCapabilities` 精确为 5 项显式未支持(importEpub/completeTask/blockSource/epubUrl/stats)+ 10 项契约门控(v2);Mock 契约用例改用 v2 方法;`grep -rn "generateMap|startSession|studentReply|endSession|confirmVerdict|MapEditBlock" web/src shared` 为空(费曼页局部处理函数改名 `decide`)。
+- 回写:`web/ARCHITECTURE.md` 规则 6(id 与版本单点、服务端视图水合)、目录导览(lib/ids.ts、epub/)、能力矩阵 8/10/5;`TECH_DESIGN.md` §1.1 契约 v2 与 EPUB JS 侧、§1.2 矩阵指引、§7.2/§7.3 已实现标注;基线文档 Node 5/6/8/9/10 web 侧状态。
+- 每 Task 用例数(web vitest):B1 199 → B2 225 → B3 228 → B4 239 → B5 245 → B6/B7 247(+2 skipped,18 files);Playwright 2 specs;core gate 127 单测 + 27 + 1 + 1(Plan B 仅加 `KnowledgeBlock.skipped`)。
+- 与计划的偏差汇总:①B1/B2/B4/B5 的 DEVLOG 条目在各自 commit 时因 `&&` 链静默中断而缺失,分别补记/amend(B3 补 B1/B2;B4/B5 amend);改用 `webgate.sh`/`gate.sh` 显式门禁后不再发生;②`gated()` 须为 async 才能把出站校验的同步 throw 变成 rejection;③`diffMapOps` 从页面文件移到 `mapOps.ts`(only-export-components);④导入向导测试对假 bookId 需 stub `storeSpine`,vi.mock 工厂的 vi.fn 需 beforeEach mockClear;⑤费曼页 `confirmVerdict` 局部函数改名以保证旧名 grep 为空。
+- **待推送清单(本机无凭证)**:`feat/m1-core-engine`(A-T0…A-T10 + ETXTBSY 修复,基于 linux-local)、`feat/m1-web-contract`(B-T0…B-T7,基于 feat/m1-core-engine)、tags `m1-linux-a`、`m1-linux-b`。便携:`git bundle create /bigtemp/fzv6en/book-learner/m1-linux-pending.bundle ^origin/feat/mac-m1 feat/m1-core-engine feat/m1-web-contract m1-linux-a m1-linux-b`(在本条 commit 与打 tag 之后创建;`git bundle verify`/`list-heads` 结果写入同目录 `m1-linux-pending.bundle.verify.txt`)。凭证到位后:`git push origin linux-local:feat/mac-m1 feat/m1-core-engine feat/m1-web-contract m1-linux-a m1-linux-b`,按顺序开 PR(feat/mac-m1 → main;feat/m1-core-engine → feat/mac-m1;feat/m1-web-contract → feat/m1-core-engine)。
+- **Mac 阶段需接线的 command 清单(wire 名 → core 用例;DTO 为 camelCase 镜像,全部已有 TS 解码器与假 invoke 用例)**:
+  1. `map_store_spine[bookId, chapters: SpineChapter{idx,href,title,text}[]]` → `mapgen::store_spine` → unit(null)。
+  2. `map_run_job[bookId, jobId]` → `mapgen::run_map_job`(workdir=记忆库根;进度经 `MapProgress` 回调发 Tauri event `map_job_progress` payload `{jobId, progress:{stage:'chapter',index,total,title}|{stage:'merging'}|{stage:'done',blocks}}`)→ 成功后 `map::apply_draft_map`(已落库则跳过)→ 返回 `KnowledgeBlock[]`(含 `skipped`)。
+  3. `map_confirm[bookId, expectedRevision, ops: MapEditOp[]]` → `map::confirm_map` → `{revision}`;ops 变体 `rename{blockId,title}|renameModule{from,to}|reorder{blockIds}|setSkipped{blockId,skipped}|merge{into,from}|split{blockId}`。
+  4. `map_set_anchor_segments[blockId, segments: AnchorSegment{spineHref,cfiStart,cfiEnd,precision,hint,text}[]]` → `map::set_anchor_segments` → unit;`map_list_anchors[blockId]` → `map::list_anchors`。
+  5. `session_start_or_resume[taskId, clientRequestId, date]` → `session::start_or_resume_session` → `SessionView{sessionId,taskId,version,state,blockId,kind,transcript:TurnView{role,text,status,clientTurnId|null,readyToEnd}[],eval|null}`。
+  6. `session_submit_turn[sessionId, expectedVersion, clientTurnId, text]` → `session::fixed_context_for_block`(profile 摘要取 memory/profile.md)+ `session::submit_turn`(workdir=记忆库根)→ `TurnResult{studentText,readyToEnd,version}`。
+  7. `session_request_evaluation[sessionId, requestId]` → `verdict::request_evaluation` → `EvaluationView{eval,version}`(requestId 前端固定为 `'eval'`)。
+  8. `session_confirm_verdict[sessionId, expectedVersion, requestId, pass, date]` → `verdict::confirm_session_verdict`(requestId 前端固定为 `'verdict'`)→ `VerdictOutcome{passed,blockStatus,taskDone,outboxOps,version}`,随后异步 `projection::run_pending`。
+  9. `session_abandon[sessionId, expectedVersion]` → `session::abandon_session` → unit。
+  10. DTO 补字段:`Book.mapRevision`(core `book.map_revision`)、`KnowledgeBlock.skipped`(core `KnowledgeBlock.skipped`)——TS 解码器目前缺省 0/false,接线后视为必填。错误码映射:core `Conflict→conflict`、`InvalidInput→invalid_request`、`NotFound→not_found`(前端文案已就位)。
+  接线步骤:实现 command → 从 `shared/tauri-wire-contract.json` 的 `unsupportedCapabilities` 移除该方法名 → `contract.test.ts` 精确列表同步 → TauriBackend 自动走真实 command。所有慢调用不得持 `Mutex<Connection>`(core 已保证 AI 期无事务,壳层需在调用期间释放连接守卫或用独立连接);启动恢复调用 `projection::run_pending`。
+
+## 2026-09-05 · Plan B 复选框补勾与 bundle 重建
+- B-T5 的计划复选框在当时的 commit 中未勾上(同前述 && 链中断问题),本条补勾;Plan A/Plan B 现无未勾选步骤。tag `m1-linux-b` 重指向本提交(tag 从未推送),bundle `/bigtemp/fzv6en/book-learner/m1-linux-pending.bundle` 重建并重新 `verify`(结果见同目录 `.verify.txt`)。
+
+## 2026-09-07 · Mac 阶段执行计划落档
+- 新增 `docs/superpowers/plans/2026-09-07-mac-m1-wiring.md`(M0–M8):推送/三个堆叠 PR 合并 → Rust 侧 wire 常量同步(JSON 19/15 vs Rust 9/11,Tauri 契约用例会先红)→ F3 → Foundation 原生门禁(`mac-m1`)→ 独立连接策略/记忆库根/启动恢复 → 接线地图组 5 条、会话组 5 条 → ADR-0004(默认选项 B,先 spike)与原生导入/epubUrl/blockSource → stats/tray/有序退出 → 受控测试日期 + 端到端门禁(`m1`)。独立评审一轮:6 条问题(契约用例 match panic、tauri.test.ts 为第四处同步点、分支策略矛盾、Book.map_revision 无数据源、asset protocol 作用域写法、测试日期无机制)与 9 条建议全部并入。
+- `CLAUDE.md` 状态区与阅读顺序更新:Mac 会话入口指向该计划。预计 5–6 个工作日。
+
+## 2026-09-07 · 推送、三个堆叠 PR 与 CI 修复
+- 用用户提供的窄权限 token 推送 47 提交并建三个堆叠 PR:[#3](https://github.com/aba122/book-learner/pull/3) feat/mac-m1→main、[#4](https://github.com/aba122/book-learner/pull/4) feat/m1-core-engine→feat/mac-m1、[#5](https://github.com/aba122/book-learner/pull/5) feat/m1-web-contract→feat/m1-core-engine。合并顺序应为 #3 → #4 → #5(#4/#5 的 base 需在前一个合并后改指 main,GitHub 不会自动重定向)。
+- 首轮 CI(runs 34085387055 / 34085388775 / 34085389736)三分支全红,根因两处:
+  - web 任务:`web/src/lib/useAsyncResource.test.ts` 提前构造 `Promise.reject(new Error('x'))`,在被 fetcher 取用前已是未处理拒绝,vitest 报 `Errors 1 error` 并以非零码退出(用例本身 247 通过)。该问题自加固切片起存在;本地门禁 `webgate.sh` 只匹配 "failed" 文本、未看退出码,故未察觉——门禁已改为检查退出码。修复:惰性构造 `() => Promise.reject(...)`。
+  - mac-foundation 任务:加固切片使 `library::set_active_book` 要求书已有学习计划(F4),`web/src-tauri/tests/foundation.rs` 三个用例在设计划前激活书 → `Conflict`。改为先设计划再激活,契约循环前为 `first` 预置计划。feat/m1-web-contract 另缺 B-T1 新增的 `KnowledgeBlock.skipped` 字段(E0063 编译错),补 `skipped: false`。
+  - 修复提交 997cec2 落在 feat/mac-m1,merge 进上两层(7ce9c5e / de0e272);`skipped` 补丁 21a8043 仅在 feat/m1-web-contract。Rust 改动在 Linux 无法编译,以 `cargo fmt --check` + CI(macos-14)为验证。
+- 第二轮 CI:feat/mac-m1 [run 34087344533](https://github.com/aba122/book-learner/actions/runs/34087344533) 全绿;feat/m1-core-engine [run 34087343847](https://github.com/aba122/book-learner/actions/runs/34087343847) 全绿;feat/m1-web-contract [run 34087343910](https://github.com/aba122/book-learner/actions/runs/34087343910) web/core 绿、mac-foundation 红——仅 `real_tauri_ipc_surface_matches_the_shared_wire_contract` 在 `foundation.rs:517` 整体比对失败(JSON 19 命令 vs Rust `WIRE_COMMANDS` 9),即 Mac 计划 M0 的已知缺口,其余 8 个 Tauri 用例通过。PR #5 的 mac 任务在 M0 同步前保持红,不做绕过。
+- 推送本条后即撤销 token(`POST /credentials/revoke`,验证 401),本机不留凭证。

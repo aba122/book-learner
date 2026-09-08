@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
-import type { MapEditBlock } from '../../backend/types'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
@@ -12,7 +11,8 @@ import { localCalendarDate } from '../../lib/localDate'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { BlockStatus, KnowledgeBlock, Scores } from '../../types'
+import type { BlockStatus, KnowledgeBlock, MapEditOp, Scores } from '../../types'
+import { diffMapOps, type EditEntry } from './mapOps'
 
 const STATUS_LABEL: Record<BlockStatus, string> = {
   unlearned: '未学',
@@ -43,13 +43,6 @@ function Stars({ scores }: { scores: Scores }) {
   )
 }
 
-interface EditEntry {
-  title: string
-  moduleName: string
-  skipped: boolean
-  block: KnowledgeBlock
-}
-
 /** 路由参数变化即重挂载:旧 bookId 的晚到结果随旧实例卸载而作废,无需手工 generation。 */
 export default function MapPage() {
   const { bookId: bookIdParam } = useParams()
@@ -72,19 +65,22 @@ function MapPageContent({ bookId }: { bookId: number }) {
   }, [bookId]))
   const title = useAsyncResource(useCallback(async () => {
     const books = await backend.listBooks()
-    return books.find(book => book.id === bookId)?.title ?? ''
+    const book = books.find(entry => entry.id === bookId)
+    return { title: book?.title ?? '', mapRevision: book?.mapRevision ?? 0 }
   }, [bookId]))
   const blocks = blocksRes.data
-  const bookTitle = title.data ?? ''
+  const bookTitle = title.data?.title ?? ''
+  const mapRevision = title.data?.mapRevision ?? 0
 
-  // 定稿:失败保留全部编辑;重试重发精确快照(hook 记录上次 args);成功才重载列表并打开目标设定
+  // 定稿:失败保留全部编辑;重试重发同一操作集与修订号(hook 记录上次 args);成功才重载列表/修订号并打开目标设定
   const confirmOp = useBackendOperation(
-    (snapshot: MapEditBlock[]) => backend.confirmMap(bookId, snapshot),
+    (ops: MapEditOp[], expectedRevision: number) => backend.confirmMap(bookId, expectedRevision, ops),
     {
       onCommitted: async () => {
         setEdits(null)
         setGoalOpen(true)
         void blocksRes.reload()
+        void title.reload()
       },
     },
   )
@@ -92,7 +88,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
   const confirmError = confirmOp.errors.get('confirm')
 
   // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整(须先于 planOp 声明,其闭包引用它)
-  const remaining = blocks?.length ?? 0
+  const remaining = blocks?.filter(b => !b.skipped).length ?? 0
   const dailyBlocks = (() => {
     if (!deadline) return null
     const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
@@ -126,7 +122,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
   const startEdit = () => {
     if (!blocks) return
     confirmOp.clearError('confirm')
-    setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: false, block: b })))
+    setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: b.skipped, block: b })))
   }
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -153,15 +149,16 @@ function MapPageContent({ bookId }: { bookId: number }) {
   }
 
   const finalize = () => {
-    if (!edits) return
-    const snapshot: MapEditBlock[] = edits.map((entry, index) => ({
-      title: entry.title,
-      moduleName: entry.moduleName,
-      seq: index + 1,
-      skipped: entry.skipped,
-    }))
+    if (!edits || !blocks) return
+    const ops = diffMapOps(blocks, edits)
     confirmOp.clearError('confirm')
-    void confirmOp.run('confirm', snapshot)
+    if (ops.length === 0) {
+      // 原样接受生成的地图:不调后端,但目标设定只有此入口,必须仍可达
+      setEdits(null)
+      setGoalOpen(true)
+      return
+    }
+    void confirmOp.run('confirm', ops, mapRevision)
   }
 
   const startLearning = () => {
@@ -259,7 +256,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
                   <Card
                     key={`${block.id}-${flatIdx}`}
                     data-testid="block-item"
-                    className={`flex items-center gap-4 px-5 py-3.5 ${entry?.skipped ? 'opacity-45' : ''}`}
+                    className={`flex items-center gap-4 px-5 py-3.5 ${(entry?.skipped ?? block.skipped) ? 'opacity-45' : ''}`}
                   >
                     <span className="w-6 shrink-0 text-right font-serif text-sm text-ink-4">
                       {flatIdx + 1}
@@ -275,6 +272,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
                       )}
                     </div>
                     {block.scores && !editing && <Stars scores={block.scores} />}
+                    {!editing && block.skipped && <Tag tone="neutral">已跳过</Tag>}
                     {!editing && <Tag tone={STATUS_TONE[block.status]}>{STATUS_LABEL[block.status]}</Tag>}
                     {editing && (
                       <div className="flex shrink-0 items-center gap-1.5">
