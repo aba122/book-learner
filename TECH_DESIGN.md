@@ -311,3 +311,5 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 
 - tauri-plugin-notification 发系统通知;提醒调度由常驻 tray 进程的定时器驱动(app 需开机自启可选项)。
 - 番茄钟状态机在 Rust 侧(防止 webview 休眠漂移),tray 标题显示倒计时;结束通知 + 前端事件。
+
+> **实现说明(M2 T2/T3,2026-09-08)**:判定为纯函数 `core::notify::decide(now_hm, settings, pending_today, sent)`——到达 `remind_time`(容忍迟到 2 分钟)且当日未发 → 每日提醒(无条件);到达 `evening_remind_time` 且当日队列仍有 pending 且未发 → 晚间提醒;幂等标记以 `setting` 表键 `notified:<kind>:<date>` 记录。壳层 `notify::spawn_reminder_thread` 持一条长连接、每 30s 轮询、用 `chrono::Local` 取本地日期/时刻(与前端本地日历日一致,DEV 受控日期不影响提醒),只在晚间窗口内触碰当日队列(幂等生成)取 pending 数;启动时请求通知权限。番茄钟为 `core::pomodoro::Machine`(Idle/Work/Break/Paused,时间以 unix 秒由调用方传入;`start/pause/resume/stop/tick`;专注按整分钟落 `study_minutes`,休息不计),壳层 `AppState.pomodoro: Mutex<Machine>`、ticker 线程每 1s `tick`,阶段变化 → 落分钟、发事件 `pomodoro_changed{snapshot}`、系统通知;托盘标题 `●MM:SS`(专注)/`○MM:SS`(休息)/`‖MM:SS`(暂停),仅在文本变化时写;有序退出前 `stop_for_shutdown` 落已专注分钟。命令 `pomodoro_start[taskId,date]/pause/resume/stop/state`;前端只按快照渲染(`endsAt − now` 每秒重绘)。**macOS 通知与托盘需以 bundle 运行**,目检项见 `docs/smoke/m2-gate.md`。

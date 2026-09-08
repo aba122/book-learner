@@ -472,22 +472,27 @@ printf '%s' 'ok' > "$out"
             bin,
             extra_args: vec![],
         };
-        let req = super::CompletionRequest {
-            system: "".into(),
-            messages: vec![],
-            workdir: dir.path().to_path_buf(),
-            read_only: true,
-            request_id: String::new(),
-            // 3s 而非 1s:整套用例并行且机器有负载时(macOS 上实测),bash 启动可能晚于 1s 才写 marker,
-            // 超时先到会让 marker 缺失而误判;3s 仍能证明"超时后整组终止"
-            timeout_secs: 3,
-        };
-        assert!(super::AiProvider::complete(&prov, &req).is_err());
-        let pid: i32 = std::fs::read_to_string(dir.path().join("marker"))
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        // 整套用例并行且机器有负载时(macOS 实测),bash 可能晚于超时才写 marker:超时先到会把还没起来的脚本
+        // 一起杀掉,marker 缺失并不说明"没杀干净",只说明环境太慢。逐级放大超时重试,直到 marker 出现再断言。
+        let marker = dir.path().join("marker");
+        let mut pid: Option<i32> = None;
+        for timeout_secs in [3u64, 6, 12] {
+            let req = super::CompletionRequest {
+                system: "".into(),
+                messages: vec![],
+                workdir: dir.path().to_path_buf(),
+                read_only: true,
+                request_id: String::new(),
+                timeout_secs,
+            };
+            assert!(super::AiProvider::complete(&prov, &req).is_err());
+            if let Ok(text) = std::fs::read_to_string(&marker) {
+                pid = Some(text.trim().parse().unwrap());
+                break;
+            }
+            eprintln!("marker missing after {timeout_secs}s timeout; retrying with a longer one");
+        }
+        let pid = pid.expect("脚本在 12s 内都没能启动并写 marker,环境异常");
         // SIGKILL 后的孙进程可能短暂为僵尸(等 init 回收),kill -0 对僵尸仍成功,故轮询进程状态
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
