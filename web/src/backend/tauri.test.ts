@@ -320,6 +320,11 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     })
   })
 
+  it('maps ai_unavailable rejections to a retryable error with the safe message (m1-e2e finding)', async () => {
+    const backend = new TauriBackend(async () => { throw { code: 'ai_unavailable', message: 'raw internal cause', retryable: true } })
+    await expect(backend.listBooks()).rejects.toMatchObject({ code: 'ai_unavailable', message: 'AI 暂时没有回应,请重试', retryable: true })
+  })
+
   it('keeps only a shared-contract capability in not_implemented details', async () => {
     const backend = new TauriBackend(async () => {
       throw {

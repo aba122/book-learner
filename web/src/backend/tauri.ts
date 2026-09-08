@@ -63,6 +63,7 @@ const IPC_ERRORS = {
   conflict: { message: '数据状态冲突，请刷新后重试', retryable: false },
   db_unavailable: { message: '无法读取本地学习数据', retryable: true },
   io_failure: { message: '无法访问本地文件', retryable: true },
+  ai_unavailable: { message: 'AI 暂时没有回应,请重试', retryable: true },
   not_implemented: { message: '此功能尚未在 Mac 版中实现', retryable: false },
   internal: { message: '应用内部错误', retryable: false },
 } as const
