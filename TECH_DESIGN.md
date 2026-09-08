@@ -190,6 +190,8 @@ setting(key, value)
 - `projection_outbox(op_id UNIQUE, kind, payload, status pending|done|failed, attempts, error, done_at)`。
 - 用例层:`next_new_blocks` 同时选 `unlearned` 与 `learning`(纯按 seq;重学后的块仍会再入队),`check_behind` 剩余块同样计 learning。
 
+**v5(2026-09-08,M2 T0,user_version=5,追加式)**:`feynman_session.extra_kind`(application|methodology|discussion,NULL = 普通会话;`kind` 仍为 learn、`task_id` 为 NULL;partial unique index `feynman_session_extra_once(block_id, extra_kind)` 保证每块每类一次)、`study_minutes(date, book_id?, task_id?→ON DELETE SET NULL, minutes≥0, source∈{pomodoro}, created_at)`(番茄钟专注分钟,`date` 由前端提供)。**约束**:M2 起 schema 只做加法——`session_turn.session_id` 对 `feynman_session` 有 `ON DELETE CASCADE`,在 `foreign_keys=ON` 下重建 `feynman_session` 会级联删光回合。
+
 ## 5. Codex 集成
 
 ### 5.1 调用约定

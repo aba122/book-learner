@@ -54,6 +54,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.execute_batch(SCHEMA_V4)?;
         tx.pragma_update(None, "user_version", 4)?;
     }
+    if v < 5 {
+        tx.execute_batch(SCHEMA_V5)?;
+        tx.pragma_update(None, "user_version", 5)?;
+    }
     tx.commit()
 }
 
@@ -247,6 +251,24 @@ CREATE TABLE projection_outbox(
   attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL, done_at TEXT);
 "#;
 
+/// v5(2026-09-08,M2 T0):追加式,**不重建任何表**(`session_turn.session_id … ON DELETE CASCADE` 在
+/// foreign_keys=ON 下重建 `feynman_session` 会级联删光回合)。
+/// - `feynman_session.extra_kind`:通过后附加环节(application|methodology|discussion),NULL = 普通会话;
+///   `kind` 仍为 learn,任务关联为 NULL;每块每类只允许一次(partial unique index)。
+/// - `study_minutes`:番茄钟专注分钟(date 由前端提供);`task_id` 可空且随任务删除置空。
+const SCHEMA_V5: &str = r#"
+ALTER TABLE feynman_session ADD COLUMN extra_kind TEXT CHECK(extra_kind IN ('application','methodology','discussion'));
+CREATE UNIQUE INDEX feynman_session_extra_once ON feynman_session(block_id, extra_kind) WHERE extra_kind IS NOT NULL;
+CREATE TABLE study_minutes(
+  id INTEGER PRIMARY KEY, date TEXT NOT NULL,
+  book_id INTEGER REFERENCES book(id) ON DELETE SET NULL,
+  task_id INTEGER REFERENCES daily_task(id) ON DELETE SET NULL,
+  minutes INTEGER NOT NULL CHECK(minutes >= 0),
+  source TEXT NOT NULL CHECK(source IN ('pomodoro')),
+  created_at TEXT NOT NULL);
+CREATE INDEX study_minutes_date ON study_minutes(date);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -293,7 +315,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
         for t in [
             "book",
             "knowledge_block",
@@ -568,7 +590,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 4);
+        assert_eq!(user_version(&conn), 5);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -702,7 +724,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 4);
+        assert_eq!(user_version(&conn), 5);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -752,7 +774,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 4);
+        assert_eq!(user_version(&conn), 5);
         for t in [
             "spine_item",
             "block_anchor",
@@ -807,7 +829,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 4);
+        assert_eq!(user_version(&conn), 5);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -971,5 +993,118 @@ mod tests {
             )
             .unwrap_err();
         assert_constraint_violation(error, ffi::SQLITE_CONSTRAINT_FOREIGNKEY);
+    }
+
+    fn legacy_v4(path: &std::path::Path) -> Connection {
+        let legacy = legacy_v3(path);
+        legacy.execute_batch(super::SCHEMA_V4).unwrap();
+        legacy.pragma_update(None, "user_version", 4).unwrap();
+        legacy
+    }
+
+    #[test]
+    fn open_creates_schema_v5() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 5);
+        assert!(has_column(&conn, "feynman_session", "extra_kind"));
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='study_minutes'"
+            ),
+            1
+        );
+        for idx in [
+            "feynman_session_request",
+            "feynman_session_open_per_task",
+            "feynman_session_verdict_request",
+            "feynman_session_extra_once",
+            "study_minutes_date",
+        ] {
+            assert_eq!(
+                count(
+                    &conn,
+                    &format!(
+                        "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='{idx}'"
+                    )
+                ),
+                1,
+                "missing index {idx}"
+            );
+        }
+        // extra_kind 受 CHECK 约束;每块每类只允许一次
+        conn.execute_batch(
+            "INSERT INTO book(id,title,author,type,slug) VALUES(1,'b','a','textbook','b');
+             INSERT INTO knowledge_block(id,book_id,module_name,seq,title,slug) VALUES(1,1,'m',1,'t','t');",
+        )
+        .unwrap();
+        let insert = |kind: &str| {
+            conn.execute(
+                "INSERT INTO feynman_session(block_id,kind,started_at,extra_kind) VALUES(1,'learn','2026-09-08',?1)",
+                [kind],
+            )
+        };
+        assert!(insert("application").is_ok());
+        assert!(
+            insert("application").is_err(),
+            "second application session for the block"
+        );
+        assert!(insert("bogus").is_err(), "extra_kind CHECK");
+        assert!(
+            conn.execute(
+                "INSERT INTO study_minutes(date,book_id,task_id,minutes,source,created_at) \
+                 VALUES('2026-09-08',1,NULL,-1,'pomodoro','2026-09-08')",
+                [],
+            )
+            .is_err(),
+            "negative minutes"
+        );
+    }
+
+    #[test]
+    fn v4_rows_survive_v5_without_rebuilding_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+        let legacy = legacy_v4(&path);
+        legacy
+            .execute_batch(
+                "INSERT INTO book(id,title,author,type,slug) VALUES(1,'b','a','textbook','b');
+                 INSERT INTO knowledge_block(id,book_id,module_name,seq,title,slug) VALUES(1,1,'m',1,'t','t');
+                 INSERT INTO feynman_session(id,block_id,kind,started_at,state,version,client_request_id) \
+                   VALUES(7,1,'learn','2026-09-05','confirmed',4,'req-7');
+                 INSERT INTO session_turn(session_id,seq,role,text,client_turn_id,created_at) \
+                   VALUES(7,1,'user','讲','turn-1','2026-09-05'),(7,2,'student','问',NULL,'2026-09-05');",
+            )
+            .unwrap();
+        drop(legacy);
+
+        let conn = super::open(&path).unwrap();
+        assert_eq!(user_version(&conn), 5);
+        assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
+        assert_eq!(
+            count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
+            1
+        );
+        for idx in [
+            "feynman_session_request",
+            "feynman_session_open_per_task",
+            "session_turn_client",
+        ] {
+            assert_eq!(
+                count(
+                    &conn,
+                    &format!(
+                        "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='{idx}'"
+                    )
+                ),
+                1,
+                "index {idx} lost"
+            );
+        }
+        drop(conn);
+        // 幂等:再次打开不报错、版本不变
+        let again = super::open(&path).unwrap();
+        assert_eq!(user_version(&again), 5);
+        assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 }

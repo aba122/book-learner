@@ -419,3 +419,7 @@
 - token 策略变更(用户 2026-09-08):推送 token 保留到整个产品开发完成再撤销,存放于本机 `~/.ssh/codex-mac/github-token`(600),不进仓库;此前一枚 token 在该指示到达前已被上一条命令撤销,用户已重发。
 - 新增 `docs/smoke/m1-e2e-gate.md`:M8.1 七步(导入并重启 → 地图/编辑/定稿/目标 → 阅读精确原文并暴露薄弱点 → codex 超时重试 → 评估/确认/投影 → Cmd+Q 一致性 → 推进受控日期重考)+ 日志泄漏检查 + 签字表;附 ADR-0004 真实 WebView 吞吐记录位。**执行需 Mac 桌面会话**;签字后在 main 打 `m1`。`mac-m1` tag 同样待 `docs/smoke/mac-m1-native-smoke.md` 签字。
 - 下一步:M2 学习系统计划(`docs/superpowers/plans/2026-09-08-m2-learning-system.md`),core 已具备 review_schedule 1/3/7/14、on_review_result/on_weak_retest、check_behind 与 §6.4–6.8 prompt,M2 以接线与节奏(通知/番茄钟/重排确认)为主。
+
+## 2026-09-08 · M2 T0:schema v5(追加式)
+- `SCHEMA_V5`:`feynman_session.extra_kind`(CHECK 三值,NULL = 普通会话)+ partial unique index `feynman_session_extra_once(block_id, extra_kind)`;`study_minutes(date, book_id?, task_id?→SET NULL, minutes≥0, source∈{pomodoro}, created_at)` + `(date)` 索引。**不重建任何表**(评审指出:`session_turn` 对 `feynman_session` 级联删除,重建会清空回合)。
+- 用例:`open_creates_schema_v5`(列/表/五个索引、extra_kind CHECK 与每块每类一次、负分钟拒绝)、`v4_rows_survive_v5_without_rebuilding_sessions`(v4 库含会话与 2 条回合 → v5 后回合不丢、索引不丢、`extra_kind` 为 NULL、二次打开幂等);既有版本断言 4→5。core 131/27/1/1、clippy 0。TECH_DESIGN §4 补 v5。
