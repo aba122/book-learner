@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -495,6 +495,25 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(seen).toEqual([{ ...snap, phase: 'break' }])
     const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('final exam: eligible/start/finish decode with a nullable bookId and a 1..5 overall (M3 T1)', async () => {
+    const view = { ...sessionView, sessionId: 11, taskId: 0, kind: 'final_exam', bookId: 1, transcript: [] }
+    const report = { artifactId: 5, version: 4, contentMd: '<!-- overall:4 strongest:a weakest:b -->\n## 总体掌握度', overall: 4, strongestModule: 'a', weakestModule: 'b' }
+    const { calls, invoke } = recorder({ final_exam_eligible: true, final_exam_start: view, final_exam_finish: report })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.finalExamEligible(1)).toBe(true)
+    expect(await backend.finalExamStart(1, 'final-1')).toEqual(view)
+    expect(await backend.finalExamFinish(11, 3, 'final-report')).toEqual(report)
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['final_exam_eligible', { bookId: 1 }],
+      ['final_exam_start', { bookId: 1, clientRequestId: 'final-1' }],
+      ['final_exam_finish', { sessionId: 11, expectedVersion: 3, requestId: 'final-report' }],
+    ])
+    const bad = new TauriBackend(async <T>() => ({ ...report, overall: 9 }) as T)
+    await expect(bad.finalExamFinish(11, 3, 'final-report')).rejects.toMatchObject({ code: 'invalid_response' })
+    const badBook = new TauriBackend(async <T>() => ({ ...view, bookId: 'x' }) as T)
+    await expect(badBook.finalExamStart(1, 'final-1')).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('extra stage: start decodes a session with extraKind, finish decodes the outcome (Mac M2 T5)', async () => {
@@ -591,7 +610,7 @@ const evalResult = {
   observationNote: '举例能力强',
 }
 const sessionView = {
-  sessionId: 7, taskId: 3, version: 2, state: 'open', blockId: 4, kind: 'learn', extraKind: null,
+  sessionId: 7, taskId: 3, version: 2, state: 'open', blockId: 4, kind: 'learn', extraKind: null, bookId: null,
   transcript: [
     { role: 'user', text: '弹性是相对变化率', status: 'done', clientTurnId: 't1', readyToEnd: false },
     { role: 'student', text: '讲清楚了', status: 'done', clientTurnId: null, readyToEnd: true },

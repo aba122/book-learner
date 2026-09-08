@@ -36,7 +36,10 @@
     { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] },
     { "method": "extraStart", "command": "extra_start", "payloadKeys": ["blockId", "kind", "clientRequestId"] },
     { "method": "extraFinish", "command": "extra_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] },
-    { "method": "statsDetail", "command": "stats_detail", "payloadKeys": ["date"] }
+    { "method": "statsDetail", "command": "stats_detail", "payloadKeys": ["date"] },
+    { "method": "finalExamEligible", "command": "final_exam_eligible", "payloadKeys": ["bookId"] },
+    { "method": "finalExamStart", "command": "final_exam_start", "payloadKeys": ["bookId", "clientRequestId"] },
+    { "method": "finalExamFinish", "command": "final_exam_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

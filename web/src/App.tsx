@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { backend } from './backend'
 import FeynmanPage from './features/feynman/FeynmanPage'
+import FinalExamPage from './features/feynman/FinalExamPage'
 import LibraryPage from './features/library/LibraryPage'
 import MapPage from './features/map/MapPage'
 import ReaderPage from './features/reader/ReaderPage'
@@ -89,6 +90,7 @@ export default function App() {
             <Route path="/map/:bookId" element={<MapPage />} />
             <Route path="/reader/:blockId" element={<ReaderPage />} />
             <Route path="/feynman/:taskId" element={<FeynmanPage />} />
+            <Route path="/final/:bookId" element={<FinalExamPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>

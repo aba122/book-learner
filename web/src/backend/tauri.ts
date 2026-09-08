@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -372,6 +372,7 @@ function decodeSessionView(value: unknown): SessionView {
     blockId: safeIntegerAt(wire.blockId, `${path}.blockId`),
     kind: enumAt(wire.kind, `${path}.kind`, SESSION_KINDS),
     extraKind: wire.extraKind === null ? null : enumAt(wire.extraKind, `${path}.extraKind`, EXTRA_KINDS),
+    bookId: nullableAt(wire.bookId, `${path}.bookId`, safeIntegerAt),
     transcript: arrayAt(wire.transcript, `${path}.transcript`, decodeTurnView),
     eval: wire.eval === null ? null : decodeEval(wire.eval, `${path}.eval`),
   }
@@ -384,6 +385,20 @@ function decodeExtraOutcome(value: unknown): ExtraOutcome {
     artifactId: safeIntegerAt(wire.artifactId, 'extra.artifactId'),
     version: safeIntegerAt(wire.version, 'extra.version'),
     contentMd: stringAt(wire.contentMd, 'extra.contentMd'),
+  }
+}
+
+function decodeFinalReport(value: unknown): FinalReport {
+  const wire = objectAt(value, 'finalReport')
+  const overall = safeIntegerAt(wire.overall, 'finalReport.overall')
+  if (overall < 1 || overall > 5) invalidShape('finalReport.overall', '1..5', overall)
+  return {
+    artifactId: safeIntegerAt(wire.artifactId, 'finalReport.artifactId'),
+    version: safeIntegerAt(wire.version, 'finalReport.version'),
+    contentMd: stringAt(wire.contentMd, 'finalReport.contentMd'),
+    overall,
+    strongestModule: stringAt(wire.strongestModule, 'finalReport.strongestModule'),
+    weakestModule: stringAt(wire.weakestModule, 'finalReport.weakestModule'),
   }
 }
 
@@ -803,6 +818,30 @@ export class TauriBackend implements Backend {
   /** 统计以本地日历日为"今天"(core 不读系统时间) */
   async stats(): Promise<Stats> {
     return this.gated('stats', () => this.decode('stats_get', { date: localCalendarDate() }, decodeStats))
+  }
+
+  finalExamEligible(bookId: number): Promise<boolean> {
+    return this.gated('finalExamEligible', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('final_exam_eligible', { bookId }, value => booleanAt(value, 'final_exam_eligible'))
+    })
+  }
+
+  finalExamStart(bookId: number, clientRequestId: string): Promise<SessionView> {
+    return this.gated('finalExamStart', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundClientId(clientRequestId, 'clientRequestId')
+      return this.decode('final_exam_start', { bookId, clientRequestId }, decodeSessionView)
+    })
+  }
+
+  finalExamFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<FinalReport> {
+    return this.gated('finalExamFinish', () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundInteger(expectedVersion, 'expectedVersion')
+      outboundClientId(requestId, 'requestId')
+      return this.decode('final_exam_finish', { sessionId, expectedVersion, requestId }, decodeFinalReport)
+    })
   }
 
   async statsDetail(): Promise<StatsDetail> {

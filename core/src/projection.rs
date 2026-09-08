@@ -149,6 +149,35 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
                 &content,
             )
         }
+        "report_archive" => {
+            let artifact_id = field_i64(&p, "artifact_id")?;
+            let entry_key = field_str(&p, "entry_key")?;
+            let (book_id, kind, content, created_at): (i64, String, String, String) = conn
+                .query_row(
+                    "SELECT book_id,kind,content_md,created_at FROM artifact WHERE id=?1",
+                    [artifact_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?
+                .ok_or_else(|| CoreError::NotFound(format!("artifact {artifact_id}")))?;
+            if kind != "report" {
+                return Err(CoreError::InvalidInput(format!(
+                    "artifact {artifact_id} kind {kind:?} is not a report"
+                )));
+            }
+            let (slug, title) = book_slug_title(conn, book_id)?;
+            memory.ensure_book(&slug, &title)?;
+            let date = created_at.get(..10).unwrap_or(&created_at);
+            memory.append_archive(
+                &slug,
+                &title,
+                "_report.md",
+                "学习报告",
+                entry_key,
+                &format!("{date} · 整书终评"),
+                &content,
+            )
+        }
         "git_commit" => memory.commit(field_str(&p, "message")?),
         other => Err(CoreError::InvalidInput(format!(
             "unknown projection kind {other:?}"

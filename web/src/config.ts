@@ -22,11 +22,16 @@ export const OPENER_TURN_ID = 'opener'
 export const OPENER_TEXT: Partial<Record<SessionKind, string>> = {
   review: '请开始快问',
   retest: '请针对我的薄弱点提问',
+  final_exam: '请开始终评',
 }
 export const SESSION_HINT: Partial<Record<SessionKind, string>> = {
   review: '间隔复习 · 快问,约 5 分钟',
   retest: '薄弱点重考 · 优先讲清曾经混淆之处',
+  final_exam: '整书终评 · 先讲全书框架,再答 2–3 道综合题',
 }
+/** 整书终评(M3 T1):结束请求 id 为常量,重进后同 id 重放同一报告;至少作答次数与 core MIN_USER_TURNS_TO_FINISH − 1 一致 */
+export const FINAL_EXAM_REQUEST_ID = 'final-report'
+export const FINAL_EXAM_MIN_ANSWERS = 2
 /** 落后重排弹窗"本日不再提醒"的偏好键(值为日历日,M2 T4) */
 export const REPLAN_DISMISSED_KEY = 'bookLearner.replanDismissed'
 /** 通过后附加环节(M2 T5):按书类型选种类;opener 为前端固定开场回合文案(core 回合协议要求用户先开口) */

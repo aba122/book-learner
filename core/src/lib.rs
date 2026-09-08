@@ -2,6 +2,7 @@ pub mod ai;
 pub mod db;
 pub mod eval;
 pub mod extra;
+pub mod final_exam;
 pub mod library;
 pub mod map;
 pub mod mapgen;

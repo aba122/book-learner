@@ -58,6 +58,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.execute_batch(SCHEMA_V5)?;
         tx.pragma_update(None, "user_version", 5)?;
     }
+    if v < 6 {
+        tx.execute_batch(SCHEMA_V6)?;
+        tx.pragma_update(None, "user_version", 6)?;
+    }
     tx.commit()
 }
 
@@ -269,6 +273,14 @@ CREATE TABLE study_minutes(
 CREATE INDEX study_minutes_date ON study_minutes(date);
 "#;
 
+/// v6(M3 T1,只做加法):
+/// - `feynman_session.book_id`:整书终评会话所属的书(普通会话 NULL);终评会话的 `block_id` 为该书 seq 最小的未跳过块占位;
+/// - `feynman_session_final_once`:每书同时只有一个未放弃的终评会话(放弃后可重开)。
+const SCHEMA_V6: &str = r#"
+ALTER TABLE feynman_session ADD COLUMN book_id INTEGER REFERENCES book(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX feynman_session_final_once ON feynman_session(book_id) WHERE kind='final_exam' AND state<>'abandoned';
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -315,7 +327,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
         for t in [
             "book",
             "knowledge_block",
@@ -590,7 +602,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -724,7 +736,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -774,7 +786,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         for t in [
             "spine_item",
             "block_anchor",
@@ -829,7 +841,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1003,9 +1015,65 @@ mod tests {
     }
 
     #[test]
+    fn open_creates_schema_v6_and_v5_rows_survive() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 6);
+        assert!(has_column(&conn, "feynman_session", "book_id"));
+        let idx: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='feynman_session_final_once'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx, 1);
+        // v5 库 → v6:会话与回合不丢,book_id 默认 NULL,重复 open 幂等
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v5.db");
+        let legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch(super::SCHEMA_V1).unwrap();
+        legacy.execute_batch(super::CONVERGE_V2).unwrap();
+        legacy.execute_batch(super::SCHEMA_V2).unwrap();
+        legacy.execute_batch(super::SCHEMA_V3).unwrap();
+        legacy.execute_batch(super::SCHEMA_V4).unwrap();
+        legacy.execute_batch(super::SCHEMA_V5).unwrap();
+        legacy.pragma_update(None, "user_version", 5).unwrap();
+        legacy
+            .execute_batch(
+                "INSERT INTO book(id,title,type,slug) VALUES(1,'书','textbook','bk');
+                 INSERT INTO knowledge_block(id,book_id,module_name,seq,title,slug) VALUES(7,1,'m',1,'块','blk');
+                 INSERT INTO feynman_session(id,block_id,kind,started_at,state,version) VALUES(3,7,'learn','x','open',0);
+                 INSERT INTO session_turn(session_id,seq,role,text,status,created_at) VALUES(3,1,'user','讲','done','x');",
+            )
+            .unwrap();
+        drop(legacy);
+        let conn = super::open(&path).unwrap();
+        assert_eq!(user_version(&conn), 6);
+        assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
+        let book_id: Option<i64> = conn
+            .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(book_id, None);
+        // 同书两个未放弃终评会话被唯一索引拒绝;放弃后可再开
+        conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
+        assert!(conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).is_err());
+        conn.execute(
+            "UPDATE feynman_session SET state='abandoned' WHERE kind='final_exam'",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
+        drop(conn);
+        let again = super::open(&path).unwrap();
+        assert_eq!(user_version(&again), 6);
+    }
+
+    #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1079,7 +1147,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1104,7 +1172,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 5);
+        assert_eq!(user_version(&again), 6);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 }

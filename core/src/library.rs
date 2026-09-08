@@ -75,13 +75,17 @@ pub fn finish_book(conn: &Connection, book_id: i64) -> Result<()> {
     if exists.is_none() {
         return Err(CoreError::NotFound(format!("book {book_id}")));
     }
-    transaction
-        .execute("UPDATE book SET status='finished' WHERE id=?1", [book_id])
-        .map_err(write_error)?;
-    transaction
-        .execute("UPDATE study_plan SET active=0 WHERE book_id=?1", [book_id])
-        .map_err(write_error)?;
+    finish_book_in(&transaction, book_id)?;
     transaction.commit().map_err(write_error)?;
+    Ok(())
+}
+
+/// `finish_book` 的事务内版本(M3 T1):供整书终评在自己的事务里调用(嵌套开事务会报错)。
+pub fn finish_book_in(conn: &Connection, book_id: i64) -> Result<()> {
+    conn.execute("UPDATE book SET status='finished' WHERE id=?1", [book_id])
+        .map_err(write_error)?;
+    conn.execute("UPDATE study_plan SET active=0 WHERE book_id=?1", [book_id])
+        .map_err(write_error)?;
     Ok(())
 }
 

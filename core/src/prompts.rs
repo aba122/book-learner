@@ -173,7 +173,47 @@ pub fn extra_summary_prompt(
     )
 }
 
-/// 6.8 整书终评。prompt only。
+/// 6.8 整书终评的阶段化 system prompt(M3 T1):①学生扮演式追问全书框架;②跨章节综合题。无 JSON 子句,
+/// 开场协议同快问(前端固定 opener「请开始终评」先开口),收尾以 [READY_TO_END] 标记。
+pub fn final_exam_system(
+    ty: BookType,
+    profile_summary: &str,
+    map_summary: &str,
+    phase: u8,
+) -> String {
+    let stage = if phase <= 1 {
+        "现在是第一阶段:用户说『请开始终评』后,请用户先讲出全书框架(各模块讲什么、主线是什么、为什么这样组织),\
+你以学生扮演式追问 2–3 轮:每次只回复一段话、只提一个问题,追问模块之间的关系与跳步之处,绝不讲课。".to_string()
+    } else {
+        let kind = match ty {
+            BookType::Textbook => "综合应用题(把多个模块的概念用到一个现实情境里)",
+            BookType::Methodology => "整合方法论题(把全书框架整合到用户画像里的个人情境)",
+            BookType::Humanities => "贯通脉络论述题(跨章节的因果链与主题演变)",
+        };
+        format!(
+            "现在是第二阶段:出 2–3 道跨章节{kind},每次只出一道;用户答完给一句简评再出下一道。\
+全部答完后,回复以 [READY_TO_END] 结尾示意可以生成学习报告。绝不整段讲课。"
+        )
+    };
+    format!(
+        "你是整书终评考官。用户已按知识地图学完全书,现在做整书终评。{stage}\n\n\
+=== 学习者画像摘要 ===\n{profile_summary}\n\n=== 全书知识地图与各块状态 ===\n{map_summary}\n\n\
+提示:你的工作目录即记忆库,可自主阅读 INDEX.md 与该书 blocks/ 下的文件补充上下文。"
+    )
+}
+
+/// 6.8 学习报告整理 prompt(M3 T1):只输出 markdown,首行为元注释 `<!-- overall:N strongest:… weakest:… -->`。
+pub fn final_report_prompt(map_summary: &str, weak_history: &str, transcript: &str) -> String {
+    format!(
+        "基于全书知识地图与各块状态、薄弱点修复历程和终评对话,输出学习报告 markdown。\n\
+首行必须是元注释:<!-- overall:N strongest:最强模块名 weakest:最弱模块名 -->(N 为 1–5 的总体掌握度整数)。\n\
+随后依次:## 总体掌握度(一段评价)/ ## 最强模块 / ## 最弱模块 / ## 薄弱点修复历程 / ## 建议重读章节 / ## 终评对话要点。\n\n\
+=== 知识地图 ===\n{map_summary}\n\n=== 薄弱点修复历程 ===\n{weak_history}\n\n=== 终评对话 ===\n{transcript}\n\n\
+只输出 markdown 正文,不要任何其它文字,不要代码围栏。"
+    )
+}
+
+/// 6.8 整书终评(旧单段构造器,保留供参考;实际流程用 `final_exam_system` + `final_report_prompt`)。
 pub fn final_exam_prompt(map_summary: &str) -> String {
     format!(
 "基于全书知识地图与各块状态:①请用户先讲出全书框架(学生扮演式追问 2–3 轮);②出 2–3 道跨章节综合题\
