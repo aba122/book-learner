@@ -874,6 +874,73 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 }
 
 #[test]
+fn reader_marks_round_trip_through_commands() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("marks.db")).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    let mark = commands::reader_mark_add_inner(
+        &state,
+        first,
+        serde_json::from_value(json!({
+            "kind": "highlight", "spineHref": "ch0.xhtml", "cfiStart": "epubcfi(/6/4!/4/2/1:0)", "cfiEnd": "epubcfi(/6/4!/4/2/1:8)", "text": "弹性"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        (mark.kind.as_str(), mark.color.as_str()),
+        ("highlight", "yellow")
+    );
+    let updated = commands::reader_mark_update_inner(
+        &state,
+        mark.id,
+        Some("批注".into()),
+        Some("blue".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        (updated.note.as_str(), updated.color.as_str()),
+        ("批注", "blue")
+    );
+    let position =
+        commands::reader_position_set_inner(&state, first, "ch0.xhtml", "epubcfi(/6/4!/4/2/1:0)")
+            .unwrap();
+    assert_eq!(position.kind, "position");
+    assert_eq!(
+        commands::reader_mark_list_inner(&state, first)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        commands::reader_mark_add_inner(
+            &state,
+            first,
+            serde_json::from_value(
+                json!({"kind": "highlight", "spineHref": "x", "cfiStart": "bad"})
+            )
+            .unwrap()
+        )
+        .unwrap_err()
+        .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+    assert!(
+        serde_json::from_value::<book_learner_app::dto::NewReaderMarkDto>(
+            json!({"kind": "bookmark", "spineHref": "x", "cfiStart": "epubcfi(/6)", "extra": 1})
+        )
+        .is_err()
+    );
+    commands::reader_mark_remove_inner(&state, mark.id).unwrap();
+    assert_eq!(
+        commands::reader_mark_remove_inner(&state, mark.id)
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::NotFound
+    );
+}
+
+#[test]
 fn backup_snapshot_restore_marker_and_git_push_lane_work_end_to_end() {
     let directory = tempfile::tempdir().unwrap();
     // initialize_state(platform_dir) 解析为 <platform_dir>/book-learner/app.db(无调试覆盖时)
@@ -2214,6 +2281,32 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 json!({})
             }
             "backup_restore" => json!({"name": format!("app-{DAY}.db")}),
+            "reader_mark_list" => json!({"bookId": first}),
+            "reader_mark_add" => json!({"bookId": first, "mark": {
+                "kind": "highlight", "spineHref": "ch0.xhtml", "cfiStart": "epubcfi(/6/4!/4/2/1:0)",
+                "cfiEnd": "epubcfi(/6/4!/4/2/1:8)", "text": "弹性", "color": "green"
+            }}),
+            "reader_mark_update" => {
+                let state = app.state::<AppState>();
+                let id = commands::reader_mark_list_inner(&state, first)
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .id;
+                json!({"id": id, "note": "重要", "color": null})
+            }
+            "reader_mark_remove" => {
+                let state = app.state::<AppState>();
+                let id = commands::reader_mark_list_inner(&state, first)
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .id;
+                json!({"id": id})
+            }
+            "reader_position_set" => {
+                json!({"bookId": first, "spineHref": "ch0.xhtml", "cfi": "epubcfi(/6/4!/4/2/1:0)"})
+            }
             "git_remote_set" => {
                 let bare = export_vault.path().join("remote.git");
                 assert!(std::process::Command::new("git")

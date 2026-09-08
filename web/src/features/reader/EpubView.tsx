@@ -1,37 +1,44 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
   next: () => void
   prev: () => void
-  display: (href: string) => void
+  /** 章节 href 或 CFI */
+  display: (target: string) => void
+  /** 当前页起点 CFI 与章节 href(未定位时为 null) */
+  currentLocation: () => { cfi: string; href: string } | null
 }
 
 export type ReaderTheme = 'paper' | 'sepia' | 'night'
 
-/** 从 tokens.css 读取阅读器主题(epub 在 iframe 中渲染,需要具体值) */
-function readerThemes() {
-  const css = getComputedStyle(document.documentElement)
-  const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
-  const lineHeight = v('--reading-line-height', '1.9')
-  const fontSans = v('--font-sans', 'sans-serif')
-  const theme = (bg: string, ink: string) => ({
-    body: {
-      background: bg,
-      color: ink,
-      'line-height': lineHeight,
-      'font-family': fontSans,
-      padding: '0 8%',
-    },
-    'h1, h2, h3': { color: ink },
-    p: { 'text-indent': '2em', margin: '0.6em 0' },
-  })
-  return {
-    paper: theme(v('--reader-paper-bg', '#fdfaf2'), v('--reader-paper-ink', '#221c14')),
-    sepia: theme(v('--reader-sepia-bg', '#f2e5c9'), v('--reader-sepia-ink', '#463922')),
-    night: theme(v('--reader-night-bg', '#171512'), v('--reader-night-ink', '#cfc6b3')),
-  }
+export interface ReaderTypography {
+  /** 行高(1.5 / 1.8 / 2.1) */
+  lineHeight: number
+  /** 段首缩进 */
+  indent: boolean
+  /** 覆盖出版方样式:注入字体栈/行高/两端对齐/版心;关闭时只注入主题色 */
+  overridePublisher: boolean
+}
+
+export interface HighlightAnnotation {
+  /** 区间 CFI(epub.js annotations 只接受区间) */
+  cfiRange: string
+  color: string
+}
+
+export interface BlockSegment {
+  spineHref: string
+  cfiStart: string
+  cfiEnd: string
+}
+
+export interface SelectionInfo {
+  cfiRange: string
+  text: string
+  href: string
 }
 
 const EpubView = forwardRef<
@@ -40,22 +47,43 @@ const EpubView = forwardRef<
     url: string
     fontSizePct: string
     theme: ReaderTheme
+    typography?: ReaderTypography
     initialHref?: string
+    highlights?: HighlightAnnotation[]
+    blockSegments?: BlockSegment[]
     onToc?: (toc: NavItem[]) => void
     onProgress?: (fraction: number) => void
+    onSelected?: (selection: SelectionInfo) => void
+    onRelocated?: (location: { cfi: string; href: string }) => void
   }
->(function EpubView({ url, fontSizePct, theme, initialHref, onToc, onProgress }, ref) {
+>(function EpubView(
+  { url, fontSizePct, theme, typography = DEFAULT_TYPOGRAPHY, initialHref, highlights, blockSegments, onToc, onProgress, onSelected, onRelocated },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
-  // 最新回调经 ref 供 epub 事件使用;在提交阶段同步,不在渲染期写 ref(react/refs)
+  const appliedHighlights = useRef<Set<string>>(new Set())
+  const appliedSegments = useRef<Set<string>>(new Set())
+  const lastLocation = useRef<{ cfi: string; href: string } | null>(null)
+  // 最新回调与数据经 ref 供 epub 事件使用;在提交阶段同步,不在渲染期写 ref(react/refs)
   const onTocRef = useRef(onToc)
   const onProgressRef = useRef(onProgress)
+  const onSelectedRef = useRef(onSelected)
+  const onRelocatedRef = useRef(onRelocated)
   const initialHrefRef = useRef(initialHref)
+  const typographyRef = useRef(typography)
+  const themeRef = useRef(theme)
+  const segmentsRef = useRef(blockSegments)
   useLayoutEffect(() => {
     onTocRef.current = onToc
     onProgressRef.current = onProgress
+    onSelectedRef.current = onSelected
+    onRelocatedRef.current = onRelocated
     initialHrefRef.current = initialHref
+    typographyRef.current = typography
+    themeRef.current = theme
+    segmentsRef.current = blockSegments
   })
 
   useEffect(() => {
@@ -70,24 +98,54 @@ const EpubView = forwardRef<
       allowScriptedContent: false,
     })
     rendRef.current = rendition
-    for (const [name, styles] of Object.entries(readerThemes())) {
+    appliedHighlights.current = new Set()
+    appliedSegments.current = new Set()
+    for (const [name, styles] of Object.entries(readerThemes(typographyRef.current))) {
       rendition.themes.register(name, styles)
     }
+    rendition.themes.select(themeRef.current)
     rendition.display(initialHrefRef.current || undefined)
     book.loaded.navigation.then(nav => onTocRef.current?.(nav.toc))
-    // 进度:locations 就绪后按 CFI 百分比汇报
+    rendition.on('selected', (cfiRange: string, contents: { window?: Window; section?: { href?: string } }) => {
+      const text = contents?.window?.getSelection?.()?.toString().trim() ?? ''
+      const href = lastLocation.current?.href ?? contents?.section?.href ?? ''
+      onSelectedRef.current?.({ cfiRange, text, href })
+    })
+    // 学习模式:该章渲染后把块锚点的两点 CFI 组合成区间并加下划线(多段块每段一条)
+    rendition.on('rendered', (section: SectionLike, view: ViewLike) => {
+      const doc = view?.contents?.document
+      if (!doc) return
+      for (const seg of segmentsRef.current ?? []) {
+        if (seg.spineHref !== section.href) continue
+        const key = `${seg.spineHref}|${seg.cfiStart}|${seg.cfiEnd}`
+        if (appliedSegments.current.has(key)) continue
+        const cfiRange = rangeCfiFromPoints(section, doc, seg.cfiStart, seg.cfiEnd)
+        if (!cfiRange) continue
+        try {
+          rendition.annotations.underline(cfiRange, {}, undefined, 'bl-block', { stroke: 'rgba(120, 90, 40, 0.55)', 'stroke-width': '2px' })
+          appliedSegments.current.add(key)
+        } catch {
+          /* 注解失败不影响阅读 */
+        }
+      }
+    })
+    // 进度与位置:relocated 给出当前页起点;locations 就绪后按 CFI 百分比汇报
+    rendition.on('relocated', (location: { start: { cfi: string; href: string } }) => {
+      const cfi = location?.start?.cfi
+      const href = location?.start?.href ?? ''
+      if (cfi) {
+        lastLocation.current = { cfi, href }
+        onRelocatedRef.current?.({ cfi, href })
+      }
+      try {
+        const pct = book.locations.percentageFromCfi(cfi)
+        if (typeof pct === 'number') onProgressRef.current?.(pct)
+      } catch {
+        /* locations 不可用时静默 */
+      }
+    })
     book.ready
       ?.then(() => book.locations?.generate(600))
-      .then(() => {
-        rendition.on('relocated', (location: { start: { cfi: string } }) => {
-          try {
-            const pct = book.locations.percentageFromCfi(location.start.cfi)
-            if (typeof pct === 'number') onProgressRef.current?.(pct)
-          } catch {
-            /* locations 不可用时静默 */
-          }
-        })
-      })
       .catch(() => {})
 
     const onResize = () => {
@@ -103,6 +161,7 @@ const EpubView = forwardRef<
       book.destroy()
       bookRef.current = null
       rendRef.current = null
+      lastLocation.current = null
     }
   }, [url])
 
@@ -110,14 +169,51 @@ const EpubView = forwardRef<
     rendRef.current?.themes.fontSize(fontSizePct)
   }, [fontSizePct])
 
+  // 主题或排版开关变化:重注册三套主题并重新选中(epub.js 会重新注入到 iframe)
   useEffect(() => {
-    rendRef.current?.themes.select(theme)
-  }, [theme])
+    const rendition = rendRef.current
+    if (!rendition) return
+    for (const [name, styles] of Object.entries(readerThemes(typography))) {
+      rendition.themes.register(name, styles)
+    }
+    rendition.themes.select(theme)
+  }, [theme, typography])
+
+  // 高亮同步:新增的加、消失的删(按区间 CFI)
+  useEffect(() => {
+    const rendition = rendRef.current
+    if (!rendition) return
+    const wanted = new Map((highlights ?? []).map(h => [h.cfiRange, h]))
+    for (const cfi of Array.from(appliedHighlights.current)) {
+      if (!wanted.has(cfi)) {
+        try {
+          rendition.annotations.remove(cfi, 'highlight')
+        } catch {
+          /* 已不存在 */
+        }
+        appliedHighlights.current.delete(cfi)
+      }
+    }
+    for (const [cfi, h] of wanted) {
+      if (appliedHighlights.current.has(cfi)) continue
+      try {
+        rendition.annotations.highlight(cfi, {}, undefined, 'bl-highlight', {
+          fill: HIGHLIGHT_FILL[h.color] ?? HIGHLIGHT_FILL.yellow,
+          'fill-opacity': '1',
+          'mix-blend-mode': 'multiply',
+        })
+        appliedHighlights.current.add(cfi)
+      } catch {
+        /* 区间不在当前章节时 epub.js 会在渲染到该章时补画 */
+      }
+    }
+  }, [highlights])
 
   useImperativeHandle(ref, () => ({
     next: () => void rendRef.current?.next(),
     prev: () => void rendRef.current?.prev(),
-    display: href => void rendRef.current?.display(href),
+    display: target => void rendRef.current?.display(target),
+    currentLocation: () => lastLocation.current,
   }))
 
   return <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />

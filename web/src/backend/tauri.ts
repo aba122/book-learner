@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -434,6 +434,25 @@ function decodePushResult(value: unknown): PushResult {
   return {
     pushed: booleanAt(wire.pushed, 'pushResult.pushed'),
     error: nullableAt(wire.error, 'pushResult.error', stringAt),
+  }
+}
+
+const READER_MARK_KINDS = ['highlight', 'bookmark', 'position'] as const satisfies readonly ReaderMarkKind[]
+
+function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
+  const wire = objectAt(value, path)
+  return {
+    id: safeIntegerAt(wire.id, `${path}.id`),
+    bookId: safeIntegerAt(wire.bookId, `${path}.bookId`),
+    kind: enumAt(wire.kind, `${path}.kind`, READER_MARK_KINDS),
+    spineHref: stringAt(wire.spineHref, `${path}.spineHref`),
+    cfiStart: stringAt(wire.cfiStart, `${path}.cfiStart`),
+    cfiEnd: nullableAt(wire.cfiEnd, `${path}.cfiEnd`, stringAt),
+    text: stringAt(wire.text, `${path}.text`),
+    color: stringAt(wire.color, `${path}.color`),
+    note: stringAt(wire.note, `${path}.note`),
+    createdAt: stringAt(wire.createdAt, `${path}.createdAt`),
+    updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
   }
 }
 
@@ -943,6 +962,47 @@ export class TauriBackend implements Backend {
   }
   gitPushNow(): Promise<PushResult> {
     return this.gated('gitPushNow', () => this.decode('git_push_now', {}, decodePushResult))
+  }
+
+  readerMarkList(bookId: number): Promise<ReaderMark[]> {
+    return this.gated('readerMarkList', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('reader_mark_list', { bookId }, value => arrayAt(value, 'readerMarks', (item, path) => decodeReaderMark(item, path)))
+    })
+  }
+  readerMarkAdd(bookId: number, mark: NewReaderMark): Promise<ReaderMark> {
+    return this.gated('readerMarkAdd', () => {
+      outboundInteger(bookId, 'bookId')
+      const wire = objectAt(mark, 'mark', 'invalid_request')
+      outboundString(wire.kind, 'mark.kind')
+      outboundString(wire.spineHref, 'mark.spineHref')
+      outboundString(wire.cfiStart, 'mark.cfiStart')
+      const payload = {
+        kind: mark.kind, spineHref: mark.spineHref, cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd ?? null,
+        text: mark.text ?? '', color: mark.color ?? '', note: mark.note ?? '',
+      }
+      return this.decode('reader_mark_add', { bookId, mark: payload }, value => decodeReaderMark(value))
+    })
+  }
+  readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark> {
+    return this.gated('readerMarkUpdate', () => {
+      outboundInteger(id, 'id')
+      return this.decode('reader_mark_update', { id, note, color }, value => decodeReaderMark(value))
+    })
+  }
+  async readerMarkRemove(id: number): Promise<void> {
+    return this.gated('readerMarkRemove', async () => {
+      outboundInteger(id, 'id')
+      await this.decode('reader_mark_remove', { id }, value => unitAt(value, 'reader_mark_remove'))
+    })
+  }
+  readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark> {
+    return this.gated('readerPositionSet', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(spineHref, 'spineHref')
+      outboundString(cfi, 'cfi')
+      return this.decode('reader_position_set', { bookId, spineHref, cfi }, value => decodeReaderMark(value))
+    })
   }
 
   async statsDetail(): Promise<StatsDetail> {

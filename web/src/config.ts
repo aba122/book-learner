@@ -15,6 +15,12 @@ export const KIND_ORDER: TaskKind[] = ['weak_retest', 'review', 'new']
 /** 阅读器字号档(epub.js themes.fontSize 百分比)与默认档下标 */
 export const READER_FONT_STEPS = [90, 100, 112, 126, 142] as const
 export const READER_FONT_DEFAULT_IDX = 1
+/** 阅读器行高档位与默认档;排版偏好键(每台设备,localStorage;M3 T4) */
+export const READER_LINE_HEIGHTS = [1.5, 1.8, 2.1] as const
+export const READER_LINE_HEIGHT_DEFAULT_IDX = 1
+export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
+/** 阅读位置写回节流(毫秒):relocated 很密,只记最后一次 */
+export const READER_POSITION_DEBOUNCE_MS = 800
 /** 学生回复打字机渐显速度(毫秒/字) */
 export const TYPEWRITER_CHAR_MS = 28
 /** 快问会话(review/retest,M2 T1):core 回合协议要求用户先开口,前端以固定 id 自动提交开场回合(幂等,重进不重复) */

@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, PushResult, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -600,6 +600,54 @@ export class MockBackend implements Backend {
   }
   async gitPushNow(): Promise<PushResult> {
     return this.gitRemote ? { pushed: true, error: null } : { pushed: false, error: '未配置记忆库远程' }
+  }
+
+  /** 阅读器标记(M3 T4):内存实现,镜像 core 的幂等/upsert/校验 */
+  private marks: ReaderMark[] = []
+  private nextMarkId = 1
+  async readerMarkList(bookId: number): Promise<ReaderMark[]> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    return this.marks.filter(m => m.bookId === bookId).map(m => ({ ...m }))
+  }
+  async readerMarkAdd(bookId: number, mark: NewReaderMark): Promise<ReaderMark> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    if (!mark.cfiStart.startsWith('epubcfi(') || (mark.kind === 'highlight' && !mark.cfiEnd)) throw invalidRequest()
+    if (mark.kind === 'position') return this.readerPositionSet(bookId, mark.spineHref, mark.cfiStart)
+    if (mark.kind === 'bookmark') {
+      const existing = this.marks.find(m => m.bookId === bookId && m.kind === 'bookmark' && m.spineHref === mark.spineHref && m.cfiStart === mark.cfiStart)
+      if (existing) return { ...existing }
+    }
+    const now = new Date().toISOString()
+    const created: ReaderMark = {
+      id: this.nextMarkId++, bookId, kind: mark.kind, spineHref: mark.spineHref, cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd ?? null,
+      text: mark.text ?? '', color: mark.kind === 'highlight' ? (mark.color || 'yellow') : (mark.color ?? ''), note: mark.note ?? '', createdAt: now, updatedAt: now,
+    }
+    this.marks.push(created)
+    return { ...created }
+  }
+  async readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark> {
+    const m = this.marks.find(x => x.id === id)
+    if (!m) throw notFound()
+    if (note !== null) m.note = note
+    if (color !== null) m.color = color
+    m.updatedAt = new Date().toISOString()
+    return { ...m }
+  }
+  async readerMarkRemove(id: number): Promise<void> {
+    const idx = this.marks.findIndex(x => x.id === id)
+    if (idx < 0) throw notFound()
+    this.marks.splice(idx, 1)
+  }
+  async readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    if (!cfi.startsWith('epubcfi(')) throw invalidRequest()
+    const now = new Date().toISOString()
+    let m = this.marks.find(x => x.bookId === bookId && x.kind === 'position')
+    if (m) { m.spineHref = spineHref; m.cfiStart = cfi; m.updatedAt = now } else {
+      m = { id: this.nextMarkId++, bookId, kind: 'position', spineHref, cfiStart: cfi, cfiEnd: null, text: '', color: '', note: '', createdAt: now, updatedAt: now }
+      this.marks.push(m)
+    }
+    return { ...m }
   }
 
   async finalExamEligible(bookId: number): Promise<boolean> {

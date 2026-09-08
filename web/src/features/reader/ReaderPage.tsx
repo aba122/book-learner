@@ -6,10 +6,13 @@ import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Tag from '../../components/Tag'
-import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS } from '../../config'
+import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
+import { readPref, writePref } from '../../lib/prefs'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
-import type { KnowledgeBlock } from '../../types'
-import EpubView, { type EpubHandle, type ReaderTheme } from './EpubView'
+import type { HighlightColor, KnowledgeBlock, ReaderMark } from '../../types'
+import EpubView, { type EpubHandle, type ReaderTheme, type ReaderTypography, type SelectionInfo } from './EpubView'
+import MarksPanel from './MarksPanel'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
   { name: 'paper', label: '纸白', swatchClass: 'bg-paper-2 border-line' },
@@ -21,7 +24,42 @@ interface ReaderContent {
   block: KnowledgeBlock
   source: { href: string; text: string }
   url: string
+  /** 首次取到的标记(含上次阅读位置);之后按本地操作维护 */
+  readerMarksInit: ReaderMark[]
+  /** 块锚点段(学习模式下画下划线;chapter_fallback 段无区间,跳过) */
+  segments: { spineHref: string; cfiStart: string; cfiEnd: string }[]
 }
+
+interface ReaderPrefs {
+  fontIdx: number
+  theme: ReaderTheme
+  lineIdx: number
+  indent: boolean
+  overridePublisher: boolean
+}
+
+const DEFAULT_PREFS: ReaderPrefs = { fontIdx: READER_FONT_DEFAULT_IDX, theme: 'paper', lineIdx: READER_LINE_HEIGHT_DEFAULT_IDX, indent: true, overridePublisher: true }
+
+function loadPrefs(): ReaderPrefs {
+  try {
+    const raw = readPref(READER_PREFS_KEY)
+    if (!raw) return DEFAULT_PREFS
+    const parsed = JSON.parse(raw) as Partial<ReaderPrefs>
+    const fontIdx = Number.isInteger(parsed.fontIdx) && parsed.fontIdx! >= 0 && parsed.fontIdx! < READER_FONT_STEPS.length ? parsed.fontIdx! : DEFAULT_PREFS.fontIdx
+    const lineIdx = Number.isInteger(parsed.lineIdx) && parsed.lineIdx! >= 0 && parsed.lineIdx! < READER_LINE_HEIGHTS.length ? parsed.lineIdx! : DEFAULT_PREFS.lineIdx
+    const theme = parsed.theme === 'sepia' || parsed.theme === 'night' ? parsed.theme : 'paper'
+    return { fontIdx, lineIdx, theme, indent: parsed.indent ?? true, overridePublisher: parsed.overridePublisher ?? true }
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
+const HIGHLIGHT_COLORS: { color: HighlightColor; label: string; swatch: string }[] = [
+  { color: 'yellow', label: '黄', swatch: 'bg-yellow-300' },
+  { color: 'green', label: '绿', swatch: 'bg-green-300' },
+  { color: 'blue', label: '蓝', swatch: 'bg-blue-300' },
+  { color: 'pink', label: '粉', swatch: 'bg-pink-300' },
+]
 
 /** 路由参数变化即重挂载:旧 blockId 的晚到结果随旧实例卸载而作废。 */
 export default function ReaderPage() {
@@ -40,20 +78,40 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [toc, setToc] = useState<NavItem[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [fontIdx, setFontIdx] = useState(READER_FONT_DEFAULT_IDX)
-  const [theme, setTheme] = useState<ReaderTheme>('paper')
+  const [prefs, setPrefs] = useState<ReaderPrefs>(loadPrefs)
+  const { fontIdx, theme, lineIdx, indent, overridePublisher } = prefs
+  const updatePrefs = (patch: Partial<ReaderPrefs>) => {
+    setPrefs(cur => {
+      const next = { ...cur, ...patch }
+      writePref(READER_PREFS_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+  const setFontIdx = (next: number | ((cur: number) => number)) => updatePrefs({ fontIdx: typeof next === 'function' ? next(fontIdx) : next })
+  const setTheme = (next: ReaderTheme) => updatePrefs({ theme: next })
+  const typography: ReaderTypography = { lineHeight: READER_LINE_HEIGHTS[lineIdx], indent, overridePublisher }
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
+  const [marksOpen, setMarksOpen] = useState(false)
+  const [marks, setMarks] = useState<ReaderMark[] | null>(null)
+  const [selection, setSelection] = useState<SelectionInfo | null>(null)
+  const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布
   const content = useAsyncResource(useCallback(async (isCurrent: () => boolean): Promise<ReaderContent> => {
     const block = await backend.getBlock(blockId)
     if (!isCurrent()) throw new StaleResult()
-    const [source, url] = await Promise.all([
+    const [source, url, readerMarksInit, anchors] = await Promise.all([
       backend.blockSource(blockId),
       backend.epubUrl(block.bookId),
+      backend.readerMarkList(block.bookId),
+      backend.listAnchors(blockId),
     ])
-    return { block, source, url }
+    if (!isCurrent()) throw new StaleResult()
+    const segments = anchors
+      .filter(a => a.precision === 'exact')
+      .map(a => ({ spineHref: a.spineHref, cfiStart: a.cfiStart, cfiEnd: a.cfiEnd }))
+    return { block, source, url, readerMarksInit, segments }
   }, [blockId]))
   const block = content.data?.block ?? null
   const source = content.data?.source ?? null
@@ -73,6 +131,48 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const learning = taskId !== null
   const ready = block !== null && source !== null && url !== null
   const goBack = () => (backTaskId ? navigate(`/feynman/${backTaskId}`) : navigate(-1))
+  // 标记清单:内容管线里首次取到,之后按本地操作维护(不重拉整本书)
+  const initialMarks = content.data?.readerMarksInit ?? []
+  const currentMarks = marks ?? initialMarks
+  const position = initialMarks.find(m => m.kind === 'position') ?? null
+  const highlights = currentMarks.filter(m => m.kind === 'highlight' && m.cfiEnd).map(m => ({ cfiRange: m.cfiEnd as string, color: m.color }))
+  const bookId = block?.bookId ?? null
+
+  const addMarkOp = useBackendOperation(async (mark: Parameters<typeof backend.readerMarkAdd>[1]) => {
+    if (bookId === null) return
+    const created = await backend.readerMarkAdd(bookId, mark)
+    setMarks(cur => [...(cur ?? initialMarks).filter(m => m.id !== created.id), created])
+  })
+  const removeMarkOp = useBackendOperation(async (mark: ReaderMark) => {
+    await backend.readerMarkRemove(mark.id)
+    setMarks(cur => (cur ?? initialMarks).filter(m => m.id !== mark.id))
+  })
+  const markError = addMarkOp.errors.get('add') ?? removeMarkOp.errors.get('remove')
+
+  const addBookmark = () => {
+    const loc = epubRef.current?.currentLocation()
+    if (!loc || bookId === null) return
+    addMarkOp.clearError('add')
+    void addMarkOp.run('add', { kind: 'bookmark', spineHref: loc.href, cfiStart: loc.cfi, text: block ? `${block.moduleName} · ${block.title}` : loc.href })
+  }
+  const addHighlight = (color: HighlightColor) => {
+    if (!selection || bookId === null) return
+    const sel = selection
+    setSelection(null)
+    addMarkOp.clearError('add')
+    // 区间 CFI 存在 cfiEnd;cfiStart 记同一区间起点(epub.js annotations 按区间工作)
+    void addMarkOp.run('add', { kind: 'highlight', spineHref: sel.href, cfiStart: sel.cfiRange, cfiEnd: sel.cfiRange, text: sel.text.slice(0, 400), color })
+  }
+  const onRelocated = (loc: { cfi: string; href: string }) => {
+    if (bookId === null) return
+    if (positionTimer.current) clearTimeout(positionTimer.current)
+    positionTimer.current = setTimeout(() => {
+      backend.readerPositionSet(bookId, loc.href, loc.cfi).catch(() => {
+        /* 位置写回失败只影响下次起点 */
+      })
+    }, READER_POSITION_DEBOUNCE_MS)
+  }
+  useEffect(() => () => { if (positionTimer.current) clearTimeout(positionTimer.current) }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -94,6 +194,12 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <Button className="px-3 py-1.5 text-xs" onClick={() => setTocOpen(o => !o)}>
               目录
             </Button>
+            <Button className="px-3 py-1.5 text-xs" onClick={addBookmark} disabled={addMarkOp.pending.has('add')}>
+              书签
+            </Button>
+            <Button className="px-3 py-1.5 text-xs" onClick={() => setMarksOpen(o => !o)}>
+              标记
+            </Button>
             <Button
               className="px-3 py-1.5 text-xs"
               aria-label="阅读设置"
@@ -113,15 +219,22 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <AsyncError error={initError} onRetry={loadContent} />
           </div>
         ) : ready ? (
-          <EpubView
-            ref={epubRef}
-            url={url}
-            fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
-            theme={theme}
-            initialHref={source?.href}
-            onToc={setToc}
-            onProgress={setProgress}
-          />
+          <div className="mx-auto h-full w-full max-w-[38em]">
+            <EpubView
+              ref={epubRef}
+              url={url}
+              fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
+              theme={theme}
+              typography={typography}
+              initialHref={learning ? (content.data?.segments[0]?.cfiStart ?? source?.href) : (position?.cfiStart ?? source?.href)}
+              highlights={highlights}
+              blockSegments={learning ? content.data?.segments : undefined}
+              onToc={setToc}
+              onProgress={setProgress}
+              onSelected={setSelection}
+              onRelocated={onRelocated}
+            />
+          </div>
         ) : (
           <p className="p-10 text-sm text-ink-3">正在打开书籍…</p>
         )}
@@ -144,6 +257,35 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
               ›
             </button>
           </>
+        )}
+
+        {/* 选区工具条:高亮四色 */}
+        {selection && (
+          <div role="toolbar" aria-label="选区操作" className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-m border border-line bg-paper-2 px-3 py-2 shadow-pop">
+            <span className="max-w-48 truncate text-xs text-ink-3">{selection.text || '已选中'}</span>
+            {HIGHLIGHT_COLORS.map(c => (
+              <button
+                key={c.color}
+                aria-label={`高亮:${c.label}`}
+                className={`h-5 w-5 cursor-pointer rounded-full border border-line ${c.swatch}`}
+                onClick={() => addHighlight(c.color)}
+              />
+            ))}
+            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => setSelection(null)}>取消</button>
+          </div>
+        )}
+        {markError && (
+          <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
+            <AsyncError error={markError} variant="compact" />
+          </div>
+        )}
+        {marksOpen && ready && (
+          <MarksPanel
+            marks={currentMarks}
+            onJump={mark => { epubRef.current?.display(mark.kind === 'highlight' ? (mark.cfiEnd ?? mark.cfiStart) : mark.cfiStart); setMarksOpen(false) }}
+            onRemove={mark => { removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', mark) }}
+            onClose={() => setMarksOpen(false)}
+          />
         )}
 
         {/* 目录抽屉 */}
@@ -211,6 +353,31 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 ))}
               </div>
             </div>
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-xs text-ink-3">行高</span>
+              <div className="flex items-center gap-1">
+                {READER_LINE_HEIGHTS.map((lh, i) => (
+                  <button
+                    key={lh}
+                    aria-label={`行高:${lh}`}
+                    aria-pressed={lineIdx === i}
+                    onClick={() => updatePrefs({ lineIdx: i })}
+                    className={`cursor-pointer rounded-s px-2 py-1 text-xs ${lineIdx === i ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
+                  >
+                    {lh}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="mt-3 flex items-center justify-between text-xs text-ink-3">
+              段首缩进
+              <input type="checkbox" checked={indent} disabled={!overridePublisher} onChange={e => updatePrefs({ indent: e.target.checked })} />
+            </label>
+            <label className="mt-2 flex items-center justify-between text-xs text-ink-3">
+              覆盖出版方样式
+              <input type="checkbox" checked={overridePublisher} onChange={e => updatePrefs({ overridePublisher: e.target.checked })} />
+            </label>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-4">关闭覆盖时只保留主题配色,字体/行高/版心交给书自带样式。</p>
           </Card>
         )}
 

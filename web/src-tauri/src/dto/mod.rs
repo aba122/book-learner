@@ -874,3 +874,69 @@ impl From<book_learner_core::backup::SnapshotInfo> for SnapshotDto {
         }
     }
 }
+
+// ---- 阅读器标记(M3 T4)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderMarkDto {
+    pub id: i64,
+    pub book_id: i64,
+    pub kind: String,
+    pub spine_href: String,
+    pub cfi_start: String,
+    pub cfi_end: Option<String>,
+    pub text: String,
+    pub color: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
+    fn from(m: book_learner_core::reader_marks::ReaderMark) -> Self {
+        Self {
+            id: m.id,
+            book_id: m.book_id,
+            kind: m.kind,
+            spine_href: m.spine_href,
+            cfi_start: m.cfi_start,
+            cfi_end: m.cfi_end,
+            text: m.text,
+            color: m.color,
+            note: m.note,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewReaderMarkDto {
+    pub kind: String,
+    pub spine_href: String,
+    pub cfi_start: String,
+    #[serde(default)]
+    pub cfi_end: Option<String>,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
+    fn from(m: NewReaderMarkDto) -> Self {
+        Self {
+            kind: m.kind,
+            spine_href: m.spine_href,
+            cfi_start: m.cfi_start,
+            cfi_end: m.cfi_end,
+            text: m.text,
+            color: m.color,
+            note: m.note,
+        }
+    }
+}

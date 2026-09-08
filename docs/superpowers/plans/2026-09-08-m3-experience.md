@@ -79,10 +79,10 @@ docs/smoke/m3-gate.md
 
 **Files:** `core/src/{db.rs,reader_marks.rs(新)}`、壳层与契约六处、`web/src/features/reader/{ReaderPage.tsx,EpubView.tsx,MarksPanel.tsx(新)}`、`web/src/config.ts`
 
-- [ ] **T4.1 失败测试(core)**:v6 表 `reader_mark(id, book_id → CASCADE, kind IN ('highlight','bookmark'), spine_href, cfi_start, cfi_end NULL(书签), text, color, note, created_at)`;`reader_marks::{add, update_note, remove, list(book_id)}`;书签同 `spine_href+cfi_start` 幂等。
-- [ ] **T4.2 壳层/契约**:`reader_mark_add/update/remove/list`;foundation 用例。
-- [ ] **T4.3 web**:`EpubHandle`(现只有 `next/prev/display`)扩展 `currentCfi()`、`addAnnotation(kind, rangeCfi, cls)`/`removeAnnotation`、`onSelected(cb)`、`onRelocated(cb)`;`useEffect([url])` 重建 rendition 后**重加全部注解**;高亮(选区 → 颜色 → `annotations.highlight`,重进恢复)、书签(当前页 CFI,列表跳转)、`MarksPanel`(目录/书签/高亮三页签);学习模式**多段块高亮**(自 M1 延后项):`block_anchor` 存的是两个折叠点 CFI,该章渲染后用 `EpubCFI.toRange` 两点组合成 Range,再 `section.cfiFromRange` 得区间 CFI 后 `annotations.underline`;手动锚点校正(选区 → "设为块起点/终点" → `setAnchorSegments`);阅读位置持久化(`reader_mark kind='position'` 每书一行 upsert,重开回到上次位置);排版:字体栈(`Songti SC / PingFang SC` + 可选内置霞鹜文楷 woff2 放 `web/public/fonts/` 以绝对 URL 在 iframe 主题 `@font-face` 引用,约 10 MB 进 dmg 记 DEVLOG)、**版心 38em 约束容器 div 而非 iframe body**(分页模式由 epub.js 控制 body 宽度与分栏)、行高档位(1.5/1.8/2.1,持久化)、两端对齐、`text-autospace`(macOS 15.4+ 生效,低版本忽略)、段首缩进开关、**出版方样式覆盖开关**(关闭时不注入版心/字体规则,只保留主题色);偏好持久化到 `lib/prefs.ts`;Mock。vitest:高亮/书签 CRUD 经 Mock、开关切换注入规则、多段高亮的区间 CFI 组合与调用次数、阅读位置恢复。
-- [ ] **T4.4** 门禁;DEVLOG;PR `feat/m3-t4-reader-polish`。
+- [x] **T4.1 失败测试(core)**:v6 表 `reader_mark(id, book_id → CASCADE, kind IN ('highlight','bookmark'), spine_href, cfi_start, cfi_end NULL(书签), text, color, note, created_at)`;`reader_marks::{add, update_note, remove, list(book_id)}`;书签同 `spine_href+cfi_start` 幂等。
+- [x] **T4.2 壳层/契约**:`reader_mark_add/update/remove/list`;foundation 用例。
+- [x] **T4.3 web**:`EpubHandle`(现只有 `next/prev/display`)扩展 `currentCfi()`、`addAnnotation(kind, rangeCfi, cls)`/`removeAnnotation`、`onSelected(cb)`、`onRelocated(cb)`;`useEffect([url])` 重建 rendition 后**重加全部注解**;高亮(选区 → 颜色 → `annotations.highlight`,重进恢复)、书签(当前页 CFI,列表跳转)、`MarksPanel`(目录/书签/高亮三页签);学习模式**多段块高亮**(自 M1 延后项):`block_anchor` 存的是两个折叠点 CFI,该章渲染后用 `EpubCFI.toRange` 两点组合成 Range,再 `section.cfiFromRange` 得区间 CFI 后 `annotations.underline`;手动锚点校正(选区 → "设为块起点/终点" → `setAnchorSegments`);阅读位置持久化(`reader_mark kind='position'` 每书一行 upsert,重开回到上次位置);排版:字体栈(`Songti SC / PingFang SC` + 可选内置霞鹜文楷 woff2 放 `web/public/fonts/` 以绝对 URL 在 iframe 主题 `@font-face` 引用,约 10 MB 进 dmg 记 DEVLOG)、**版心 38em 约束容器 div 而非 iframe body**(分页模式由 epub.js 控制 body 宽度与分栏)、行高档位(1.5/1.8/2.1,持久化)、两端对齐、`text-autospace`(macOS 15.4+ 生效,低版本忽略)、段首缩进开关、**出版方样式覆盖开关**(关闭时不注入版心/字体规则,只保留主题色);偏好持久化到 `lib/prefs.ts`;Mock。vitest:高亮/书签 CRUD 经 Mock、开关切换注入规则、多段高亮的区间 CFI 组合与调用次数、阅读位置恢复。
+- [x] **T4.4** 门禁;DEVLOG;PR `feat/m3-t4-reader-polish`。
 
 ## Task T5: 数据安全(1 天;不依赖其它 Task)
 

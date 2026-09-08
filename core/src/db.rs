@@ -34,7 +34,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 当前 schema 版本(快照恢复只接受 ≤ 此版本的库)。
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -68,6 +68,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 7 {
         tx.execute_batch(SCHEMA_V7)?;
         tx.pragma_update(None, "user_version", 7)?;
+    }
+    if v < 8 {
+        tx.execute_batch(SCHEMA_V8)?;
+        tx.pragma_update(None, "user_version", 8)?;
     }
     tx.commit()
 }
@@ -295,6 +299,18 @@ ALTER TABLE projection_outbox ADD COLUMN lane TEXT NOT NULL DEFAULT 'main';
 ALTER TABLE projection_outbox ADD COLUMN next_retry_at TEXT;
 "#;
 
+/// v8(M3 T4,只做加法):阅读器标记(高亮 / 书签 / 阅读位置),随书级联删除。
+const SCHEMA_V8: &str = r#"
+CREATE TABLE reader_mark(
+  id INTEGER PRIMARY KEY,
+  book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('highlight','bookmark','position')),
+  spine_href TEXT NOT NULL, cfi_start TEXT NOT NULL, cfi_end TEXT,
+  text TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX reader_mark_book ON reader_mark(book_id, kind);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -341,7 +357,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 7);
+        assert_eq!(v, 8);
         for t in [
             "book",
             "knowledge_block",
@@ -616,7 +632,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -750,7 +766,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -800,7 +816,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         for t in [
             "spine_item",
             "block_anchor",
@@ -855,7 +871,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1031,7 +1047,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v6_and_v5_rows_survive() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         assert!(has_column(&conn, "feynman_session", "book_id"));
         let idx: i64 = conn
             .query_row(
@@ -1062,7 +1078,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
         let book_id: Option<i64> = conn
             .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
@@ -1081,13 +1097,13 @@ mod tests {
         conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
         drop(conn);
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 7);
+        assert_eq!(user_version(&again), 8);
     }
 
     #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1161,7 +1177,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 7);
+        assert_eq!(user_version(&conn), 8);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1186,7 +1202,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 7);
+        assert_eq!(user_version(&again), 8);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 }
