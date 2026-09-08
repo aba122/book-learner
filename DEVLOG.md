@@ -413,3 +413,9 @@
 - **M8.2 无人值守段(Mac 实测)**:真实 codex 冒烟(core `codex_real_smoke`,本机 codex-cli 0.153.0)10.25s 通过;`tauri build --no-bundle` release 1m02s 通过(14.3 MB);干净数据目录启动冒烟:release 二进制首启存活、无 ERROR(写入正式位置 `~/Library/Application Support/book-learner/`,因 `BOOK_LEARNER_DATA_DIR` 覆盖仅 debug 生效)与 debug 二进制隔离目录首启均生成 `app.db`/`books/`/`memory/`(git init 一次提交)、启动投影恢复 processed=0、按 pid 干净结束;核心/壳层/前端全量测试、clippy、fmt、lint、tsc、web build 均绿。Playwright、`tauri dev` 目检、真实 WebView 导入吞吐与 M8.1 七步端到端需桌面会话。
 - **M8.3**:CLAUDE.md 状态区、IMPLEMENTATION_PLAN M1 验收注记、基线 Node 0/2/3/7/11/12 状态行已回写;PR 合并与 main 上 tag `m1` 待用户按 #3→#4→#5→#6 合并后执行。
 - **本机未推送提交**(M7.2 起):需用户再提供 token 或在 Mac 上配置 GitHub 凭证后推送到 feat/mac-m1-wiring(PR #6 自动更新)。
+
+## 2026-09-08 · 合并 PR #3→#4→#5→#6 至 main;端到端门禁模板
+- 按用户指示以 merge 方式顺序合并:[#3](https://github.com/aba122/book-learner/pull/3) 4deb045 → [#4](https://github.com/aba122/book-learner/pull/4) 1ea2477(base 改指 main)→ [#5](https://github.com/aba122/book-learner/pull/5) 0cebe52(其 head 的 mac-foundation 为已知红,由 #6 修复,合并前 mergeable_state=unstable)→ [#6](https://github.com/aba122/book-learner/pull/6) 2ac4096(head 4234bc1 CI 三任务绿,[run 34183141170](https://github.com/aba122/book-learner/actions/runs/34183141170))。main = 2ac4096,Mac 与 Linux 克隆均已同步。
+- token 策略变更(用户 2026-09-08):推送 token 保留到整个产品开发完成再撤销,存放于本机 `~/.ssh/codex-mac/github-token`(600),不进仓库;此前一枚 token 在该指示到达前已被上一条命令撤销,用户已重发。
+- 新增 `docs/smoke/m1-e2e-gate.md`:M8.1 七步(导入并重启 → 地图/编辑/定稿/目标 → 阅读精确原文并暴露薄弱点 → codex 超时重试 → 评估/确认/投影 → Cmd+Q 一致性 → 推进受控日期重考)+ 日志泄漏检查 + 签字表;附 ADR-0004 真实 WebView 吞吐记录位。**执行需 Mac 桌面会话**;签字后在 main 打 `m1`。`mac-m1` tag 同样待 `docs/smoke/mac-m1-native-smoke.md` 签字。
+- 下一步:M2 学习系统计划(`docs/superpowers/plans/2026-09-08-m2-learning-system.md`),core 已具备 review_schedule 1/3/7/14、on_review_result/on_weak_retest、check_behind 与 §6.4–6.8 prompt,M2 以接线与节奏(通知/番茄钟/重排确认)为主。
