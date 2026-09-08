@@ -869,4 +869,46 @@ mod tests {
             Err(crate::CoreError::InvalidInput(_))
         ));
     }
+
+    #[test]
+    fn reviews_and_retests_of_paused_and_finished_books_still_enter_the_queue() {
+        let (conn, active) = setup();
+        // 第二本书:已学完(计划冻结),留一条到期复习与一条 open 薄弱点
+        let finished = crate::models::insert_book(
+            &conn,
+            "旧书",
+            "",
+            crate::models::BookType::Humanities,
+            "old",
+        )
+        .unwrap();
+        let old_block =
+            crate::models::insert_block(&conn, finished, "m", 1, "旧块", "old-block", &[]).unwrap();
+        conn.execute(
+            "INSERT INTO study_plan(book_id,deadline,daily_new_blocks,daily_cap,active) VALUES(?1,'2026-12-31',1,4,0)",
+            [finished],
+        )
+        .unwrap();
+        crate::library::finish_book(&conn, finished).unwrap();
+        conn.execute(
+            "INSERT INTO review_schedule(block_id,stage,due_date) VALUES(?1,3,'2026-08-29')",
+            [old_block],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO weak_point(block_id,title,created_at) VALUES(?1,'旧薄弱点','2026-08-20')",
+            [old_block],
+        )
+        .unwrap();
+        let queue = super::generate_daily(&conn, "2026-08-30").unwrap();
+        let kinds: Vec<(&str, i64)> = queue.iter().map(|t| (t.kind.as_str(), t.book_id)).collect();
+        assert!(kinds.contains(&("review", finished)), "{kinds:?}");
+        assert!(kinds.contains(&("weak_retest", finished)), "{kinds:?}");
+        // 新块只来自主攻计划:已学完/暂停的书不产新块
+        assert!(
+            kinds.iter().all(|(k, b)| *k != "new" || *b == active),
+            "{kinds:?}"
+        );
+        assert!(kinds.iter().any(|(k, b)| *k == "new" && *b == active));
+    }
 }

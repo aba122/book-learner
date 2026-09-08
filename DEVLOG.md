@@ -434,3 +434,9 @@
 - **壳层**:`ReplanDto`(status `on_track|auto_adjusted|needs_decision`,可选 `newDaily`/`requiredDaily`)、`StudyPlanDto`;`planning_check_behind[bookId,date]`、`planning_get_plan[bookId]`;六处契约同步;foundation 用例覆盖 on_track 数字、连续两天未完成 + 上限 1 → needs_decision、放宽上限 → auto_adjusted 并写回计划、无计划书 on_track。
 - **web**:TodayPage 管线改为 `listBooks → checkBehind(主攻书) → todayQueue → listBlocks`(落后检测有副作用须先于当日队列生成);`auto_adjusted` 显示提示条;`needs_decision` 弹 `ReplanDialog`:顺延 = `getPlan` 为底只改截止日(今天 + ceil(剩余/上限) − 1 天),缩减 = `confirmMap` 对 seq 最靠后的 (剩余 − 上限×天数) 个未学块 `setSkipped`,"本日不再提醒"只写偏好(`lib/prefs.ts`,localStorage 不可用时静默)。新增 `addCalendarDays`;Mock 的 `checkBehind`/`getPlan` 镜像 core 数字(Mock 数据永不落后)。两条"晚到的旧队列"竞态用例改挂在管线首步 `listBooks`(旧一轮在首步后即判过期)。
 - 门禁:core 与 web(259/2、lint 0、tsc)在 Linux 绿;src-tauri 由 CI macos 任务验证(隧道此时已断开)。
+
+## 2026-09-08 · M2 T8:单主攻书补完
+- **core**:`library::finish_book`(status→finished、计划 active=0;若为主攻则全局无主攻直至另选;幂等;不存在 NotFound);`set_active_book` 对已学完的书返回 Conflict("复习照常,不能再主攻");回归用例证明 `generate_daily` 的到期复习/薄弱点重考不按主攻书过滤(暂停/已学完的书照常入队),新块只来自主攻计划。
+- **壳层/契约**:`library_finish_book[bookId]`,六处同步;foundation 用例:标记学完后无主攻、再激活 conflict、次日不产新块。
+- **web**:书架卡片改为"封面按钮 + 说明行"(已暂停:计划冻结 · 复习照常;已学完:复习照常 · 不再主攻),"标记为已学完"经确认调用 `finishBook`;已学完的书点击直接看地图不弹切换;切换确认文案含"计划冻结、复习照常";Mock 同语义。
+- 门禁:core/web 在 Linux 绿;src-tauri 由 CI macos 任务验证。
