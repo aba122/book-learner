@@ -3,7 +3,7 @@ use book_learner_core::map::{AnchorSegment, MapEditOp};
 use book_learner_core::mapgen::{MapProgress, SpineChapter};
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
-use book_learner_core::sched::DailyTask;
+use book_learner_core::sched::{DailyTask, Replan, ReplanReport};
 use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
 use book_learner_core::stats::Stats;
@@ -517,6 +517,66 @@ impl From<Stats> for StatsDto {
             open_weak_points: stats.open_weak_points,
             fixed_weak_points: stats.fixed_weak_points,
             minutes_today: stats.minutes_today,
+        }
+    }
+}
+
+// ---- 落后重排(M2 T4)----
+
+/// `status`: on_track | auto_adjusted(附 newDaily)| needs_decision(附 requiredDaily)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplanDto {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_daily: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_daily: Option<i64>,
+    pub daily_cap: i64,
+    pub remaining_blocks: i64,
+    pub remaining_days: i64,
+    pub deadline: String,
+}
+
+impl From<ReplanReport> for ReplanDto {
+    fn from(report: ReplanReport) -> Self {
+        let (status, new_daily, required_daily) = match report.status {
+            Replan::OnTrack => ("on_track", None, None),
+            Replan::AutoAdjusted { new_daily } => ("auto_adjusted", Some(new_daily), None),
+            Replan::NeedsDecision { required_daily, .. } => {
+                ("needs_decision", None, Some(required_daily))
+            }
+        };
+        Self {
+            status: status.into(),
+            new_daily,
+            required_daily,
+            daily_cap: report.daily_cap,
+            remaining_blocks: report.remaining_blocks,
+            remaining_days: report.remaining_days,
+            deadline: report.deadline,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StudyPlanDto {
+    pub book_id: i64,
+    pub deadline: String,
+    pub daily_new_blocks: i64,
+    pub daily_cap: i64,
+    pub remind_time: String,
+}
+
+impl From<StudyPlan> for StudyPlanDto {
+    fn from(plan: StudyPlan) -> Self {
+        Self {
+            book_id: plan.book_id,
+            deadline: plan.deadline,
+            daily_new_blocks: plan.daily_new_blocks,
+            daily_cap: plan.daily_cap,
+            remind_time: plan.remind_time,
         }
     }
 }

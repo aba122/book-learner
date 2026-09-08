@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TEST_DATE_KEY, localCalendarDate } from './localDate'
+import { TEST_DATE_KEY, addCalendarDays, localCalendarDate } from './localDate'
 
 describe('localCalendarDate', () => {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -79,5 +79,15 @@ describe('DEV-only controlled test date (M8.0)', () => {
     vi.stubEnv('DEV', true)
     vi.stubGlobal('localStorage', undefined)
     expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
+  })
+})
+
+describe('addCalendarDays', () => {
+  it('crosses month and year ends by calendar fields', () => {
+    expect(addCalendarDays('2026-09-08', 2)).toBe('2026-09-10')
+    expect(addCalendarDays('2026-09-30', 1)).toBe('2026-10-01')
+    expect(addCalendarDays('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addCalendarDays('2026-03-01', -1)).toBe('2026-02-28')
+    expect(addCalendarDays('2026-09-08', 0)).toBe('2026-09-08')
   })
 })

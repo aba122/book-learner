@@ -114,6 +114,26 @@ pub fn set_plan(conn: &Connection, plan: &StudyPlan) -> Result<()> {
     Ok(())
 }
 
+/// 读取某书的学习计划(无论是否 active);无计划 → None。(M2 T4:前端"顺延"以现值为底只改 deadline)
+pub fn get_plan(conn: &Connection, book_id: i64) -> Result<Option<StudyPlan>> {
+    use rusqlite::OptionalExtension;
+    Ok(conn
+        .query_row(
+            "SELECT book_id,deadline,daily_new_blocks,daily_cap,remind_time FROM study_plan WHERE book_id=?1",
+            [book_id],
+            |r| {
+                Ok(StudyPlan {
+                    book_id: r.get(0)?,
+                    deadline: r.get(1)?,
+                    daily_new_blocks: r.get(2)?,
+                    daily_cap: r.get(3)?,
+                    remind_time: r.get(4)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
 pub fn today_queue(conn: &Connection, date: &str) -> Result<Vec<crate::sched::DailyTask>> {
     validate_date(date, "date")?;
     crate::sched::generate_daily(conn, date)

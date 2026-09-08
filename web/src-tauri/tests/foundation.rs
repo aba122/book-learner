@@ -548,6 +548,111 @@ fn stats_get_scopes_to_the_active_book_and_reflects_confirmed_verdicts() {
     );
 }
 
+#[test]
+fn planning_check_behind_and_get_plan_expose_replan_numbers() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, first, second, block) = seeded_state(&directory.path().join("app.db"));
+    assert_eq!(
+        commands::planning_get_plan_inner(&state, second).unwrap(),
+        None
+    );
+    let (_, _) = seed_two_tasks(&state, first, block, DAY); // first:两块 + 计划(每日 2,上限 4)
+    let plan = commands::planning_get_plan_inner(&state, first)
+        .unwrap()
+        .expect("first has a plan");
+    assert_eq!(
+        (plan.book_id, plan.daily_new_blocks, plan.daily_cap),
+        (first, 2, 4)
+    );
+    assert_eq!(
+        serde_json::to_value(&plan).unwrap()["dailyNewBlocks"],
+        json!(2)
+    );
+
+    // 未落后:on_track,但仍带剩余块/剩余天/截止/上限
+    let report = commands::planning_check_behind_inner(&state, first, DAY).unwrap();
+    assert_eq!(report.status, "on_track");
+    assert_eq!(
+        (
+            report.remaining_blocks,
+            report.daily_cap,
+            report.deadline.as_str()
+        ),
+        (2, 4, "2026-10-01")
+    );
+    assert!(report.remaining_days > 0);
+    let json = serde_json::to_value(&report).unwrap();
+    assert!(
+        json.get("newDaily").is_none() && json.get("requiredDaily").is_none(),
+        "{json}"
+    );
+
+    // 连续两天新块未完成 → 落后;截止=今天、上限 1 → needs_decision(required 2 > cap 1)
+    state
+        .with_connection(|connection| {
+            for date in ["2026-08-30", "2026-08-31"] {
+                connection.execute(
+                    "INSERT INTO daily_task(date,book_id,block_id,kind,seq) VALUES(?1,?2,?3,'new',9)",
+                    rusqlite::params![date, first, block],
+                )?;
+            }
+            connection.execute(
+                "UPDATE study_plan SET deadline=?2, daily_new_blocks=1, daily_cap=1 WHERE book_id=?1",
+                rusqlite::params![first, DAY],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let report = commands::planning_check_behind_inner(&state, first, DAY).unwrap();
+    assert_eq!(
+        (
+            report.status.as_str(),
+            report.required_daily,
+            report.remaining_days
+        ),
+        ("needs_decision", Some(2), 1)
+    );
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["requiredDaily"],
+        json!(2)
+    );
+    // 上限放宽到 4 → 自动均摊为每日 2(写回计划),不再需要决定
+    state
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE study_plan SET daily_cap=4 WHERE book_id=?1",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let report = commands::planning_check_behind_inner(&state, first, DAY).unwrap();
+    assert_eq!(
+        (report.status.as_str(), report.new_daily),
+        ("auto_adjusted", Some(2))
+    );
+    assert_eq!(
+        commands::planning_get_plan_inner(&state, first)
+            .unwrap()
+            .unwrap()
+            .daily_new_blocks,
+        2
+    );
+    assert_eq!(
+        commands::planning_check_behind_inner(&state, first, "2026/09/01")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    // 无计划的书:on_track 且不报错
+    assert_eq!(
+        commands::planning_check_behind_inner(&state, second, DAY)
+            .unwrap()
+            .status,
+        "on_track"
+    );
+}
+
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
     let state = AppState::open(path).unwrap();
     let (first, second, block) = seed_books(&state);
@@ -1555,6 +1660,8 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "library_epub_url" => json!({"bookId": second}),
             "map_block_source" => json!({"blockId": second_block}),
             "stats_get" => json!({"date": DAY}),
+            "planning_check_behind" => json!({"bookId": first, "date": DAY}),
+            "planning_get_plan" => json!({"bookId": first}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对

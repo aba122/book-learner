@@ -27,3 +27,10 @@ export function localCalendarDate(date?: Date): string {
   const day = String(actual.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+/** 本地日历日加减天数(仅按日历字段计算,不经 UTC) */
+export function addCalendarDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const next = new Date(y, m - 1, d + days, 12)
+  return localCalendarDate(next)
+}

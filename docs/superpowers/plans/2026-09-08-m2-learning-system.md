@@ -75,9 +75,9 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/sched.rs`, `core/src/planning.rs`(`get_plan`), `web/src-tauri/{dto,application,commands,lib,tests}`, 契约六处, `web/src/backend/{types,mock,tauri}.ts`, `web/src/features/today/{ReplanDialog,TodayPage}.tsx`, `web/src/config.ts`
 
-- [ ] **T4.1 失败测试**:core `check_behind` 返回 `Replan{behind, missed_days, remaining_blocks, remaining_days, suggested_daily, exceeds_cap, deadline, daily_cap}`(补字段与单测;无主攻计划返回 `behind=false` 而非错误);`planning::get_plan(conn, book_id) -> Option<StudyPlan>`;壳层 `planning_check_behind[bookId, date]` → `ReplanDto`、`planning_get_plan[bookId]` → `StudyPlan|null`。应用决策不加写命令:顺延 = `planning_set_plan`(以 `get_plan` 现值为底只改 deadline),缩减 = `map_confirm` 的 `setSkipped` ops(前端按 seq 从后往前挑未学块)。
-- [ ] **T4.2 web**:TodayPage **先** `checkBehind(activeBookId, today)` **再** `todayQueue(today)`(`check_behind` 会改写 `daily_new_blocks`,必须在当日队列生成前);`behind && exceeds_cap` → `ReplanDialog`(①顺延截止到自动算出的日期 ②缩减地图:标记 N 个块跳过并列出;取消 = 本日不再弹,**不改期限**,以 `localStorage['bookLearner.replanDismissed']=<date>` 记住);`behind && !exceeds_cap` → 顶部提示条"已按剩余天数均摊,今日 X 块"。Mock 同语义(含 `getPlan`)。vitest:两分支、取消、顺序。
-- [ ] **T4.3** 门禁;DEVLOG;PR `feat/m2-t4-replan`。
+- [x] **T4.1 失败测试**:core `check_behind` 返回 `Replan{behind, missed_days, remaining_blocks, remaining_days, suggested_daily, exceeds_cap, deadline, daily_cap}`(补字段与单测;无主攻计划返回 `behind=false` 而非错误);`planning::get_plan(conn, book_id) -> Option<StudyPlan>`;壳层 `planning_check_behind[bookId, date]` → `ReplanDto`、`planning_get_plan[bookId]` → `StudyPlan|null`。应用决策不加写命令:顺延 = `planning_set_plan`(以 `get_plan` 现值为底只改 deadline),缩减 = `map_confirm` 的 `setSkipped` ops(前端按 seq 从后往前挑未学块)。
+- [x] **T4.2 web**:TodayPage **先** `checkBehind(activeBookId, today)` **再** `todayQueue(today)`(`check_behind` 会改写 `daily_new_blocks`,必须在当日队列生成前);`behind && exceeds_cap` → `ReplanDialog`(①顺延截止到自动算出的日期 ②缩减地图:标记 N 个块跳过并列出;取消 = 本日不再弹,**不改期限**,以 `localStorage['bookLearner.replanDismissed']=<date>` 记住);`behind && !exceeds_cap` → 顶部提示条"已按剩余天数均摊,今日 X 块"。Mock 同语义(含 `getPlan`)。vitest:两分支、取消、顺序。
+- [x] **T4.3** 门禁(src-tauri 由 CI macos 任务验证:隧道断开期间以 CI 为 Mac 门禁);DEVLOG;PR `feat/m2-t4-replan`。
 
 ### Task T8: 单主攻书补完与回归(半天;不依赖 T0)
 

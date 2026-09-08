@@ -26,6 +26,12 @@ export interface EvalResult {
   weakPoints: EvalWeakPoint[]; finalRestatement: string; observationNote: string
 }
 export interface StudyPlan { bookId: number; deadline: string; dailyNewBlocks: number; dailyCap: number; remindTime: string }
+/** 落后检测报告(core sched::ReplanReport,M2 T4):auto_adjusted 已由 core 改写每日新块数;needs_decision 由用户决定顺延或缩减 */
+export type ReplanStatus = 'on_track' | 'auto_adjusted' | 'needs_decision'
+export interface Replan {
+  status: ReplanStatus; newDaily?: number; requiredDaily?: number
+  dailyCap: number; remainingBlocks: number; remainingDays: number; deadline: string
+}
 export interface ChatMessage { role: 'user' | 'student'; text: string }
 export interface Stats { totalBlocks: number; passedBlocks: number; streakDays: number; openWeakPoints: number; fixedWeakPoints: number; minutesToday: number }
 export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string }

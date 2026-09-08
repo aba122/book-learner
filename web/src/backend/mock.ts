@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
+  KnowledgeBlock, MapEditOp, MapProgress, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
   TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -214,6 +214,20 @@ export class MockBackend implements Backend {
       if (b.id === bookId) b.status = 'active'
       else if (b.status === 'active') b.status = 'paused'
     }
+  }
+
+  async getPlan(bookId: number): Promise<StudyPlan | null> {
+    return this.plans.find(p => p.bookId === bookId) ?? null
+  }
+
+  /** 镜像 core check_behind_report:Mock 数据只有今天的任务,永不落后 → on_track,但数字真实 */
+  async checkBehind(bookId: number, date: string): Promise<Replan> {
+    requireDate(date)
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    const plan = this.plans.find(p => p.bookId === bookId) ?? null
+    const remainingBlocks = this.blocks.filter(b => b.bookId === bookId && !b.skipped && (b.status === 'unlearned' || b.status === 'learning')).length
+    const remainingDays = plan ? Math.max(1, Math.floor((Date.parse(plan.deadline) - Date.parse(date)) / 86400000) + 1) : 0
+    return { status: 'on_track', dailyCap: plan?.dailyCap ?? 0, remainingBlocks, remainingDays, deadline: plan?.deadline ?? '' }
   }
 
   async setPlan(plan: StudyPlan): Promise<void> {

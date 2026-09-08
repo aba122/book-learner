@@ -4,7 +4,7 @@ import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Scores, SessionKind, SessionState,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Replan, ReplanStatus, Scores, SessionKind, SessionState,
   SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -405,6 +405,35 @@ function decodeBlockSource(value: unknown): { href: string; text: string } {
   }
 }
 
+const REPLAN_STATUSES = ['on_track', 'auto_adjusted', 'needs_decision'] as const satisfies readonly ReplanStatus[]
+
+function decodeReplan(value: unknown): Replan {
+  const wire = objectAt(value, 'replan')
+  const newDaily = optionalAt(wire, 'newDaily', 'replan', safeIntegerAt)
+  const requiredDaily = optionalAt(wire, 'requiredDaily', 'replan', safeIntegerAt)
+  return {
+    status: enumAt(wire.status, 'replan.status', REPLAN_STATUSES),
+    ...(newDaily === undefined ? {} : { newDaily }),
+    ...(requiredDaily === undefined ? {} : { requiredDaily }),
+    dailyCap: safeIntegerAt(wire.dailyCap, 'replan.dailyCap'),
+    remainingBlocks: safeIntegerAt(wire.remainingBlocks, 'replan.remainingBlocks'),
+    remainingDays: safeIntegerAt(wire.remainingDays, 'replan.remainingDays'),
+    deadline: stringAt(wire.deadline, 'replan.deadline'),
+  }
+}
+
+function decodePlanOrNull(value: unknown): StudyPlan | null {
+  if (value === null) return null
+  const wire = objectAt(value, 'plan')
+  return {
+    bookId: safeIntegerAt(wire.bookId, 'plan.bookId'),
+    deadline: stringAt(wire.deadline, 'plan.deadline'),
+    dailyNewBlocks: safeIntegerAt(wire.dailyNewBlocks, 'plan.dailyNewBlocks'),
+    dailyCap: safeIntegerAt(wire.dailyCap, 'plan.dailyCap'),
+    remindTime: stringAt(wire.remindTime, 'plan.remindTime'),
+  }
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -529,6 +558,21 @@ export class TauriBackend implements Backend {
   async setPlan(plan: StudyPlan): Promise<void> {
     validatePlan(plan)
     await this.decode('planning_set_plan', { request: plan }, value => unitAt(value, 'planning_set_plan'))
+  }
+
+  async checkBehind(bookId: number, date: string): Promise<Replan> {
+    return this.gated('checkBehind', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(date, 'date')
+      return this.decode('planning_check_behind', { bookId, date }, decodeReplan)
+    })
+  }
+
+  async getPlan(bookId: number): Promise<StudyPlan | null> {
+    return this.gated('getPlan', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('planning_get_plan', { bookId }, decodePlanOrNull)
+    })
   }
 
   async todayQueue(date: string): Promise<DailyTask[]> {

@@ -4,8 +4,8 @@ use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanRequest, TurnResultDto,
-    VerdictOutcomeDto,
+    MapRevisionDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -56,6 +56,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("map_block_source", &["blockId"]),
     // M7:统计(date 由前端本地日历日提供,core 不读系统时间)
     ("stats_get", &["date"]),
+    // M2 T4:落后检测(有副作用,先于当日队列生成调用)与计划读取
+    ("planning_check_behind", &["bookId", "date"]),
+    ("planning_get_plan", &["bookId"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -355,6 +358,25 @@ pub fn stats_get_inner(state: &AppState, date: &str) -> Result<StatsDto, IpcErro
     run_command(state, "stats_get", || application::stats(state, date))
 }
 
+pub fn planning_check_behind_inner(
+    state: &AppState,
+    book_id: i64,
+    date: &str,
+) -> Result<ReplanDto, IpcError> {
+    run_command(state, "planning_check_behind", || {
+        application::check_behind(state, book_id, date)
+    })
+}
+
+pub fn planning_get_plan_inner(
+    state: &AppState,
+    book_id: i64,
+) -> Result<Option<StudyPlanDto>, IpcError> {
+    run_command(state, "planning_get_plan", || {
+        application::get_plan(state, book_id)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -549,4 +571,21 @@ pub async fn map_block_source(
 #[tauri::command(async)]
 pub async fn stats_get(state: State<'_, AppState>, date: String) -> Result<StatsDto, IpcError> {
     stats_get_inner(&state, &date)
+}
+
+#[tauri::command(async)]
+pub async fn planning_check_behind(
+    state: State<'_, AppState>,
+    book_id: i64,
+    date: String,
+) -> Result<ReplanDto, IpcError> {
+    planning_check_behind_inner(&state, book_id, &date)
+}
+
+#[tauri::command(async)]
+pub async fn planning_get_plan(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<Option<StudyPlanDto>, IpcError> {
+    planning_get_plan_inner(&state, book_id)
 }
