@@ -17,19 +17,19 @@ pnpm -C web tauri build --bundles app,dmg   # 产物 web/src-tauri/target/releas
 
 ## 1. 全程语音学完一个块(T3)
 
-- [ ] 设置页「语音」分区填路径导入 `ggml-large-v3-turbo-q5_0.bin` → 清单显示体积并自动选中:( )
+- [x] 设置页「语音」分区填路径导入 `ggml-large-v3-turbo-q5_0.bin` → 清单显示体积并自动选中:(547 MB,单选自动选中,`setting.voiceModel=large-v3-turbo-q5_0`)
 - [ ] 费曼页点 🎙 → 录音态(计时/电平)→ 朗读复述 → 停止 → 转写文本填入输入框(可编辑,不自动发送):( )
 - [ ] 发送 → 学生追问 → 结束讲授 → 评估 → 确认通过 → 块状态 passed:( )
 
 ## 2. Obsidian 导出(T2)
 
-- [ ] 设置目标目录后书架「导出到 Obsidian」→ 清单预览 → 确认导出 → 写入/未变计数:( )
-- [ ] `<目标>/<书名>/00-学习报告.md`、`blocks/<seq>-<块名>.md` 存在;块文件 frontmatter 含 `book/block/status/scores/tags`;wikilink 以目标目录为根:( )
+- [x] 设置目标目录后书架「导出到 Obsidian」→ 清单预览 → 确认导出 → 写入/未变计数:(清单 14 项;"已导出到 <vault>/book-24039:写入 14 个文件,0 个未变化")
+- [x] `<目标>/<书名>/00-学习报告.md`、`blocks/<seq>-<块名>.md` 存在;块文件 frontmatter 含 `book/block/status/scores/tags`;wikilink 以目标目录为根:(`00-学习报告.md` + `blocks/01…13-*.md`;frontmatter `book/block/seq/module/status/scores/passed_at/tags`;`[[book-24039/00-学习报告]]`、`[[book-24039/blocks/05-…]]`)
 
 ## 3. 整书终评与学习报告(T1)
 
-- [ ] 全部未跳过块通过后地图页出现「整书终评」→ 考官开场追问全书框架 → ≥2 次作答后「生成学习报告」可用:( )
-- [ ] 报告页:星级/最强最弱模块/正文;`artifact(kind='report')` 一行;`books/<slug>/_report.md` 追加;书状态 finished;git 提交:( )
+- [x] 全部未跳过块通过后地图页出现「整书终评」→ 考官开场追问全书框架 → ≥2 次作答后「生成学习报告」可用:(opener「请开始终评」→ "请先讲出全书的整体框架…" → 3 次作答 → 生成)
+- [x] 报告页:星级/最强最弱模块/正文;`artifact(kind='report')` 一行;`books/<slug>/_report.md` 追加;书状态 finished;git 提交:(★★★★☆ 4/5,最强"复制、转换与商业分发"、最弱"许可与权利基础";artifact 1 行 1485 字;`_report.md` 含元注释;book finished;git `6a625db report: 整书终评`)
 
 ## 4. 阅读器打磨(T4)
 
@@ -38,18 +38,18 @@ pnpm -C web tauri build --bundles app,dmg   # 产物 web/src-tauri/target/releas
 
 ## 5. 数据安全(T5)
 
-- [ ] 设置页「立即快照」→ 清单出现当日快照,`snapshots/app-<日期>.db` 存在:( )
-- [ ] 「恢复」→ 确认「登记恢复」→ `restore-pending.json`;退出重启后标记消费、原库保留为 `.replaced-<ts>`、数据仍完整:( )
+- [x] 设置页「立即快照」→ 清单出现当日快照,`snapshots/app-<日期>.db` 存在:(清单 "2026-09-08 236 KB";`snapshots/app-2026-09-08.db` 241664 B)
+- [x] 「恢复」→ 确认「登记恢复」→ `restore-pending.json`;退出重启后标记消费、原库保留为 `.replaced-<ts>`、数据仍完整:(标记 `{"name":"app-2026-09-08.db",…}`;重启后 `app.db.replaced-20260908-112421`、标记消失、设置页无待恢复横幅;书 1 / 块 13)
 
 ## 6. 打包(T6.2)
 
-- [ ] `pnpm tauri build --bundles app,dmg` 成功,dmg 体积与耗时:( )
-- [ ] 挂载 dmg → 复制 app 到新目录 → `codesign -dv` 为 adhoc → `open` 启动 → 窗口「攻书」可见 → 退出:( )
-- [ ] 本机生成的 dmg 无 quarantine;经浏览器下载的副本首次打开需右键「打开」或 `xattr -d com.apple.quarantine book-learner.app`(Developer ID 签名与 notarization 见下文,未执行):( )
+- [x] `pnpm tauri build --bundles app,dmg` 成功,dmg 体积与耗时:(97 s 含 whisper.cpp release 编译;`book-learner_0.1.0_aarch64.dmg` 5.7 MB)
+- [x] 挂载 dmg → 复制 app 到新目录 → `codesign -dv` 为 adhoc → `open` 启动 → 窗口「攻书」可见 → 退出:(`/Volumes/book-learner` 含 Applications 链接;`Signature=adhoc`、`LSMinimumSystemVersion 12.0`、麦克风用途声明在;pid 8301,窗口「攻书」visible;Cmd+Q 经 System Events 未生效,按 pid 结束)
+- [x] 本机生成的 dmg 无 quarantine;经浏览器下载的副本首次打开需右键「打开」或 `xattr -d com.apple.quarantine book-learner.app`(Developer ID 签名与 notarization 见下文,未执行):(`xattr -l` 只有 `com.apple.provenance`)
 
 ## 7. 收尾项(T6.1)
 
-- [ ] 设置页「codex 可执行路径」:显示当前解析到的路径;相对路径被拒;绝对路径保存写入 `setting.codexBin`;清空恢复自动寻找:( )
+- [x] 设置页「codex 可执行路径」:显示当前解析到的路径;相对路径被拒;绝对路径保存写入 `setting.codexBin`;清空恢复自动寻找:("当前使用 /opt/homebrew/bin/codex";保存 `/opt/homebrew/bin/codex` 后表中一行;清空后 0 行;相对路径拒绝由 foundation 用例覆盖,页面提示未在脚本输出中捕获)
 - [ ] 导入后书架标题为 OPF `dc:title`、作者为 `dc:creator`(而非文件名 / 待识别):( )
 
 ## 签名与公证(文档,未执行)

@@ -94,8 +94,8 @@ docs/smoke/m3-gate.md
 
 ## Task T6: 收尾与打包(1 天;依赖 T1–T5)
 
-- [ ] **T6.1 文案与性能**:七页面空状态/错误态文案巡检表(记入 DEVLOG);大 EPUB(≥30 MB、≥200 章)导入:**抽取不能进 Web Worker**(`extract.ts`/`anchors.ts` 依赖 epub.js `section.document` DOM,Worker 无 `DOMParser`),改为主线程分批 `await`(每 N 章 `scheduler.yield()`/`setTimeout(0)`)+ 导入进度条;阅读器首屏 `rendition.display` 前显示骨架;设置页顺手启用"codex 可执行路径"(后端 `setting.codexBin` 已支持,UI 仍是禁用占位)。
-- [ ] **T6.2 打包**:`tauri.conf.json` `bundle.active: true` + `bundle.macOS` 段(`minimumSystemVersion`、`dmg` 窗口;`icon.icns` 已存在;CI 仍 `--no-bundle`);`pnpm -C web tauri build --bundles dmg`(ad-hoc 签名);干净 macOS 用户(`sysadminctl` 新建测试账号或用户提供)安装运行冒烟——**本机生成的 dmg 无 quarantine 属性**,门禁写明经浏览器下载后需"右键打开"或 `xattr -d com.apple.quarantine` 的步骤;Developer ID 签名与 notarization 步骤写成文档(需用户证书,不在本计划执行)。
+- [x] **T6.1 文案与性能**(已做;见 DEVLOG 2026-09-08 M3 T6;另修 OPF 书名/作者、薄弱点去重):七页面空状态/错误态文案巡检表(记入 DEVLOG);大 EPUB(≥30 MB、≥200 章)导入:**抽取不能进 Web Worker**(`extract.ts`/`anchors.ts` 依赖 epub.js `section.document` DOM,Worker 无 `DOMParser`),改为主线程分批 `await`(每 N 章 `scheduler.yield()`/`setTimeout(0)`)+ 导入进度条;阅读器首屏 `rendition.display` 前显示骨架;设置页顺手启用"codex 可执行路径"(后端 `setting.codexBin` 已支持,UI 仍是禁用占位)。
+- [x] **T6.2 打包**(已做;dmg 5.7 MB ad-hoc;干净账号以新目录副本替代,签名/公证只写文档):`tauri.conf.json` `bundle.active: true` + `bundle.macOS` 段(`minimumSystemVersion`、`dmg` 窗口;`icon.icns` 已存在;CI 仍 `--no-bundle`);`pnpm -C web tauri build --bundles dmg`(ad-hoc 签名);干净 macOS 用户(`sysadminctl` 新建测试账号或用户提供)安装运行冒烟——**本机生成的 dmg 无 quarantine 属性**,门禁写明经浏览器下载后需"右键打开"或 `xattr -d com.apple.quarantine` 的步骤;Developer ID 签名与 notarization 步骤写成文档(需用户证书,不在本计划执行)。
 - [ ] **T6.3 门禁与回写**:`docs/smoke/m3-gate.md`(语音学完一个块;Obsidian 中链接/frontmatter 目检;整书终评产出报告;dmg 干净账号运行);IMPLEMENTATION_PLAN M3 状态、CLAUDE.md、TECH_DESIGN §3.1(`_report.md`、快照目录)/§3.4/§4(v6)/§6.8(阶段 system + 报告 prompt)/§7.1/§8/§9、ADR-0001(lane 例外);DEVLOG 收尾;签字后 main 打 `m3`。**明确范围外并回写 IMPLEMENTATION_PLAN**:profile.md"个人情境"的 AI 提取与确认流(2.3 后半)继续延后,M3 不做。
 
 ## 完成定义(DoD)
