@@ -24,6 +24,7 @@ use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::Listener;
+use tauri::Manager;
 use tracing_subscriber::fmt::MakeWriter;
 
 #[test]
@@ -754,6 +755,91 @@ fn pomodoro_commands_drive_the_machine_and_persist_focus_minutes() {
 }
 
 #[test]
+fn extra_stage_runs_after_a_passed_block_and_archives_to_memory() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, mock) = state_with_mock(&directory.path().join("extra.db"));
+    let (first, _second, block) = seed_books(&state);
+    let (task_a, _task_b) = seed_two_tasks(&state, first, block, DAY);
+    // 未通过的块不能开始附加环节
+    let denied = commands::extra_start_inner(&state, block, "application", "extra-1").unwrap_err();
+    assert_eq!(denied.code, book_learner_app::error::ErrorCode::Conflict);
+    assert_eq!(
+        commands::extra_start_inner(&state, block, "quiz", "extra-1")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+    // 走完讲授闭环:开始 → 回合 → 评估 → 判定通过
+    let session = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY).unwrap();
+    commands::session_submit_turn_inner(&state, session.session_id, 0, "t1", "弹性是相对变化率")
+        .unwrap();
+    let evaluated =
+        commands::session_request_evaluation_inner(&state, session.session_id, "eval").unwrap();
+    commands::session_confirm_verdict_inner(
+        &state,
+        session.session_id,
+        evaluated.version,
+        "verdict",
+        true,
+        DAY,
+    )
+    .unwrap();
+    // 附加环节:开始(幂等)→ 开场 + 作答 → 结束
+    let extra = commands::extra_start_inner(&state, block, "application", "extra-1").unwrap();
+    assert_eq!(
+        (
+            extra.kind.as_str(),
+            extra.extra_kind.as_deref(),
+            extra.task_id
+        ),
+        ("learn", Some("application"), 0)
+    );
+    assert_eq!(
+        commands::extra_start_inner(&state, block, "application", "extra-2")
+            .unwrap()
+            .session_id,
+        extra.session_id
+    );
+    commands::session_submit_turn_inner(&state, extra.session_id, 0, "x-opener", "请出题").unwrap();
+    commands::session_submit_turn_inner(&state, extra.session_id, 1, "x-answer", "我的作答")
+        .unwrap();
+    let calls_before = mock.calls();
+    let outcome = commands::extra_finish_inner(&state, extra.session_id, 2, "fin").unwrap();
+    assert_eq!((outcome.kind.as_str(), outcome.version), ("application", 3));
+    assert!(outcome.content_md.contains("## 掌握判断"));
+    assert_eq!(mock.calls(), calls_before + 1);
+    // 同 id 重放不再调用 AI
+    assert_eq!(
+        commands::extra_finish_inner(&state, extra.session_id, 3, "fin").unwrap(),
+        outcome
+    );
+    assert_eq!(mock.calls(), calls_before + 1);
+    // 投影重放:归档文件出现内容,git log 含归档提交
+    assert!(book_learner_app::run_startup_recovery(&state).unwrap() >= 2);
+    let archive = std::fs::read_dir(state.memory_root().join("books"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("_applications.md"))
+        .find(|p| p.exists())
+        .expect("_applications.md");
+    let text = std::fs::read_to_string(archive).unwrap();
+    assert!(text.contains("## 掌握判断\n已掌握迁移能力"), "{text}");
+    let log = std::process::Command::new("git")
+        .arg("-C")
+        .arg(state.memory_root())
+        .args(["log", "--oneline"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&log.stdout).contains("extra: 归档迁移应用"));
+    // 附加环节会话不接受费曼评估
+    assert_eq!(
+        commands::session_request_evaluation_inner(&state, extra.session_id, "e")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::Conflict
+    );
+}
+
+#[test]
 fn profile_round_trips_through_memory_and_enqueues_a_git_commit() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("app.db")).unwrap();
@@ -874,6 +960,9 @@ impl AiProvider for EngineMock {
         }
         if id.starts_with("eval:") {
             return Ok(EVAL_JSON.into());
+        }
+        if id.starts_with("extra:") {
+            return Ok("## 题目\n实验定价\n## 评语\n运用正确\n## 掌握判断\n已掌握迁移能力".into());
         }
         if id.ends_with(":merge") {
             return Ok(r#"{"modules":[{"name":"供给与需求","blocks":[
@@ -1809,6 +1898,33 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "pomodoro_resume" => json!({}),
             "pomodoro_stop" => json!({}),
             "pomodoro_state" => json!({}),
+            "extra_start" => json!({
+                "blockId": block, "kind": "application", "clientRequestId": "extra-a"
+            }),
+            "extra_finish" => {
+                // 契约顺序保证 extra_start 已建会话;补一条开场回合 + 一条作答后再结束
+                let state = app.state::<AppState>();
+                let extra_session: i64 = state
+                    .with_connection(|c| {
+                        Ok(c.query_row(
+                            "SELECT id FROM feynman_session WHERE extra_kind='application'",
+                            [],
+                            |r| r.get(0),
+                        )?)
+                    })
+                    .unwrap();
+                commands::session_submit_turn_inner(&state, extra_session, 0, "x-opener", "请出题")
+                    .unwrap();
+                commands::session_submit_turn_inner(
+                    &state,
+                    extra_session,
+                    1,
+                    "x-answer",
+                    "我的作答",
+                )
+                .unwrap();
+                json!({"sessionId": extra_session, "expectedVersion": 2, "requestId": "extra-fin"})
+            }
             "profile_get" => json!({}),
             "profile_save" => json!({"profile": {
                 "background": "经济学本科", "mastered": "", "pitfalls": "", "context": "研究者"

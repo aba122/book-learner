@@ -170,6 +170,10 @@ describe('费曼对话页(契约 v2)', () => {
     expect(requestId).toBe('verdict')
     expect(pass).toBe(true)
     expect(date).toMatch(DATE_RE)
+    // 新块通过后先给附加环节(M2 T5),跳过才回今日
+    const extra = screen.getByRole('dialog', { name: '附加环节' })
+    expect(screen.queryByRole('dialog', { name: '讲授评估' })).toBeNull()
+    await click(within(extra).getByRole('button', { name: '跳过' }))
     expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
   })
 
@@ -202,7 +206,7 @@ describe('费曼对话页(契约 v2)', () => {
     expect(within(card).getByText('弹性vs斜率')).toBeInTheDocument()
     await click(within(card).getByRole('button', { name: '确认通过' }))
     expect(confirm.mock.calls[0][1]).toBe(9)
-    expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+    expect(screen.getByRole('dialog', { name: '附加环节' })).toBeInTheDocument()
   })
 
   it('评估中断(evaluating)水合:输入禁用,"继续评估"用同 id 续跑', async () => {
@@ -428,5 +432,97 @@ describe('写操作错误隔离(契约 v2)', () => {
     await act(async () => pending.resolve({ studentText: '哦', readyToEnd: false, version: 1 }))
     await act(async () => { vi.advanceTimersByTime(8000) })
     expect(screen.getByRole('button', { name: '放弃本次' })).toBeEnabled()
+  })
+})
+
+describe('通过后附加环节(M2 T5)', () => {
+  /** 走真实 Mock 闭环到"确认通过"(块变为 passed),返回附加环节对话框 */
+  async function passBlock() {
+    await renderFeynman()
+    await sendOne('弹性是相对变化率')
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const card = screen.getByRole('dialog', { name: '讲授评估' })
+    await click(within(card).getByRole('button', { name: '确认通过' }))
+    return screen.getByRole('dialog', { name: '附加环节' })
+  }
+
+  it.each([
+    ['textbook', '迁移应用题', '_applications.md'],
+    ['methodology', '情境化方法论', '_methodology.md'],
+    ['humanities', '观点讨论', '_notes.md'],
+  ] as const)('按书类型 %s 给出 %s', async (type, title, file) => {
+    const original = backendModule.backend.listBooks.bind(backendModule.backend)
+    vi.spyOn(backendModule.backend, 'listBooks').mockImplementation(async () =>
+      (await original()).map(b => ({ ...b, type })),
+    )
+    const extra = await passBlock()
+    expect(within(extra).getByRole('heading')).toHaveTextContent(title)
+    expect(within(extra).getByText(new RegExp(`books/microeconomics/${file}`))).toBeInTheDocument()
+  })
+
+  it('跳过:不调用 extraStart,直接回今日', async () => {
+    const start = vi.spyOn(backendModule.backend, 'extraStart')
+    const extra = await passBlock()
+    await click(within(extra).getByRole('button', { name: '跳过' }))
+    expect(start).not.toHaveBeenCalled()
+    expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+  })
+
+  it('不通过不给附加环节,直接回今日', async () => {
+    await renderFeynman()
+    await sendOne('讲得不好')
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const card = screen.getByRole('dialog', { name: '讲授评估' })
+    await click(within(card).getByRole('button', { name: '暂不通过,再学一遍' }))
+    expect(screen.queryByRole('dialog', { name: '附加环节' })).toBeNull()
+    expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+  })
+
+  it('开始 → 固定 opener 自动开场 → 作答 → 整理并归档:展示整理稿与归档路径', async () => {
+    const start = vi.spyOn(backendModule.backend, 'extraStart')
+    const submit = vi.spyOn(backendModule.backend, 'submitTurn')
+    const finish = vi.spyOn(backendModule.backend, 'extraFinish')
+    const extra = await passBlock()
+    await click(within(extra).getByRole('button', { name: '开始' }))
+    expect(start).toHaveBeenCalledTimes(1)
+    const [blockId, kind, clientRequestId] = start.mock.calls[0]
+    expect(typeof blockId).toBe('number')
+    expect(kind).toBe('application')
+    expect(clientRequestId).toMatch(ID_RE)
+    // opener 以固定 id 自动提交,渲染为提示条;学生回复直接进入对话流
+    const opener = submit.mock.calls.find(c => c[2] === 'opener')
+    expect(opener?.[3]).toBe('请出题')
+    expect(within(extra).getByText('请出题')).toBeInTheDocument()
+    expect(within(extra).getByText(/会员价上调 10%/)).toBeInTheDocument()
+    expect(within(extra).getByRole('button', { name: '整理并归档' })).toBeDisabled()
+
+    fireEvent.change(within(extra).getByRole('textbox'), { target: { value: '弹性小于 1,提价增加总收入;先核实样本区间' } })
+    await click(within(extra).getByRole('button', { name: '发送' }))
+    expect(within(extra).getByText(/思路正确/)).toBeInTheDocument()
+    const finishBtn = within(extra).getByRole('button', { name: '整理并归档' })
+    expect(finishBtn).toHaveAttribute('data-ready', 'true')
+    await click(finishBtn)
+    expect(finish).toHaveBeenCalledTimes(1)
+    const [sessionId, version, requestId] = finish.mock.calls[0]
+    expect(typeof sessionId).toBe('number')
+    expect(version).toBe(2) // opener + 作答
+    expect(requestId).toBe('extra-finish')
+    expect(within(extra).getByRole('heading')).toHaveTextContent('迁移应用题 · 已归档')
+    expect(within(extra).getByText(/已掌握迁移能力/)).toBeInTheDocument()
+    expect(within(extra).getByText(/已归档到记忆库 books\/microeconomics\/_applications\.md/)).toBeInTheDocument()
+    await click(within(extra).getByRole('button', { name: '返回今日' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/)
+  })
+
+  it('extraStart 失败:错误可见可重试,重试沿用同一 clientRequestId', async () => {
+    const start = vi.spyOn(backendModule.backend, 'extraStart')
+    start.mockRejectedValueOnce(retryable('记忆库不可写'))
+    const extra = await passBlock()
+    await click(within(extra).getByRole('button', { name: '开始' }))
+    expect(within(extra).getByRole('alert')).toHaveTextContent('记忆库不可写')
+    await click(within(extra).getByRole('button', { name: '重试' }))
+    expect(start).toHaveBeenCalledTimes(2)
+    expect(start.mock.calls[0][2]).toBe(start.mock.calls[1][2])
+    expect(within(extra).getByText('请出题')).toBeInTheDocument()
   })
 })

@@ -396,7 +396,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -471,6 +471,24 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(seen).toEqual([{ ...snap, phase: 'break' }])
     const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('extra stage: start decodes a session with extraKind, finish decodes the outcome (Mac M2 T5)', async () => {
+    const view = { ...sessionView, sessionId: 9, taskId: 0, extraKind: 'application', transcript: [] }
+    const outcome = { kind: 'application', artifactId: 12, version: 3, contentMd: '## 评语\n运用正确' }
+    const { calls, invoke } = recorder({ extra_start: view, extra_finish: outcome })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.extraStart(4, 'application', 'x-1')).toEqual(view)
+    expect(await backend.extraFinish(9, 2, 'extra-finish')).toEqual(outcome)
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['extra_start', { blockId: 4, kind: 'application', clientRequestId: 'x-1' }],
+      ['extra_finish', { sessionId: 9, expectedVersion: 2, requestId: 'extra-finish' }],
+    ])
+    await expect(backend.extraStart(4, 'quiz' as never, 'x-1')).rejects.toMatchObject({ code: 'invalid_request' })
+    const badKind = new TauriBackend(async <T>() => ({ ...view, extraKind: 'quiz' }) as T)
+    await expect(badKind.extraStart(4, 'application', 'x-1')).rejects.toMatchObject({ code: 'invalid_response' })
+    const missing = new TauriBackend(async <T>() => ({ ...outcome, contentMd: 1 }) as T)
+    await expect(missing.extraFinish(9, 2, 'extra-finish')).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('profile round-trips four string sections (Mac M2 T6)', async () => {
@@ -549,7 +567,7 @@ const evalResult = {
   observationNote: '举例能力强',
 }
 const sessionView = {
-  sessionId: 7, taskId: 3, version: 2, state: 'open', blockId: 4, kind: 'learn',
+  sessionId: 7, taskId: 3, version: 2, state: 'open', blockId: 4, kind: 'learn', extraKind: null,
   transcript: [
     { role: 'user', text: '弹性是相对变化率', status: 'done', clientTurnId: 't1', readyToEnd: false },
     { role: 'student', text: '讲清楚了', status: 'done', clientTurnId: null, readyToEnd: true },

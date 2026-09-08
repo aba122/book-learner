@@ -3,9 +3,9 @@ use tauri::{Emitter, Manager, State};
 use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto,
-    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto,
+    SpineChapterDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -70,6 +70,12 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     // M2 T6:学习者画像(profile.md 四小节)
     ("profile_get", &[]),
     ("profile_save", &["profile"]),
+    // M2 T5:通过后附加环节(回合复用 session_submit_turn)
+    ("extra_start", &["blockId", "kind", "clientRequestId"]),
+    (
+        "extra_finish",
+        &["sessionId", "expectedVersion", "requestId"],
+    ),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -430,6 +436,28 @@ pub fn profile_save_inner(state: &AppState, profile: ProfileDto) -> Result<(), I
     })
 }
 
+pub fn extra_start_inner(
+    state: &AppState,
+    block_id: i64,
+    kind: &str,
+    client_request_id: &str,
+) -> Result<SessionViewDto, IpcError> {
+    run_command(state, "extra_start", || {
+        application::extra_start(state, block_id, kind, client_request_id)
+    })
+}
+
+pub fn extra_finish_inner(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+) -> Result<ExtraOutcomeDto, IpcError> {
+    run_command(state, "extra_finish", || {
+        application::extra_finish(state, session_id, expected_version, request_id)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -705,4 +733,39 @@ pub async fn profile_save<R: tauri::Runtime>(
         }
     });
     Ok(())
+}
+
+// ---- 附加环节命令(M2 T5)----
+
+#[tauri::command(async)]
+pub async fn extra_start(
+    state: State<'_, AppState>,
+    block_id: i64,
+    kind: String,
+    client_request_id: String,
+) -> Result<SessionViewDto, IpcError> {
+    extra_start_inner(&state, block_id, &kind, &client_request_id)
+}
+
+/// 结束后在后台重放投影(归档 + git commit),与判定后的重放同一路径。
+#[tauri::command(async)]
+pub async fn extra_finish<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    session_id: i64,
+    expected_version: i64,
+    request_id: String,
+) -> Result<ExtraOutcomeDto, IpcError> {
+    let outcome = extra_finish_inner(&state, session_id, expected_version, &request_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if let Err(error) = crate::run_startup_recovery(&state) {
+            tracing::error!(
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "附加环节归档投影重放失败"
+            );
+        }
+    });
+    Ok(outcome)
 }

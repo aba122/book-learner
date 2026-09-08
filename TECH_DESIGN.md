@@ -246,6 +246,8 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 
 **已实现(2026-09-05,core/src/verdict.rs)**:`request_evaluation`(幂等、失败回 open)与 `confirm_session_verdict`(单事务原子流转;**用户 pass 覆盖 AI verdict**;new 任务落块状态/薄弱点/复习,weak_retest/review 任务只走 `on_weak_retest`/`on_review_result` 不改块状态;同 request_id 重放)。
 
+> **实现说明(M2 T5)**:6.4–6.6 在实现中拆成两段——对话 system prompt `prompts::extra_system(kind, ctx)`(出题 / 三轮引导 / 对立视角,无 JSON 子句,以 `[READY_TO_END]` 收尾;开场协议同 6.7:前端以固定 opener「请出题 / 请引导 / 请提出对立视角」先开口)与结束整理 prompt `prompts::extra_summary_prompt(kind, ctx, transcript)`(只输出 markdown:应用题 → 题目/作答要点/评语/掌握判断;方法论 → 我的版本/适用情境/来源块;讨论 → 争议/我的看法/用到的史实/来源块)。会话复用 `feynman_session`(`kind='learn'`、`extra_kind` 标记、`task_id` NULL,`feynman_session_extra_once` 保证每块每类一次),回合复用 `session::submit_turn`(学生回合上限含开场:方法论 4、其余 3),`extra::finish` 写 `artifact`(application / methodology / reflection)、会话 confirmed 且**不写 `eval_json`**,经 outbox `extra_archive{artifact_id, entry_key}` 追加到 `books/<slug>/_applications.md | _methodology.md | _notes.md`(entry_key 注释标记幂等)+ `git_commit`。壳层命令 `extra_start[blockId, kind, clientRequestId]` / `extra_finish[sessionId, expectedVersion, requestId]`;`ExtraOutcome` 附带 `content_md` 供前端直接展示。
+
 ### 6.4 迁移应用题(教材类,通过后)
 
 「基于本块知识与用户画像中的个人情境,出 1–2 道**现实情境**应用题(禁止书内例题改编;优先贴近用户的工作/研究情境)。用户作答后,评估其思路是否正确运用了本块知识,指出运用错误或遗漏,输出简短评语 + 是否掌握迁移能力的判断。」

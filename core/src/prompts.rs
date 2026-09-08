@@ -123,30 +123,52 @@ source_sections 原样沿用候选中的 \"{{href}}#{{小节标题}}\" 字符串
         map_principle(ty), candidates_json)
 }
 
-/// 6.4 迁移应用题(教材类,通过后)。prompt only:本计划无消费者。
-pub fn application_prompt(ctx: &FixedContext) -> String {
-    format!(
-"基于本块知识与学习者画像中的个人情境,出 1–2 道现实情境应用题(禁止书内例题改编;优先贴近用户的工作/研究情境)。\
-用户作答后,评估其思路是否正确运用了本块知识,指出运用错误或遗漏,给出简短评语与是否掌握迁移能力的判断。\n\n{}\n\n\
-最后一条消息只输出 JSON:{{\"passed\":true|false,\"comment\":\"简短评语\"}}",
-        context_block(ctx))
+/// 6.4–6.6 通过后附加环节的对话 system prompt(M2 T5):按种类出题 / 引导 / 提出对立视角,
+/// 开场协议同快问(用户先以固定 opener 开口);无 JSON 子句,收尾以 [READY_TO_END] 标记。
+pub fn extra_system(kind: crate::extra::ExtraKind, ctx: &FixedContext) -> String {
+    use crate::extra::ExtraKind;
+    let role = match kind {
+        ExtraKind::Application =>
+"你是出题与评阅老师,用户刚通过本块的费曼讲授。规则:\n\
+1. 用户说『请出题』时:基于本块知识与学习者画像中的个人情境,出 1 道现实情境应用题(禁止书内例题改编;优先贴近用户的工作/研究情境),只出题不解答;\n\
+2. 用户作答后:评估其思路是否正确运用了本块知识,指出运用错误或遗漏,给出简短评语;最多再追问 1 次;\n\
+3. 评语给出后,回复以 [READY_TO_END] 结尾示意可以整理归档;\n\
+4. 绝不整段讲课,每次只回复一段话。",
+        ExtraKind::Methodology =>
+"你是方法论教练,用户已掌握本块的观点/框架。请分三轮引导,每轮只提一个问题、不替用户写:\n\
+1. 用户说『请引导』时:问用户当下情境(见学习者画像『个人情境』)中哪个具体问题可以用它;\n\
+2. 追问框架各要素如何映射到该问题;\n\
+3. 请用户写出一段『我的版本』——结合情境改写后的个人方法论;\n\
+4. 用户交出『我的版本』后,简短回应,并以 [READY_TO_END] 结尾示意可以整理归档。",
+        ExtraKind::Discussion =>
+"你是讨论伙伴。规则:\n\
+1. 用户说『请提出对立视角』时:提出一个与本块叙事相关的对立视角或争议(史学争论、不同学派解读),邀请用户写下自己的看法;\n\
+2. 用户回应后:不评判立场,只指出其论证是否用到了本块史实、哪里可以更扎实;最多再追问 1 次;\n\
+3. 用户表达完整后,回复以 [READY_TO_END] 结尾示意可以整理归档;\n\
+4. 每次只回复一段话,不引经据典。",
+    };
+    format!("{role}\n\n{}", context_block(ctx))
 }
 
-/// 6.5 情境化方法论引导(方法论类,通过后)。prompt only。
-pub fn methodology_prompt(ctx: &FixedContext) -> String {
+/// 附加环节结束后的整理 prompt(M2 T5):只输出 markdown(无 JSON、无代码围栏),
+/// 应用题 → 题目/作答要点/评语/掌握判断;方法论 → 「我的版本」;讨论 → 思考整理稿。
+pub fn extra_summary_prompt(
+    kind: crate::extra::ExtraKind,
+    ctx: &FixedContext,
+    transcript: &str,
+) -> String {
+    use crate::extra::ExtraKind;
+    let shape = match kind {
+        ExtraKind::Application =>
+"把以下迁移应用题对话整理为 markdown:\n## 题目\n## 用户作答要点\n## 评语\n## 掌握判断\n(写『已掌握迁移能力』或『尚需练习』,并给一句理由)",
+        ExtraKind::Methodology =>
+"把用户的『我的版本』整理为 markdown 片段(用户原话为主,只做结构整理,不替用户发挥):\n## 我的版本\n## 适用情境\n## 来源块",
+        ExtraKind::Discussion =>
+"把用户的思考整理成 markdown 思考笔记(用户原话为主,不评判立场):\n## 争议\n## 我的看法\n## 用到的史实\n## 来源块",
+    };
     format!(
-"用户已掌握本块的观点/框架。请引导 2–3 轮:①问用户当下情境中哪个具体问题可以用它;②追问框架各要素如何映射到该问题;\
-③请用户写出一段『我的版本』——结合情境改写后的个人方法论。最后把用户的『我的版本』整理为 markdown 片段(标注来源块)。\n\n{}\n\n\
-最后一条消息只输出 JSON:{{\"markdown\":\"整理后的 markdown 片段\",\"source_block\":\"来源块标题\"}}",
-        context_block(ctx))
-}
-
-/// 6.6 观点讨论(人文类,通过后)。prompt only。
-pub fn humanities_discussion_prompt(ctx: &FixedContext) -> String {
-    format!(
-        "提出一个与本块叙事相关的对立视角或争议(史学争论、不同学派解读),邀请用户写下自己的看法;\
-不评判立场,只评估其论证是否用到了本块史实。最后输出用户思考的整理稿(归档为思考笔记)。\n\n{}\n\n\
-最后一条消息只输出 JSON:{{\"markdown\":\"整理稿\",\"used_facts\":true|false}}",
+        "{shape}\n来源块为「{}」。\n\n{}\n\n=== 对话 ===\n{transcript}\n\n只输出 markdown 正文,不要任何其它文字,不要代码围栏。",
+        ctx.block_title,
         context_block(ctx)
     )
 }
@@ -254,23 +276,36 @@ mod tests {
     }
     #[test]
     fn post_pass_prompts_contain_their_keywords() {
-        let app = super::application_prompt(&ctx());
-        for k in [
-            "现实情境",
-            "禁止书内例题",
-            "最后一条消息只输出 JSON",
-            "passed",
-        ] {
+        use crate::extra::ExtraKind;
+        let app = super::extra_system(ExtraKind::Application, &ctx());
+        for k in ["现实情境", "禁止书内例题", "[READY_TO_END]", "供需弹性"] {
             assert!(app.contains(k), "application missing {k}");
         }
-        let m = super::methodology_prompt(&ctx());
-        for k in ["我的版本", "markdown", "最后一条消息只输出 JSON"] {
+        assert!(!app.contains("JSON"));
+        let m = super::extra_system(ExtraKind::Methodology, &ctx());
+        for k in ["我的版本", "个人情境", "[READY_TO_END]"] {
             assert!(m.contains(k), "methodology missing {k}");
         }
-        let h = super::humanities_discussion_prompt(&ctx());
-        for k in ["对立视角", "不评判立场", "最后一条消息只输出 JSON"] {
+        let h = super::extra_system(ExtraKind::Discussion, &ctx());
+        for k in ["对立视角", "不评判立场", "[READY_TO_END]"] {
             assert!(h.contains(k), "humanities missing {k}");
         }
+        let s = super::extra_summary_prompt(ExtraKind::Methodology, &ctx(), "用户:我的版本是……");
+        for k in [
+            "## 我的版本",
+            "来源块为「供需弹性」",
+            "用户:我的版本是……",
+            "不要代码围栏",
+        ] {
+            assert!(s.contains(k), "summary missing {k}");
+        }
+        assert!(
+            super::extra_summary_prompt(ExtraKind::Application, &ctx(), "").contains("## 掌握判断")
+        );
+        assert!(
+            super::extra_summary_prompt(ExtraKind::Discussion, &ctx(), "")
+                .contains("## 用到的史实")
+        );
         let f = super::final_exam_prompt("| 供需弹性 | passed |");
         for k in [
             "全书框架",
