@@ -1,7 +1,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use book_learner_core::ai::{AiProvider, CodexCliProvider};
 use book_learner_core::memory::MemoryStore;
@@ -18,6 +19,65 @@ pub type SharedProvider = Arc<dyn AiProvider + Send + Sync>;
 /// Finder 启动的 GUI 不继承 shell PATH,故在 `$PATH` 之后再查这些固定目录。
 pub const CODEX_FALLBACK_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 
+/// 进行中的慢命令(导入/地图作业/回合/评估)计数;退出前等待其收尾(M7 有序退出)。
+#[derive(Default)]
+pub struct JobRegistry {
+    in_flight: Mutex<usize>,
+    idle: Condvar,
+}
+
+impl JobRegistry {
+    pub fn begin(&self) -> JobGuard<'_> {
+        *self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+        JobGuard(self)
+    }
+
+    pub fn in_flight(&self) -> usize {
+        *self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 阻塞直到无进行中任务或超时;返回是否已空闲。
+    pub fn wait_idle(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut count = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while *count > 0 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (guard, _) = self
+                .idle
+                .wait_timeout(count, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            count = guard;
+        }
+        true
+    }
+}
+
+pub struct JobGuard<'a>(&'a JobRegistry);
+
+impl Drop for JobGuard<'_> {
+    fn drop(&mut self) {
+        let mut count = self
+            .0
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *count = count.saturating_sub(1);
+        self.0.idle.notify_all();
+    }
+}
+
 pub struct AppState {
     connection: Mutex<Connection>,
     correlation_counter: AtomicU64,
@@ -25,6 +85,7 @@ pub struct AppState {
     data_root: PathBuf,
     memory: MemoryStore,
     import: ImportStore,
+    jobs: Arc<JobRegistry>,
     provider_override: Option<SharedProvider>,
 }
 
@@ -49,6 +110,7 @@ impl AppState {
             data_root,
             memory,
             import,
+            jobs: Arc::new(JobRegistry::default()),
             provider_override: None,
         })
     }
@@ -108,6 +170,11 @@ impl AppState {
 
     pub fn import_store(&self) -> &ImportStore {
         &self.import
+    }
+
+    /// 慢命令在调用 core 前 `begin()` 持有守卫;退出时 `wait_idle`。
+    pub fn jobs(&self) -> &Arc<JobRegistry> {
+        &self.jobs
     }
 
     /// AI provider 与策略:注入优先;否则 codex CLI,`bin` 取 `setting.codexBin`(绝对路径)或按

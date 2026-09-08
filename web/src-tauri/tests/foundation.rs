@@ -10,7 +10,7 @@ use book_learner_app::dto::{
     MapProgressDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
-use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState};
+use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState, JobRegistry};
 use book_learner_core::ai::{AiProvider, CompletionRequest};
 use book_learner_core::eval::{DraftBlock, DraftMap, DraftModule, Scores};
 use book_learner_core::map;
@@ -459,6 +459,53 @@ fn native_import_over_ipc_stages_raw_chunks_finalizes_and_serves_managed_paths()
 }
 
 #[test]
+fn job_registry_counts_in_flight_work_and_orderly_shutdown_waits_within_grace() {
+    let jobs = Arc::new(JobRegistry::default());
+    assert_eq!(jobs.in_flight(), 0);
+    assert!(jobs.wait_idle(std::time::Duration::from_millis(10)));
+
+    let started = std::time::Instant::now();
+    let worker_jobs = Arc::clone(&jobs);
+    let worker = std::thread::spawn(move || {
+        let _guard = worker_jobs.begin();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    });
+    // 让工作线程先拿到守卫
+    while jobs.in_flight() == 0 && started.elapsed() < std::time::Duration::from_secs(2) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(jobs.in_flight(), 1);
+    assert!(
+        !jobs.wait_idle(std::time::Duration::from_millis(30)),
+        "should time out while busy"
+    );
+    assert!(
+        jobs.wait_idle(std::time::Duration::from_secs(5)),
+        "should become idle after the job ends"
+    );
+    worker.join().unwrap();
+    assert_eq!(jobs.in_flight(), 0);
+
+    // 状态级封装:空闲立即返回 true;持有守卫且宽限极短 → false
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("app.db")).unwrap();
+    assert!(book_learner_app::orderly_shutdown(
+        &state,
+        std::time::Duration::from_millis(10)
+    ));
+    let guard = state.jobs().begin();
+    assert!(!book_learner_app::orderly_shutdown(
+        &state,
+        std::time::Duration::from_millis(10)
+    ));
+    drop(guard);
+    assert!(book_learner_app::orderly_shutdown(
+        &state,
+        std::time::Duration::from_millis(10)
+    ));
+}
+
+#[test]
 fn stats_get_scopes_to_the_active_book_and_reflects_confirmed_verdicts() {
     let directory = tempfile::tempdir().unwrap();
     let (state, _mock) = state_with_mock(&directory.path().join("app.db"));
@@ -550,6 +597,9 @@ const EVAL_JSON: &str = r#"{"verdict":"pass_suggested","scores":{"accuracy":4,"c
 struct EngineMock {
     calls: Mutex<usize>,
     turns: Mutex<usize>,
+    /// AI 调用期间观察到的在飞任务数(证明慢命令持有 JobGuard)
+    jobs: Mutex<Option<Arc<JobRegistry>>>,
+    observed_in_flight: Mutex<Vec<usize>>,
 }
 
 impl EngineMock {
@@ -561,6 +611,12 @@ impl EngineMock {
 impl AiProvider for EngineMock {
     fn complete(&self, request: &CompletionRequest) -> book_learner_core::Result<String> {
         *self.calls.lock().unwrap() += 1;
+        if let Some(jobs) = self.jobs.lock().unwrap().as_ref() {
+            self.observed_in_flight
+                .lock()
+                .unwrap()
+                .push(jobs.in_flight());
+        }
         let id = request.request_id.as_str();
         if id.starts_with("turn:") {
             let mut turns = self.turns.lock().unwrap();
@@ -593,10 +649,13 @@ fn state_with_mock(path: &Path) -> (AppState, Arc<EngineMock>) {
     let mock = Arc::new(EngineMock {
         calls: Mutex::new(0),
         turns: Mutex::new(0),
+        jobs: Mutex::new(None),
+        observed_in_flight: Mutex::new(Vec::new()),
     });
     let state = AppState::open(path)
         .unwrap()
         .with_provider(Arc::clone(&mock) as Arc<dyn AiProvider + Send + Sync>);
+    *mock.jobs.lock().unwrap() = Some(Arc::clone(state.jobs()));
     (state, mock)
 }
 
@@ -808,6 +867,9 @@ fn map_run_job_uses_the_injected_provider_reports_progress_and_is_idempotent() {
     assert_eq!(blocks[0].title, "供需弹性");
     assert!(!blocks[0].skipped);
     assert_eq!(*mock.calls.lock().unwrap(), 2, "Stage A + Stage B");
+    // 地图作业期间持有 JobGuard(在飞 = 1),结束后释放
+    assert_eq!(*mock.observed_in_flight.lock().unwrap(), vec![1, 1]);
+    assert_eq!(state.jobs().in_flight(), 0);
     assert!(matches!(
         events.first(),
         Some(MapProgressDto::Chapter {

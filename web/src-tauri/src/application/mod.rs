@@ -139,6 +139,7 @@ pub fn run_map_job(
     if map_revision(state, book_id)? > 0 {
         return list_blocks(state, book_id);
     }
+    let _job = state.jobs().begin();
     let (provider, policy) = state.ai_provider()?;
     let connection = state.open_connection()?;
     let draft = book_learner_core::mapgen::run_map_job(
@@ -208,6 +209,7 @@ pub fn submit_turn(
     text: &str,
 ) -> Result<TurnResultDto, IpcError> {
     let (context, book_type) = session_context(state, session_id)?;
+    let _job = state.jobs().begin();
     let (provider, policy) = state.ai_provider()?;
     let connection = state.open_connection()?;
     book_learner_core::session::submit_turn(
@@ -232,6 +234,7 @@ pub fn request_evaluation(
     request_id: &str,
 ) -> Result<EvaluationViewDto, IpcError> {
     let (context, _) = session_context(state, session_id)?;
+    let _job = state.jobs().begin();
     let (provider, policy) = state.ai_provider()?;
     let connection = state.open_connection()?;
     book_learner_core::verdict::request_evaluation(
@@ -303,6 +306,7 @@ pub fn finalize_import(
     let book_type = BookType::from_db_str(book_type).map_err(|error| {
         IpcError::invalid_request("书籍类型无效", format!("bookType {book_type:?}: {error}"))
     })?;
+    let _job = state.jobs().begin();
     let connection = state.open_connection()?;
     state
         .import_store()

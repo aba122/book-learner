@@ -6,8 +6,11 @@ pub mod import;
 pub mod state;
 
 use std::path::Path;
+use std::time::Duration;
 
 use book_learner_core::CoreError;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
 use crate::error::IpcError;
@@ -80,6 +83,53 @@ pub fn run_startup_recovery(state: &state::AppState) -> Result<usize, IpcError> 
     book_learner_core::projection::run_pending(&connection, state.memory()).map_err(IpcError::from)
 }
 
+/// 退出时等待进行中慢命令收尾的上限;超时强制退出(codex 子进程由 core 按进程组终止,
+/// 但强制退出路径不再等待其收尾——见 DEVLOG M7 限制)。
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
+/// 有序退出:等待进行中的导入/地图作业/回合/评估收尾;返回是否在宽限内全部收尾。
+pub fn orderly_shutdown(state: &state::AppState, grace: Duration) -> bool {
+    let idle = state.jobs().wait_idle(grace);
+    if idle {
+        tracing::info!("有序退出:无进行中任务");
+    } else {
+        tracing::warn!(
+            in_flight = state.jobs().in_flight(),
+            "退出宽限已过,仍有任务进行中,强制退出"
+        );
+    }
+    idle
+}
+
+fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// 托盘:显示主窗口 / 退出;图标取 bundle.icon(缺省时仅菜单可用)。
+fn install_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出攻书", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("攻书 book-learner")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.to_owned());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
 /// 启动失败的用户可见处理:日志(含 internal_cause)+ 原生阻塞错误框 + 退出码 1。
 fn fail_startup(error: &IpcError) -> ! {
     tracing::error!(
@@ -100,45 +150,69 @@ fn fail_startup(error: &IpcError) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().setup(|app| {
-        let platform_data_dir = match app.path().data_dir() {
-            Ok(directory) => directory,
-            Err(error) => fail_startup(&IpcError::internal(format!(
-                "platform data dir unavailable: {error}"
-            ))),
-        };
-        match initialize_state(&platform_data_dir) {
-            Ok(state) => {
-                // asset protocol 只放行受管 books 目录;静态 glob 无法覆盖 BOOK_LEARNER_DATA_DIR 调试覆盖,故运行时授予
-                let books_dir = state.books_dir();
-                if let Err(error) = app.asset_protocol_scope().allow_directory(&books_dir, true) {
-                    fail_startup(&IpcError::internal(format!(
-                        "asset protocol scope for {} failed: {error}",
-                        books_dir.display()
-                    )));
-                }
-                app.manage(state);
-                // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn_blocking(move || {
-                    let state = handle.state::<state::AppState>();
-                    match run_startup_recovery(&state) {
-                        Ok(processed) => tracing::info!(processed, "启动投影恢复完成"),
-                        Err(error) => tracing::error!(
-                            error_code = error.code.as_str(),
-                            internal_cause = error.internal_cause(),
-                            "启动投影恢复失败"
-                        ),
-                    }
-                });
-                Ok(())
+    let builder = tauri::Builder::default()
+        // 关窗 = 隐藏(留在 Dock 与托盘),Cmd+Q / 托盘"退出"才真正退出
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
             }
-            Err(error) => fail_startup(&error),
+        })
+        .setup(|app| {
+            let platform_data_dir = match app.path().data_dir() {
+                Ok(directory) => directory,
+                Err(error) => fail_startup(&IpcError::internal(format!(
+                    "platform data dir unavailable: {error}"
+                ))),
+            };
+            match initialize_state(&platform_data_dir) {
+                Ok(state) => {
+                    // asset protocol 只放行受管 books 目录;静态 glob 无法覆盖 BOOK_LEARNER_DATA_DIR 调试覆盖,故运行时授予
+                    let books_dir = state.books_dir();
+                    if let Err(error) = app.asset_protocol_scope().allow_directory(&books_dir, true)
+                    {
+                        fail_startup(&IpcError::internal(format!(
+                            "asset protocol scope for {} failed: {error}",
+                            books_dir.display()
+                        )));
+                    }
+                    app.manage(state);
+                    if let Err(error) = install_tray(app.handle()) {
+                        // 托盘不可用不致命:主窗口与 Cmd+Q 仍可用
+                        tracing::warn!(%error, "托盘初始化失败");
+                    }
+                    // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let state = handle.state::<state::AppState>();
+                        match run_startup_recovery(&state) {
+                            Ok(processed) => tracing::info!(processed, "启动投影恢复完成"),
+                            Err(error) => tracing::error!(
+                                error_code = error.code.as_str(),
+                                internal_cause = error.internal_cause(),
+                                "启动投影恢复失败"
+                            ),
+                        }
+                    });
+                    Ok(())
+                }
+                Err(error) => fail_startup(&error),
+            }
+        });
+    let app = match application_builder(builder).build(tauri::generate_context!()) {
+        Ok(app) => app,
+        Err(error) => fail_startup(&IpcError::internal(format!(
+            "tauri runtime failed to build: {error}"
+        ))),
+    };
+    app.run(|handle, event| match event {
+        // Cmd+Q / 托盘退出 / app.exit:先等进行中的慢命令收尾(≤ SHUTDOWN_GRACE),再退出
+        tauri::RunEvent::ExitRequested { .. } => {
+            let state = handle.state::<state::AppState>();
+            orderly_shutdown(&state, SHUTDOWN_GRACE);
         }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => show_main_window(handle),
+        _ => {}
     });
-    if let Err(error) = application_builder(builder).run(tauri::generate_context!()) {
-        fail_startup(&IpcError::internal(format!(
-            "tauri runtime failed: {error}"
-        )));
-    }
 }
