@@ -18,7 +18,8 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - [x] M1 加固切片(Linux,已并入 feat/mac-m1):公共异步 hook、费曼页错误态、Codex 子进程卫生、记忆库原子写、schema v3、并发策略
 - [x] M1 core 引擎(Linux,feat/m1-core-engine,tag `m1-linux-a`):schema v4、AI 幂等编排、地图作业、地图确认、会话/回合、原子判定、投影 outbox,core 127+27+1+1 绿
 - [x] M1 web 契约 v2(Linux,feat/m1-web-contract,tag `m1-linux-b`):契约/Mock/门控解码器、费曼/地图/导入向导接新契约、EPUB 抽取与多段 CFI 锚定(Playwright),web 247/2 绿
-- [ ] **Mac 阶段(按 `docs/superpowers/plans/2026-09-07-mac-m1-wiring.md` M0–M8)**:推送与三个堆叠 PR → Rust 侧契约常量同步 → F3 → Foundation 原生门禁(tag `mac-m1`)→ 连接策略/启动恢复 → 接线 map 组/session 组 → ADR-0004 与原生导入 → stats/tray → 端到端门禁(tag `m1`)
+- [x] Mac 阶段代码(2026-09-07,feat/mac-m1-wiring,PR #6,经 SSH 隧道在 Apple Silicon 实施):契约常量同步、F3、独立连接/启动恢复/codex 解析、地图组 5 条、会话组 5 条、EPUB 原生导入(ADR-0004 B)、epubUrl/blockSource、stats、tray/关窗隐藏/有序退出、受控测试日期;`unsupportedCapabilities` 仅剩 `completeTask`;CI 三任务绿
+- [ ] **Mac 阶段收尾(需桌面会话)**:M2 Foundation 原生冒烟签字(tag `mac-m1`)、`tauri dev` 七路由/tray/Cmd+Q 目检、真实 WebView 导入吞吐(ADR-0004)、M8.1 真书 + 真 codex 七步端到端(`docs/smoke/m1-e2e-gate.md`)→ 合并 PR #3→#4→#5→#6 → main 上 tag `m1`
 - [ ] M2 学习系统 / M3 体验完善(见 IMPLEMENTATION_PLAN)
 
 ## 开发环境要求

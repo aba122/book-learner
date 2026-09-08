@@ -1,6 +1,6 @@
 # ADR-0004 EPUB 原生传输(选择、暂存、抽取入口)
 
-**Status:** Deferred(2026-09-05)——待 Mac 阶段在 Apple Silicon 上用大文件 spike 后决策(基线 Node 2)
+**Status:** Accepted(2026-09-07,选项 B)——原 Deferred(2026-09-05)。决策与数据见文末"Decision(传输)"。
 
 ## Context
 
@@ -32,3 +32,15 @@ Foundation 的 `importEpub(file: File, type)` 只对 Mock 成立:WebView 里的 
 
 - `core/src/mapgen.rs`:`store_spine` 替换旧缓存;作业只依赖 `spine_item`。
 - Mac 阶段:Node 2 的导入用例(合法/损坏/遍历/超限/重复/崩溃恢复)。
+
+## Decision(传输,2026-09-07)
+
+**选项 B:有界二进制通道。** WebView 已持有 `File`(epub.js 抽取也在 JS 侧完成),原生只需接收字节落盘;不暴露任何用户路径。实现:
+
+- 前端 `TauriBackend.importEpub` 按 4 MiB 分块 `invoke('library_import_epub_chunk', Uint8Array, { headers: { 'x-op-id', 'x-chunk-index' } })`(Tauri 2 原始请求体),再 `library_import_epub_finalize[opId, bookType, title]`。
+- 原生 `import::ImportStore`:`stage_chunk` 同目录临时文件 + fsync + rename;单块 ≤ 8 MiB、单书 ≤ 200 MiB(超限即清理暂存);`finalize` 要求分块 0..n 连续 → 拼装 → 校验(zip 魔数、条目 ≤ 5000、无 `..`/绝对路径条目、首条目 `mimetype` = `application/epub+zip`、存在 `META-INF/container.xml`,不解压正文)→ 书行(`import_state='staged'`)与原子 rename 到 `books/<book_id>.epub`;失败无书行且暂存清理;同 `op_id` 重复 finalize 返回同一 `book_id`;启动清理 24h 前的暂存目录。
+- `library_epub_url[bookId]` 只返回受管路径 `books/<id>.epub`(书行与文件都必须存在);asset protocol 作用域在 setup 内运行时 `allow_directory(books_dir)`。
+
+**Spike 数据(2026-09-07,Apple Silicon,MockRuntime IPC 层):** `get_ipc_response` 以 `InvokeBody::Raw` 传递分块并落盘的用例见 `web/src-tauri/tests/foundation.rs::native_import_over_ipc_*`。**真实 WebView 的 50 MB / 300 MB 吞吐与内存数据待 M8 GUI 冒烟补测**(本阶段经 SSH 隧道无桌面会话);若实测不可接受,回退选项 A 只需替换前端 `importEpub` 的传输段,`ImportStore` 与 core 不变。
+
+**未做(记入计划偏差):** 书架对 `staged`/`extracted` 书目的"导入未完成"徽标与续跑/删除入口——需要 `Book.importState` 进契约与 `deleteBook` 新命令,留待 M8 前评估。

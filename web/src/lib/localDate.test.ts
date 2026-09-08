@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
-import { localCalendarDate } from './localDate'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TEST_DATE_KEY, localCalendarDate } from './localDate'
 
 describe('localCalendarDate', () => {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -40,5 +40,44 @@ describe('calendar-day consumers', () => {
   ])('%s does not derive a day through UTC', sourcePath => {
     const source = readFileSync(fileURLToPath(new URL(sourcePath, import.meta.url)), 'utf8')
     expect(source).not.toContain('toISOString().slice(0, 10)')
+  })
+})
+
+describe('DEV-only controlled test date (M8.0)', () => {
+  // 不依赖运行环境的 localStorage:Node ≥ 25 的实验性全局在未开 --localstorage-file 时为 undefined,
+  // 且会遮住 vitest jsdom 的实现(window 即 globalThis);用内存 Storage 注入
+  const memory = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => memory.get(key) ?? null,
+    setItem: (key: string, value: string) => { memory.set(key, value) },
+    removeItem: (key: string) => { memory.delete(key) },
+  }
+  afterEach(() => {
+    memory.clear()
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('overrides "today" in DEV when the key holds a calendar day, but never an explicit date', () => {
+    vi.stubGlobal('localStorage', storage)
+    vi.stubEnv('DEV', true)
+    storage.setItem(TEST_DATE_KEY, '2026-09-10')
+    expect(localCalendarDate()).toBe('2026-09-10')
+    expect(localCalendarDate(new Date(2026, 0, 2, 12))).toBe('2026-01-02')
+  })
+
+  it('ignores malformed values, a missing storage, and is inert in production builds', () => {
+    vi.stubGlobal('localStorage', storage)
+    vi.stubEnv('DEV', true)
+    storage.setItem(TEST_DATE_KEY, 'tomorrow')
+    expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
+
+    storage.setItem(TEST_DATE_KEY, '2026-09-10')
+    vi.stubEnv('DEV', false)
+    expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
+
+    vi.stubEnv('DEV', true)
+    vi.stubGlobal('localStorage', undefined)
+    expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
   })
 })

@@ -45,6 +45,20 @@ impl MemoryStore {
         &self.root
     }
 
+    /// 固定注入用的画像摘要:`profile.md` 前两节(知识背景、已掌握概念),带小节标题。
+    /// 其余小节(误区模式、个人情境)由 codex 在记忆库工作目录按需自主翻阅。
+    pub fn profile_summary(&self) -> Result<String> {
+        let text = std::fs::read_to_string(self.root.join("profile.md"))?;
+        let mut parts = Vec::new();
+        for heading in ["## 知识背景", "## 已掌握概念"] {
+            let body = extract_section(&text, heading);
+            if !body.is_empty() {
+                parts.push(format!("{heading}\n{body}"));
+            }
+        }
+        Ok(parts.join("\n\n"))
+    }
+
     pub fn ensure_book(&self, slug: &str, title: &str) -> Result<()> {
         let slug = validate_slug(slug)?;
         let dir = self.root.join("books").join(slug);
@@ -278,6 +292,20 @@ fn extract_section(text: &str, heading: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn profile_summary_takes_the_first_two_sections_with_headings() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("profile.md"),
+            "# 学习者画像\n\n## 知识背景\n\n经济学本科\n\n## 已掌握概念\n\n- 供需\n\n## 误区模式\n\n混淆弹性与斜率\n\n## 个人情境\n\n研究者\n",
+        )
+        .unwrap();
+        let summary = m.profile_summary().unwrap();
+        assert_eq!(summary, "## 知识背景\n经济学本科\n\n## 已掌握概念\n- 供需");
+        assert!(!summary.contains("误区模式") && !summary.contains("研究者"));
+    }
+
     #[test]
     fn init_creates_templates_and_git() {
         let dir = tempfile::tempdir().unwrap();

@@ -431,6 +431,35 @@ printf '%s' 'ok' > "$out"
         assert!(text.ends_with(&"e".repeat(50)), "应含 stderr 尾部: {text}");
     }
 
+    /// 进程已不存在或已成僵尸(等待回收)即视为"已终止"。
+    fn descendant_gone(pid: i32) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Err(_) => true,
+                Ok(stat) => stat
+                    .split(") ")
+                    .nth(1)
+                    .is_none_or(|rest| rest.starts_with('Z')),
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // macOS 无 /proc:用 ps 读状态列,进程不存在(无输出)或为僵尸(Z)均视为已终止
+            match std::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+            {
+                Err(_) => true,
+                Ok(out) => {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    let stat = text.trim();
+                    stat.is_empty() || stat.starts_with('Z')
+                }
+            }
+        }
+    }
+
     #[test]
     fn timeout_kills_descendants() {
         let dir = tempfile::tempdir().unwrap();
@@ -449,7 +478,9 @@ printf '%s' 'ok' > "$out"
             workdir: dir.path().to_path_buf(),
             read_only: true,
             request_id: String::new(),
-            timeout_secs: 1,
+            // 3s 而非 1s:整套用例并行且机器有负载时(macOS 上实测),bash 启动可能晚于 1s 才写 marker,
+            // 超时先到会让 marker 缺失而误判;3s 仍能证明"超时后整组终止"
+            timeout_secs: 3,
         };
         assert!(super::AiProvider::complete(&prov, &req).is_err());
         let pid: i32 = std::fs::read_to_string(dir.path().join("marker"))
@@ -457,17 +488,10 @@ printf '%s' 'ok' > "$out"
             .trim()
             .parse()
             .unwrap();
-        // SIGKILL 后的孙进程可能短暂为僵尸(等 init 回收),kill -0 对僵尸仍成功,故轮询 /proc 状态
+        // SIGKILL 后的孙进程可能短暂为僵尸(等 init 回收),kill -0 对僵尸仍成功,故轮询进程状态
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
-            let gone = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Err(_) => true,
-                Ok(stat) => stat
-                    .split(") ")
-                    .nth(1)
-                    .is_none_or(|rest| rest.starts_with('Z')),
-            };
-            if gone {
+            if descendant_gone(pid) {
                 break;
             }
             assert!(

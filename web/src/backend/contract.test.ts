@@ -75,13 +75,16 @@ describe('Tauri wire contract fixture', () => {
       { method: 'requestEvaluation', command: 'session_request_evaluation', payloadKeys: ['sessionId', 'requestId'] },
       { method: 'confirmSessionVerdict', command: 'session_confirm_verdict', payloadKeys: ['sessionId', 'expectedVersion', 'requestId', 'pass', 'date'] },
       { method: 'abandonSession', command: 'session_abandon', payloadKeys: ['sessionId', 'expectedVersion'] },
+      // Mac M6:原生导入(分块为原始请求体,payloadKeys 为空,元数据走 x-op-id/x-chunk-index 头)、受管路径、块原文
+      { method: 'importEpubChunk', command: 'library_import_epub_chunk', payloadKeys: [] },
+      { method: 'importEpubFinalize', command: 'library_import_epub_finalize', payloadKeys: ['opId', 'bookType', 'title'] },
+      { method: 'epubUrl', command: 'library_epub_url', payloadKeys: ['bookId'] },
+      { method: 'blockSource', command: 'map_block_source', payloadKeys: ['blockId'] },
+      // Mac M7:统计(date 由前端本地日历日提供)
+      { method: 'stats', command: 'stats_get', payloadKeys: ['date'] },
     ])
-    // v1 会话/地图方法已删除(B7);confirmMap 已是 v2 签名但原生仍待接线
-    expect(tauriWireContract.unsupportedCapabilities).toEqual([
-      'importEpub', 'confirmMap', 'completeTask', 'blockSource', 'epubUrl', 'stats',
-      'storeSpine', 'runMapJob', 'setAnchorSegments', 'listAnchors',
-      'startOrResumeSession', 'submitTurn', 'requestEvaluation', 'confirmSessionVerdict', 'abandonSession',
-    ])
+    // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
+    expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
   })
 })
 
