@@ -545,8 +545,8 @@ pub fn expand_home(raw: &str, home: Option<&std::path::Path>) -> std::path::Path
 }
 
 fn export_target(state: &AppState) -> Result<std::path::PathBuf, IpcError> {
-    let settings =
-        state.with_connection(|connection| book_learner_core::settings::get_settings(connection))?;
+    let settings = state
+        .with_connection(|connection| book_learner_core::settings::get_settings(connection))?;
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let target = expand_home(settings.obsidian_vault.trim(), home.as_deref());
     if !target.is_absolute() {
