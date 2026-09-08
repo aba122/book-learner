@@ -6,6 +6,18 @@ pub struct MemoryStore {
     root: PathBuf,
 }
 
+/// `profile.md` 的四个固定小节(M2 T6);标题即模板标题。
+pub const PROFILE_HEADINGS: [&str; 4] =
+    ["## 知识背景", "## 已掌握概念", "## 误区模式", "## 个人情境"];
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProfileSections {
+    pub background: String,
+    pub mastered: String,
+    pub pitfalls: String,
+    pub context: String,
+}
+
 const INDEX_TEMPLATE: &str = "# INDEX — 记忆库总索引\n\n\
 每次 AI 调用请先读本文件。`profile.md` 是跨书学习者画像;每本书在 `books/<slug>/` 下:\
 `_map.md` 知识地图与状态、`_weakpoints.md` 薄弱点清单、`blocks/` 各知识块记忆。\n\n\
@@ -47,6 +59,80 @@ impl MemoryStore {
 
     /// 固定注入用的画像摘要:`profile.md` 前两节(知识背景、已掌握概念),带小节标题。
     /// 其余小节(误区模式、个人情境)由 codex 在记忆库工作目录按需自主翻阅。
+    /// 画像四小节(M2 T6);缺失小节为空串。
+    pub fn profile_sections(&self) -> Result<ProfileSections> {
+        let text = std::fs::read_to_string(self.root.join("profile.md"))?;
+        Ok(ProfileSections {
+            background: extract_section(&text, PROFILE_HEADINGS[0]),
+            mastered: extract_section(&text, PROFILE_HEADINGS[1]),
+            pitfalls: extract_section(&text, PROFILE_HEADINGS[2]),
+            context: extract_section(&text, PROFILE_HEADINGS[3]),
+        })
+    }
+
+    /// 写回四小节(原子写);未知小节按原顺序保留在末尾。**不直接 git commit**——调用方经 outbox `git_commit`,
+    /// 避免与 `run_pending` 的后台重放争抢 index.lock。
+    pub fn write_profile_sections(&self, sections: &ProfileSections) -> Result<()> {
+        let path = self.root.join("profile.md");
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut unknown: Vec<(String, String)> = Vec::new();
+        let mut current: Option<(String, Vec<String>)> = None;
+        for line in existing.lines() {
+            if let Some(heading) = line.strip_prefix("## ") {
+                if let Some((h, body)) = current.take() {
+                    if !PROFILE_HEADINGS.contains(&h.as_str()) {
+                        unknown.push((h, body.join("\n").trim().to_string()));
+                    }
+                }
+                current = Some((format!("## {heading}"), Vec::new()));
+            } else if let Some((_, body)) = current.as_mut() {
+                body.push(line.to_string());
+            }
+        }
+        if let Some((h, body)) = current.take() {
+            if !PROFILE_HEADINGS.contains(&h.as_str()) {
+                unknown.push((h, body.join("\n").trim().to_string()));
+            }
+        }
+        let mut out = String::from("# 学习者画像\n");
+        for (heading, body) in PROFILE_HEADINGS.iter().zip([
+            sections.background.trim(),
+            sections.mastered.trim(),
+            sections.pitfalls.trim(),
+            sections.context.trim(),
+        ]) {
+            out.push_str(&format!(
+                "\n{heading}\n\n{}\n",
+                if body.is_empty() { "(待补充)" } else { body }
+            ));
+        }
+        for (heading, body) in unknown {
+            out.push_str(&format!("\n{heading}\n\n{body}\n"));
+        }
+        atomic_write(&path, &out)
+    }
+
+    /// 按书类型的固定注入摘要:教材/方法论追加"个人情境"(§6.4/6.5 依赖),人文只前两节。
+    pub fn profile_summary_for(&self, ty: crate::models::BookType) -> Result<String> {
+        let mut summary = self.profile_summary()?;
+        if matches!(
+            ty,
+            crate::models::BookType::Textbook | crate::models::BookType::Methodology
+        ) {
+            let text = std::fs::read_to_string(self.root.join("profile.md"))?;
+            let context = extract_section(&text, PROFILE_HEADINGS[3]);
+            if !context.is_empty()
+                && context != "(工作/研究/生活现状;方法论书情境化与教材迁移题都依赖本节)"
+            {
+                if !summary.is_empty() {
+                    summary.push_str("\n\n");
+                }
+                summary.push_str(&format!("{}\n{context}", PROFILE_HEADINGS[3]));
+            }
+        }
+        Ok(summary)
+    }
+
     pub fn profile_summary(&self) -> Result<String> {
         let text = std::fs::read_to_string(self.root.join("profile.md"))?;
         let mut parts = Vec::new();
@@ -304,6 +390,58 @@ mod tests {
         let summary = m.profile_summary().unwrap();
         assert_eq!(summary, "## 知识背景\n经济学本科\n\n## 已掌握概念\n- 供需");
         assert!(!summary.contains("误区模式") && !summary.contains("研究者"));
+    }
+
+    #[test]
+    fn profile_sections_round_trip_preserving_unknown_sections_and_summary_by_type() {
+        use crate::models::BookType;
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join("profile.md"),
+            "# 学习者画像\n\n## 知识背景\n\n经济学本科\n\n## 已掌握概念\n\n- 供需\n\n## 误区模式\n\n混淆弹性与斜率\n\n## 个人情境\n\n研究者\n\n## 自定义备注\n\n保留我\n",
+        )
+        .unwrap();
+        let sections = m.profile_sections().unwrap();
+        assert_eq!(
+            sections,
+            super::ProfileSections {
+                background: "经济学本科".into(),
+                mastered: "- 供需".into(),
+                pitfalls: "混淆弹性与斜率".into(),
+                context: "研究者".into(),
+            }
+        );
+        m.write_profile_sections(&super::ProfileSections {
+            background: "经济学博士".into(),
+            mastered: String::new(),
+            pitfalls: sections.pitfalls.clone(),
+            context: "在做定价研究".into(),
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(dir.path().join("profile.md")).unwrap();
+        assert!(text.starts_with("# 学习者画像\n"));
+        assert!(text.contains("## 知识背景\n\n经济学博士\n"));
+        assert!(text.contains("## 已掌握概念\n\n(待补充)\n"));
+        assert!(text.contains("## 自定义备注\n\n保留我\n"), "{text}");
+        assert!(!dir.path().join("profile.md.tmp").exists());
+        let again = m.profile_sections().unwrap();
+        assert_eq!(
+            (
+                again.background.as_str(),
+                again.mastered.as_str(),
+                again.context.as_str()
+            ),
+            ("经济学博士", "(待补充)", "在做定价研究")
+        );
+        // 摘要:人文只前两节;教材/方法论追加个人情境
+        let humanities = m.profile_summary_for(BookType::Humanities).unwrap();
+        assert!(humanities.contains("## 知识背景") && !humanities.contains("个人情境"));
+        let textbook = m.profile_summary_for(BookType::Textbook).unwrap();
+        assert!(
+            textbook.ends_with("## 个人情境\n在做定价研究"),
+            "{textbook}"
+        );
     }
 
     #[test]

@@ -4,8 +4,8 @@ use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, PomodoroSnapshotDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto,
-    StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto,
+    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -67,6 +67,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("pomodoro_resume", &[]),
     ("pomodoro_stop", &[]),
     ("pomodoro_state", &[]),
+    // M2 T6:学习者画像(profile.md 四小节)
+    ("profile_get", &[]),
+    ("profile_save", &["profile"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -417,6 +420,16 @@ pub fn pomodoro_state_inner(state: &AppState) -> Result<PomodoroSnapshotDto, Ipc
     run_command(state, "pomodoro_state", || crate::pomodoro::snapshot(state))
 }
 
+pub fn profile_get_inner(state: &AppState) -> Result<ProfileDto, IpcError> {
+    run_command(state, "profile_get", || application::profile_get(state))
+}
+
+pub fn profile_save_inner(state: &AppState, profile: ProfileDto) -> Result<(), IpcError> {
+    run_command(state, "profile_save", || {
+        application::profile_save(state, profile)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -664,4 +677,32 @@ pub async fn pomodoro_stop(state: State<'_, AppState>) -> Result<PomodoroSnapsho
 #[tauri::command(async)]
 pub async fn pomodoro_state(state: State<'_, AppState>) -> Result<PomodoroSnapshotDto, IpcError> {
     pomodoro_state_inner(&state)
+}
+
+// ---- 学习者画像命令(M2 T6)----
+
+#[tauri::command(async)]
+pub async fn profile_get(state: State<'_, AppState>) -> Result<ProfileDto, IpcError> {
+    profile_get_inner(&state)
+}
+
+/// 保存后在后台重放投影(git commit),与判定后的重放同一路径。
+#[tauri::command(async)]
+pub async fn profile_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    profile: ProfileDto,
+) -> Result<(), IpcError> {
+    profile_save_inner(&state, profile)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if let Err(error) = crate::run_startup_recovery(&state) {
+            tracing::error!(
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "画像保存后投影重放失败"
+            );
+        }
+    });
+    Ok(())
 }

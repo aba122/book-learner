@@ -108,9 +108,9 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/{memory.rs,projection.rs,session.rs}`, `web/src-tauri/{...}`, 契约六处, `web/src/backend/{types,mock,tauri}.ts`, `web/src/features/settings/SettingsPage.tsx`
 
-- [ ] **T6.1 失败测试(core)**:`MemoryStore::profile_sections() -> ProfileSections{background, mastered, pitfalls, context}`;`write_profile_sections(&ProfileSections)` 原子写并保留未知小节,**不直接 git commit**——写后入队 outbox `git_commit{message:"profile: 更新画像"}`(新增该幂等投影种类,`run_pending` 时 commit;与 `session_confirm_verdict` 的后台重放不再竞争 index.lock);`profile_summary_for(ty)`:教材/方法论追加"个人情境"节,人文只前两节;`application::session_context` 先取书类型再取摘要。
-- [ ] **T6.2 壳层/契约/前端**:`profile_get` → `ProfileDto`,`profile_save[profile]` → unit(保存后触发 `run_startup_recovery` 同款后台重放);设置页"学习者画像"分区(知识背景 / 个人情境文本域,误区模式只读);Mock 内存实现。
-- [ ] **T6.3** 门禁;DEVLOG;PR `feat/m2-t6-profile`。
+- [x] **T6.1 失败测试(core)**:`MemoryStore::profile_sections() -> ProfileSections{background, mastered, pitfalls, context}`;`write_profile_sections(&ProfileSections)` 原子写并保留未知小节,**不直接 git commit**——写后入队 outbox `git_commit{message:"profile: 更新画像"}`(新增该幂等投影种类,`run_pending` 时 commit;与 `session_confirm_verdict` 的后台重放不再竞争 index.lock);`profile_summary_for(ty)`:教材/方法论追加"个人情境"节,人文只前两节;`application::session_context` 先取书类型再取摘要。
+- [x] **T6.2 壳层/契约/前端**:`profile_get` → `ProfileDto`,`profile_save[profile]` → unit(保存后触发 `run_startup_recovery` 同款后台重放);设置页"学习者画像"分区(知识背景 / 个人情境文本域,误区模式只读);Mock 内存实现。
+- [x] **T6.3** 门禁;DEVLOG;PR `feat/m2-t6-profile`。
 
 ### Task T5: 三类书通过后附加环节(1.5 天;依赖 T0、T1、T6)
 

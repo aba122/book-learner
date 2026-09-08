@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,6 +29,59 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+describe('设置页 · 学习者画像(M2 T6)', () => {
+  it('展示画像四节:知识背景/个人情境可编辑,已掌握/误区只读', async () => {
+    render(<SettingsPage />)
+    expect(await screen.findByLabelText('知识背景')).toHaveValue('经济学本科,读过曼昆《经济学原理》')
+    expect(screen.getByLabelText('个人情境')).toHaveValue('在做平台定价的研究,想把弹性分析用到实验设计上')
+    expect(screen.getByText('- 容易把弹性和斜率混为一谈')).toBeInTheDocument()
+    expect(screen.getByText('- 供需曲线与均衡')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: '误区模式(AI 观察,只读)' })).toBeNull()
+  })
+
+  it('保存画像只提交画像,不触发 saveSettings,并显示已保存', async () => {
+    const profileSave = vi.spyOn(MockBackend.prototype, 'profileSave')
+    const saveSettings = vi.spyOn(MockBackend.prototype, 'saveSettings')
+    render(<SettingsPage />)
+    const context = await screen.findByLabelText('个人情境')
+    fireEvent.change(context, { target: { value: '准备转做实验经济学' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存画像' }))
+    await screen.findByText('画像已保存')
+    expect(profileSave).toHaveBeenCalledTimes(1)
+    expect(profileSave.mock.calls[0][0]).toEqual({
+      background: '经济学本科,读过曼昆《经济学原理》',
+      mastered: '- 供需曲线与均衡',
+      pitfalls: '- 容易把弹性和斜率混为一谈',
+      context: '准备转做实验经济学',
+    })
+    expect(saveSettings).not.toHaveBeenCalled()
+  })
+
+  it('画像保存失败显示错误并可重试', async () => {
+    const profileSave = vi.spyOn(MockBackend.prototype, 'profileSave')
+      .mockRejectedValueOnce(new BackendError({ code: 'storage_error', message: '写入 profile.md 失败', retryable: true }))
+    render(<SettingsPage />)
+    await screen.findByLabelText('个人情境')
+    fireEvent.click(screen.getByRole('button', { name: '保存画像' }))
+    const alert = (await screen.findByText('写入 profile.md 失败')).closest('[role="alert"]')
+    expect(alert).not.toBeNull()
+    fireEvent.click(within(alert as HTMLElement).getByRole('button', { name: '重试' }))
+    await screen.findByText('画像已保存')
+    expect(screen.queryByText('写入 profile.md 失败')).toBeNull()
+    expect(profileSave).toHaveBeenCalledTimes(2)
+  })
+
+  it('画像读取失败不影响设置表单,且可重试', async () => {
+    vi.spyOn(MockBackend.prototype, 'profileGet')
+      .mockRejectedValueOnce(new BackendError({ code: 'storage_error', message: '记忆库不可读', retryable: true }))
+    render(<SettingsPage />)
+    expect(await screen.findByLabelText('番茄钟(分钟)')).toHaveValue(25)
+    const alert = (await screen.findByText('记忆库不可读')).closest('[role="alert"]')
+    fireEvent.click(within(alert as HTMLElement).getByRole('button', { name: '重试' }))
+    expect(await screen.findByLabelText('知识背景')).toHaveValue('经济学本科,读过曼昆《经济学原理》')
+  })
+})
 
 describe('设置页', () => {
   it('表单显示 getSettings 的当前值', async () => {

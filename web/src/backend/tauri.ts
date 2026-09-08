@@ -4,7 +4,7 @@ import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Replan, ReplanStatus, Scores, SessionKind, SessionState,
+  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState,
   SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -452,6 +452,19 @@ function decodePomodoro(value: unknown): PomodoroSnapshot {
   }
 }
 
+const PROFILE_KEYS = ['background', 'mastered', 'pitfalls', 'context'] as const
+
+function decodeProfile(value: unknown): Profile {
+  const wire = objectAt(value, 'profile')
+  const field = (key: keyof Profile) => stringAt(wire[key], `profile.${key}`)
+  return { background: field('background'), mastered: field('mastered'), pitfalls: field('pitfalls'), context: field('context') }
+}
+
+function validateProfile(profile: Profile): void {
+  const value = objectAt(profile, 'profile', 'invalid_request')
+  for (const key of PROFILE_KEYS) outboundString(value[key], `profile.${key}`)
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -685,6 +698,16 @@ export class TauriBackend implements Backend {
       } catch {
         // 忽略畸形事件
       }
+    })
+  }
+
+  async profileGet(): Promise<Profile> {
+    return this.gated('profileGet', () => this.decode('profile_get', {}, decodeProfile))
+  }
+  async profileSave(profile: Profile): Promise<void> {
+    return this.gated('profileSave', async () => {
+      validateProfile(profile)
+      await this.decode('profile_save', { profile }, value => unitAt(value, 'profile_save'))
     })
   }
 

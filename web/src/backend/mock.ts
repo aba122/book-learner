@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
+  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
   TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -88,6 +88,9 @@ export class MockBackend implements Backend {
   private nextBookId = 2
   private nextBlockId = 13
   private settings: AppSettings = { ...APP_DEFAULTS }
+  private profile: Profile = {
+    background: '经济学本科,读过曼昆《经济学原理》', mastered: '- 供需曲线与均衡', pitfalls: '- 容易把弹性和斜率混为一谈', context: '在做平台定价的研究,想把弹性分析用到实验设计上',
+  }
   /** 番茄钟:镜像 core 状态机(endsAt 为 unix 秒),阶段切换用定时器推进并广播 */
   private pomodoro: PomodoroSnapshot = { phase: 'idle', taskId: null, date: null, endsAt: null, remainingSecs: 0, pausedPhase: null }
   private pomodoroTimer: ReturnType<typeof setTimeout> | null = null
@@ -363,6 +366,13 @@ export class MockBackend implements Backend {
   async subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void> {
     this.pomodoroListeners.add(handler)
     return () => { this.pomodoroListeners.delete(handler) }
+  }
+
+  async profileGet(): Promise<Profile> {
+    return { ...this.profile }
+  }
+  async profileSave(profile: Profile): Promise<void> {
+    this.profile = { ...profile }
   }
 
   async getSettings(): Promise<AppSettings> {

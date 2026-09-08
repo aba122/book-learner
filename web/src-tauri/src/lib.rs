@@ -55,6 +55,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::pomodoro_resume,
         commands::pomodoro_stop,
         commands::pomodoro_state,
+        commands::profile_get,
+        commands::profile_save,
     ])
 }
 

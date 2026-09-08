@@ -8,7 +8,7 @@ use rusqlite::OptionalExtension;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
+    MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
     StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
@@ -183,20 +183,23 @@ fn session_context(
     state: &AppState,
     session_id: i64,
 ) -> Result<(FixedContext, BookType), IpcError> {
-    let block_id = state
-        .with_connection(|connection| {
-            book_learner_core::session::get_session(connection, session_id)
-        })?
-        .block_id;
-    let profile_summary = state.memory().profile_summary().map_err(IpcError::from)?;
+    // 先取书类型,再按类型取画像摘要(教材/方法论追加"个人情境",M2 T6)
+    let (block_id, book_type) = state.with_connection(|connection| {
+        let block_id = book_learner_core::session::get_session(connection, session_id)?.block_id;
+        let book_id = book_learner_core::models::get_block(connection, block_id)?.book_id;
+        let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
+        Ok((block_id, book_type))
+    })?;
+    let profile_summary = state
+        .memory()
+        .profile_summary_for(book_type)
+        .map_err(IpcError::from)?;
     state.with_connection(|connection| {
         let context = book_learner_core::session::fixed_context_for_block(
             connection,
             block_id,
             &profile_summary,
         )?;
-        let book_id = book_learner_core::models::get_block(connection, block_id)?.book_id;
-        let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
         Ok((context, book_type))
     })
 }
@@ -394,4 +397,30 @@ pub fn get_plan(state: &AppState, book_id: i64) -> Result<Option<StudyPlanDto>, 
 /// 标记学完(M2 T8):计划冻结、复习照常;之后不能再设为主攻书。
 pub fn finish_book(state: &AppState, book_id: i64) -> Result<(), IpcError> {
     state.with_connection(|connection| book_learner_core::library::finish_book(connection, book_id))
+}
+
+// ---- 学习者画像(M2 T6):读写 profile.md 四小节;写后经 outbox git_commit(由调用方触发后台重放)----
+
+pub fn profile_get(state: &AppState) -> Result<ProfileDto, IpcError> {
+    state
+        .memory()
+        .profile_sections()
+        .map(Into::into)
+        .map_err(IpcError::from)
+}
+
+pub fn profile_save(state: &AppState, profile: ProfileDto) -> Result<(), IpcError> {
+    state
+        .memory()
+        .write_profile_sections(&profile.into())
+        .map_err(IpcError::from)?;
+    let op_id = format!("profile:{}", chrono::Utc::now().timestamp_millis());
+    state.with_connection(|connection| {
+        book_learner_core::projection::enqueue(
+            connection,
+            &op_id,
+            "git_commit",
+            &serde_json::json!({ "message": "profile: 更新学习者画像" }),
+        )
+    })
 }

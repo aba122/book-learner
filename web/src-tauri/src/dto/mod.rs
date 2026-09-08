@@ -1,6 +1,7 @@
 use book_learner_core::eval::{EvalResult, Scores, Verdict, WeakPointItem};
 use book_learner_core::map::{AnchorSegment, MapEditOp};
 use book_learner_core::mapgen::{MapProgress, SpineChapter};
+use book_learner_core::memory::ProfileSections;
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
 use book_learner_core::pomodoro::Snapshot;
@@ -609,6 +610,39 @@ impl From<Snapshot> for PomodoroSnapshotDto {
             ends_at: snapshot.ends_at,
             remaining_secs: snapshot.remaining_secs,
             paused_phase: snapshot.paused_phase,
+        }
+    }
+}
+
+// ---- 学习者画像(M2 T6)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileDto {
+    pub background: String,
+    pub mastered: String,
+    pub pitfalls: String,
+    pub context: String,
+}
+
+impl From<ProfileSections> for ProfileDto {
+    fn from(sections: ProfileSections) -> Self {
+        Self {
+            background: sections.background,
+            mastered: sections.mastered,
+            pitfalls: sections.pitfalls,
+            context: sections.context,
+        }
+    }
+}
+
+impl From<ProfileDto> for ProfileSections {
+    fn from(profile: ProfileDto) -> Self {
+        Self {
+            background: profile.background,
+            mastered: profile.mastered,
+            pitfalls: profile.pitfalls,
+            context: profile.context,
         }
     }
 }
