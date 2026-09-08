@@ -126,7 +126,6 @@ export function useBackendOperation<A extends unknown[]>(
     const pendingSet = pendingRef.current
     const committedSet = committedRef.current
     const errorMap = errorsRef.current
-    const genMap = generations.current
     const argsMap = lastArgs.current
     mounted.current = true
     return () => {
@@ -134,7 +133,9 @@ export function useBackendOperation<A extends unknown[]>(
       pendingSet.clear()
       committedSet.clear()
       errorMap.clear()
-      genMap.clear()
+      // 不清 generations:React StrictMode(开发构建)会对同一实例模拟卸载→重挂载,refs 保留;
+      // 若在此清掉代次,effect 里发起的在飞操作(如快问 opener)会在重挂载后被判"过期"而永远停在
+      // "思考中"(2026-09-08 m1-e2e 在 tauri dev 下实测)。真正卸载后 mounted=false 已足以忽略晚到结果。
       argsMap.clear()
     }
   }, [])

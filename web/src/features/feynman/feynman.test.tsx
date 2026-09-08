@@ -1,6 +1,7 @@
 // 注:计划约定 fake timers + userEvent 时用 advanceTimers 注入;实测 vitest 4 fake timers
 // 下 user-event 连纯点击都会互等死锁(同 T4),故本文件统一用 fireEvent + act 推进。
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as backendModule from '../../backend'
@@ -524,5 +525,29 @@ describe('通过后附加环节(M2 T5)', () => {
     expect(start).toHaveBeenCalledTimes(2)
     expect(start.mock.calls[0][2]).toBe(start.mock.calls[1][2])
     expect(within(extra).getByText('请出题')).toBeInTheDocument()
+  })
+})
+
+describe('StrictMode 下的 opener(开发构建模拟卸载→重挂载)', () => {
+  it('复习会话的 opener 只提交一次,重挂载后学生回复仍能落入对话流而不是永远"思考中"', async () => {
+    const submit = vi.spyOn(backendModule.backend, 'submitTurn')
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/feynman/2']}>
+          <Routes>
+            <Route path="/feynman/:taskId" element={<FeynmanPage />} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    )
+    await act(async () => {})
+    await act(async () => {})
+    await act(async () => {
+      vi.advanceTimersByTime(8000)
+    })
+    expect(submit.mock.calls.filter(c => c[2] === 'opener')).toHaveLength(1)
+    expect(screen.queryByText(/学生思考中/)).toBeNull()
+    expect(screen.getByText(/快问 1/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
   })
 })
