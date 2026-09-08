@@ -25,7 +25,8 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 whisper-rs = { version = "0.16", optional = true }
-zip = { version = "8", default-features = false }
+# deflate:读取 OPF 元数据(dc:title/dc:creator)需要解压条目;校验本身只读未压缩的 mimetype
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [features]
 # 语音转写(M3 T3):whisper.cpp 经 whisper-rs/cmake 编译;CI 若超时可 `--no-default-features`

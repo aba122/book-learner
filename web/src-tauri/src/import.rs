@@ -371,9 +371,18 @@ mod tests {
 
     /// 造一个 zip:条目按给定顺序、全部 stored。
     fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        zip_bytes_with(entries, CompressionMethod::Stored)
+    }
+
+    /// `mimetype` 始终 Stored(规范要求),其余条目按 `method`(真实 EPUB 通常 Deflated)
+    fn zip_bytes_with(entries: &[(&str, &[u8])], method: CompressionMethod) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
         for (name, body) in entries {
+            let options = SimpleFileOptions::default().compression_method(if *name == "mimetype" {
+                CompressionMethod::Stored
+            } else {
+                method
+            });
             writer.start_file(*name, options).unwrap();
             writer.write_all(body).unwrap();
         }
@@ -397,15 +406,19 @@ mod tests {
              <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title id=\"t\">{title}</dc:title>{creator}\
              </metadata><manifest/><spine/></package>"
         );
-        zip_bytes(&[
-            ("mimetype", EPUB_MIMETYPE.as_bytes()),
-            (
-                "META-INF/container.xml",
-                b"<?xml version=\"1.0\"?><container version=\"1.0\"><rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>",
-            ),
-            ("OEBPS/content.opf", opf.as_bytes()),
-            ("OEBPS/ch0.xhtml", b"<html>ch0</html>"),
-        ])
+        // 真实 EPUB(古登堡等)的 container.xml/OPF 是 Deflated:m3 门禁曾因 zip 未开 deflate 特性读不到书名
+        zip_bytes_with(
+            &[
+                ("mimetype", EPUB_MIMETYPE.as_bytes()),
+                (
+                    "META-INF/container.xml",
+                    b"<?xml version=\"1.0\"?><container version=\"1.0\"><rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>",
+                ),
+                ("OEBPS/content.opf", opf.as_bytes()),
+                ("OEBPS/ch0.xhtml", b"<html>ch0</html>"),
+            ],
+            CompressionMethod::Deflated,
+        )
     }
 
     /// 本机诊断:`BL_TEST_EPUB=<path> cargo test --lib -- --ignored --nocapture opf_metadata_of_env_epub`
