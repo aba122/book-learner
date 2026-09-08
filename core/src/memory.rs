@@ -6,6 +6,9 @@ pub struct MemoryStore {
     root: PathBuf,
 }
 
+/// 远程 git 操作(ls-remote / push)的超时秒数(评审 #12:GUI 无 TTY,必须有超时)。
+pub const GIT_REMOTE_TIMEOUT_SECS: u64 = 30;
+
 /// `profile.md` 的四个固定小节(M2 T6);标题即模板标题。
 pub const PROFILE_HEADINGS: [&str; 4] =
     ["## 知识背景", "## 已掌握概念", "## 误区模式", "## 个人情境"];
@@ -362,6 +365,113 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// 记忆库 git 远程(origin)URL;未配置为 None。
+    pub fn remote_url(&self) -> Result<Option<String>> {
+        let out = self.git(&["remote", "get-url", "origin"])?;
+        if !out.status.success() {
+            return Ok(None);
+        }
+        let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(if url.is_empty() { None } else { Some(url) })
+    }
+
+    /// 设置/清除远程:空 url 删除 origin;否则 add/set-url 后以 `ls-remote` 校验(有超时、无 TTY 提示)。
+    pub fn set_remote(&self, url: &str) -> Result<Option<String>> {
+        let url = url.trim();
+        if url.is_empty() {
+            let _ = self.git(&["remote", "remove", "origin"]);
+            return Ok(None);
+        }
+        if url.contains(char::is_whitespace) || url.starts_with('-') {
+            return Err(CoreError::InvalidInput(format!(
+                "bad git remote url {url:?}"
+            )));
+        }
+        let sub = if self.remote_url()?.is_some() {
+            "set-url"
+        } else {
+            "add"
+        };
+        let out = self.git(&["remote", sub, "origin", url])?;
+        if !out.status.success() {
+            return Err(CoreError::Other(format!(
+                "git remote {sub} failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        self.git_timeout(
+            &["ls-remote", "--exit-code", "--heads", "origin"],
+            GIT_REMOTE_TIMEOUT_SECS,
+        )
+        .map(|_| ())
+        .or_else(|e| match e {
+            // 空仓库(无 heads)也算可达:exit-code 2 表示无匹配引用
+            CoreError::Other(ref m) if m.contains("exit code 2") => Ok(()),
+            other => Err(other),
+        })?;
+        Ok(Some(url.to_string()))
+    }
+
+    /// 推送 HEAD 到 origin(有超时;无 remote 为 no-op 返回 false)。失败返回错误,由 outbox push 通道退避重试。
+    pub fn push(&self) -> Result<bool> {
+        if self.remote_url()?.is_none() {
+            return Ok(false);
+        }
+        self.git_timeout(&["push", "-u", "origin", "HEAD"], GIT_REMOTE_TIMEOUT_SECS)?;
+        Ok(true)
+    }
+
+    /// 带超时的 git(网络操作用):进程组 + SIGKILL 兜底;`GIT_TERMINAL_PROMPT=0` 与 `BatchMode` 避免在无 TTY 的
+    /// GUI 进程里挂在凭据/known_hosts 提示上。
+    fn git_timeout(&self, args: &[&str], timeout_secs: u64) -> Result<String> {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C")
+            .arg(&self.root)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=15")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let out_thread = std::thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut s) = stdout {
+                use std::io::Read;
+                let _ = s.read_to_string(&mut buf);
+            }
+            buf
+        });
+        let err_thread = std::thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut s) = stderr {
+                use std::io::Read;
+                let _ = s.read_to_string(&mut buf);
+            }
+            buf
+        });
+        let status = crate::ai::wait_with_timeout(&mut child, timeout_secs)
+            .map_err(|e| CoreError::Other(format!("git {}: {e}", args.join(" "))))?;
+        let stdout = out_thread.join().unwrap_or_default();
+        let stderr = err_thread.join().unwrap_or_default();
+        if !status.success() {
+            return Err(CoreError::Other(format!(
+                "git {} failed with exit code {}: {}",
+                args.join(" "),
+                status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+        Ok(stdout)
+    }
+
     fn git(&self, args: &[&str]) -> Result<std::process::Output> {
         let out = std::process::Command::new("git")
             .arg("-C")
@@ -390,7 +500,7 @@ pub(crate) fn validate_slug(slug: &str) -> Result<&str> {
 
 /// 原子写:同目录临时文件 + fsync + rename。中断不会截断上一份好文件;失败不留残片
 /// (NamedTempFile 在 persist 失败/创建失败路径上 drop 即删除)。
-fn atomic_write(path: &Path, content: &str) -> Result<()> {
+pub(crate) fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| CoreError::Other(format!("no parent dir for {}", path.display())))?;

@@ -67,6 +67,13 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::export_preview,
         commands::export_obsidian,
         commands::export_reveal,
+        commands::backup_snapshot_now,
+        commands::backup_list,
+        commands::backup_restore,
+        commands::backup_cancel_restore,
+        commands::git_remote_get,
+        commands::git_remote_set,
+        commands::git_push_now,
         commands::automation_report,
     ])
 }
@@ -85,7 +92,42 @@ pub fn initialize_state(platform_data_dir: &Path) -> Result<state::AppState, Ipc
         .ok_or_else(|| IpcError::internal("resolved database path has no parent directory"))?;
     std::fs::create_dir_all(database_directory)
         .map_err(|error| IpcError::from(CoreError::Io(error)))?;
+    // 待恢复标记(M3 T5):在打开数据库之前替换 app.db(连带移走热日志);标记无论成败都被消费
+    let restored = match book_learner_core::backup::apply_pending_restore(
+        database_directory,
+        &database_path,
+    ) {
+        Ok(name) => name,
+        Err(error) => {
+            tracing::error!(%error, "应用待恢复快照失败,继续用当前数据库启动");
+            None
+        }
+    };
     let state = state::AppState::open(&database_path)?;
+    if let Some(name) = restored {
+        tracing::warn!(snapshot = name, "已从快照恢复数据库;记忆库镜像将按库重生");
+        // 镜像文件(地图/薄弱点)可能比恢复后的库新:对所有书入队再生
+        let _ = state.with_connection(|connection| {
+            let books = book_learner_core::models::list_books(connection)?;
+            for book in books {
+                book_learner_core::projection::enqueue(
+                    connection,
+                    &format!("restore:{name}:sync_map:{}", book.id),
+                    "sync_map",
+                    &serde_json::json!({ "book_id": book.id }),
+                )?;
+                book_learner_core::projection::enqueue(
+                    connection,
+                    &format!("restore:{name}:sync_weakpoints:{}", book.id),
+                    "sync_weakpoints",
+                    &serde_json::json!({ "book_id": book.id }),
+                )?;
+            }
+            Ok(())
+        });
+    }
+    // 每日首次启动快照(本地日期,与提醒线程一致;失败只记日志)
+    snapshot_if_missing_today(&state);
     // 崩溃恢复:清理 24h 前未完成的导入暂存
     match state
         .import_store()
@@ -100,10 +142,40 @@ pub fn initialize_state(platform_data_dir: &Path) -> Result<state::AppState, Ipc
     Ok(state)
 }
 
-/// 启动恢复:用独立连接重放投影 outbox(SQLite 为事实源,md/git 为投影),返回处理条数。
+/// 启动恢复:用独立连接重放投影 outbox(SQLite 为事实源,md/git 为投影),返回处理条数;
+/// 之后顺带跑一次 push 通道(到期才推,失败按退避留在队列,不影响返回值)。
 pub fn run_startup_recovery(state: &state::AppState) -> Result<usize, IpcError> {
     let connection = state.open_connection()?;
-    book_learner_core::projection::run_pending(&connection, state.memory()).map_err(IpcError::from)
+    let processed = book_learner_core::projection::run_pending(&connection, state.memory())
+        .map_err(IpcError::from)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    match book_learner_core::projection::run_push_lane(&connection, state.memory(), &now) {
+        Ok(Some(true)) => tracing::info!("记忆库已推送到远程"),
+        Ok(Some(false)) => tracing::warn!("记忆库推送失败,已按退避重排"),
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "push 通道处理失败"),
+    }
+    Ok(processed)
+}
+
+/// 当日尚无快照时做一份(每日首次启动 / 退出前);只记日志,不影响启动或退出。
+pub fn snapshot_if_missing_today(state: &state::AppState) {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let dir = application::snapshots_dir(state);
+    let exists = book_learner_core::backup::list(&dir)
+        .map(|list| list.iter().any(|s| s.date == today))
+        .unwrap_or(false);
+    if exists {
+        return;
+    }
+    match application::backup_snapshot_now(state, &today) {
+        Ok(snapshot) => tracing::info!(
+            name = snapshot.name,
+            bytes = snapshot.bytes,
+            "已写入当日快照"
+        ),
+        Err(error) => tracing::warn!(internal_cause = error.internal_cause(), "当日快照失败"),
+    }
 }
 
 /// 退出时等待进行中慢命令收尾的上限;超时强制退出(codex 子进程由 core 按进程组终止,
@@ -115,6 +187,11 @@ pub fn orderly_shutdown(state: &state::AppState, grace: Duration) -> bool {
     // 进行中的番茄先结束并落分钟(M2 T3)
     pomodoro::stop_for_shutdown(state);
     let idle = state.jobs().wait_idle(grace);
+    // 退出前刷新当日快照(M3 T5):覆盖同日文件
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    if let Err(error) = application::backup_snapshot_now(state, &today) {
+        tracing::warn!(internal_cause = error.internal_cause(), "退出前快照失败");
+    }
     if idle {
         tracing::info!("有序退出:无进行中任务");
     } else {

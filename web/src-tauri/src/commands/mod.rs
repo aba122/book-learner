@@ -2,11 +2,12 @@ use tauri::{Emitter, Manager, State};
 
 use crate::application;
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto, ImportChunkDto,
-    ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto,
-    PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto,
-    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
+    EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
+    GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
+    MapRevisionDto, PomodoroSnapshotDto, ProfileDto, PushResultDto, ReplanDto, SessionViewDto,
+    SnapshotDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
+    TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -90,6 +91,14 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("export_preview", &["bookId"]),
     ("export_obsidian", &["bookId"]),
     ("export_reveal", &["bookId"]),
+    // M3 T5:数据安全(快照/恢复/git 远程)
+    ("backup_snapshot_now", &["date"]),
+    ("backup_list", &[]),
+    ("backup_restore", &["name"]),
+    ("backup_cancel_restore", &[]),
+    ("git_remote_get", &[]),
+    ("git_remote_set", &["url"]),
+    ("git_push_now", &[]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -523,6 +532,44 @@ pub fn export_reveal_inner(state: &AppState, book_id: i64) -> Result<(), IpcErro
     })
 }
 
+pub fn backup_snapshot_now_inner(state: &AppState, date: &str) -> Result<SnapshotDto, IpcError> {
+    run_command(state, "backup_snapshot_now", || {
+        application::backup_snapshot_now(state, date)
+    })
+}
+
+pub fn backup_list_inner(state: &AppState) -> Result<BackupListDto, IpcError> {
+    run_command(state, "backup_list", || application::backup_list(state))
+}
+
+pub fn backup_restore_inner(state: &AppState, name: &str) -> Result<BackupListDto, IpcError> {
+    run_command(state, "backup_restore", || {
+        application::backup_restore(state, name)
+    })
+}
+
+pub fn backup_cancel_restore_inner(state: &AppState) -> Result<BackupListDto, IpcError> {
+    run_command(state, "backup_cancel_restore", || {
+        application::backup_cancel_restore(state)
+    })
+}
+
+pub fn git_remote_get_inner(state: &AppState) -> Result<GitRemoteDto, IpcError> {
+    run_command(state, "git_remote_get", || {
+        application::git_remote_get(state)
+    })
+}
+
+pub fn git_remote_set_inner(state: &AppState, url: &str) -> Result<GitRemoteDto, IpcError> {
+    run_command(state, "git_remote_set", || {
+        application::git_remote_set(state, url)
+    })
+}
+
+pub fn git_push_now_inner(state: &AppState) -> Result<PushResultDto, IpcError> {
+    run_command(state, "git_push_now", || application::git_push_now(state))
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -923,4 +970,50 @@ pub async fn export_obsidian(
 #[tauri::command(async)]
 pub async fn export_reveal(state: State<'_, AppState>, book_id: i64) -> Result<(), IpcError> {
     export_reveal_inner(&state, book_id)
+}
+
+// ---- 数据安全命令(M3 T5)----
+
+#[tauri::command(async)]
+pub async fn backup_snapshot_now(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<SnapshotDto, IpcError> {
+    backup_snapshot_now_inner(&state, &date)
+}
+
+#[tauri::command(async)]
+pub async fn backup_list(state: State<'_, AppState>) -> Result<BackupListDto, IpcError> {
+    backup_list_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn backup_restore(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<BackupListDto, IpcError> {
+    backup_restore_inner(&state, &name)
+}
+
+#[tauri::command(async)]
+pub async fn backup_cancel_restore(state: State<'_, AppState>) -> Result<BackupListDto, IpcError> {
+    backup_cancel_restore_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn git_remote_get(state: State<'_, AppState>) -> Result<GitRemoteDto, IpcError> {
+    git_remote_get_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn git_remote_set(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<GitRemoteDto, IpcError> {
+    git_remote_set_inner(&state, &url)
+}
+
+#[tauri::command(async)]
+pub async fn git_push_now(state: State<'_, AppState>) -> Result<PushResultDto, IpcError> {
+    git_push_now_inner(&state)
 }

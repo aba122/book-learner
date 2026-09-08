@@ -874,6 +874,120 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 }
 
 #[test]
+fn backup_snapshot_restore_marker_and_git_push_lane_work_end_to_end() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("app.db");
+    let state = AppState::open(&db).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    // 快照 + 清单 + 恢复标记
+    let snap = commands::backup_snapshot_now_inner(&state, DAY).unwrap();
+    assert_eq!(snap.name, format!("app-{DAY}.db"));
+    assert!(snap.bytes > 0);
+    let list = commands::backup_list_inner(&state).unwrap();
+    assert_eq!(list.snapshots.len(), 1);
+    assert_eq!(list.pending_restore, None);
+    assert_eq!(
+        commands::backup_restore_inner(&state, "../app.db")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+    let after = commands::backup_restore_inner(&state, &snap.name).unwrap();
+    assert_eq!(after.pending_restore.as_deref(), Some(snap.name.as_str()));
+    assert_eq!(
+        commands::backup_cancel_restore_inner(&state)
+            .unwrap()
+            .pending_restore,
+        None
+    );
+    commands::backup_restore_inner(&state, &snap.name).unwrap();
+    // 快照后再加一本书;下次"启动"(initialize_state)应用恢复 → 那本书消失,镜像再生已入队
+    state
+        .with_connection(|c| {
+            book_learner_core::models::insert_book(
+                c,
+                "后来的书",
+                "",
+                book_learner_core::models::BookType::Textbook,
+                "later",
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    drop(state);
+    let state = book_learner_app::initialize_state(directory.path()).unwrap();
+    let titles: Vec<String> = commands::library_list_books_inner(&state)
+        .unwrap()
+        .into_iter()
+        .map(|b| b.title)
+        .collect();
+    assert!(!titles.iter().any(|t| t == "后来的书"), "{titles:?}");
+    assert!(commands::backup_list_inner(&state)
+        .unwrap()
+        .pending_restore
+        .is_none());
+    let resync: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM projection_outbox WHERE op_id LIKE 'restore:%'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert!(resync >= 2, "{resync}");
+    assert!(directory.path().read_dir().unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains("replaced-")));
+    // git 远程:本地 bare 仓库;commit 后 push 通道自动补一条并在恢复重放里推送
+    assert_eq!(commands::git_remote_get_inner(&state).unwrap().url, None);
+    let bare = directory.path().join("remote.git");
+    assert!(std::process::Command::new("git")
+        .args(["init", "--bare", "-q"])
+        .arg(&bare)
+        .status()
+        .unwrap()
+        .success());
+    let url = bare.to_string_lossy().into_owned();
+    assert_eq!(
+        commands::git_remote_set_inner(&state, &url)
+            .unwrap()
+            .url
+            .as_deref(),
+        Some(url.as_str())
+    );
+    assert_eq!(
+        commands::git_remote_set_inner(&state, "-x")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+    commands::profile_save_inner(
+        &state,
+        book_learner_app::dto::ProfileDto {
+            background: "b".into(),
+            mastered: "".into(),
+            pitfalls: "".into(),
+            context: "c".into(),
+        },
+    )
+    .unwrap();
+    book_learner_app::run_startup_recovery(&state).unwrap();
+    let remote_log = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&bare)
+        .args(["log", "--oneline", "--all"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&remote_log.stdout).contains("profile"));
+    let pushed = commands::git_push_now_inner(&state).unwrap();
+    assert!(pushed.pushed, "{pushed:?}");
+    let _ = first;
+}
+
+#[test]
 fn export_preview_and_write_use_the_settings_target_and_are_incremental() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("export.db")).unwrap();
@@ -2092,6 +2206,21 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 json!({"bookId": first})
             }
             "export_obsidian" => json!({"bookId": first}),
+            "backup_snapshot_now" => json!({"date": DAY}),
+            "backup_list" | "backup_cancel_restore" | "git_remote_get" | "git_push_now" => {
+                json!({})
+            }
+            "backup_restore" => json!({"name": format!("app-{DAY}.db")}),
+            "git_remote_set" => {
+                let bare = export_vault.path().join("remote.git");
+                assert!(std::process::Command::new("git")
+                    .args(["init", "--bare", "-q"])
+                    .arg(&bare)
+                    .status()
+                    .unwrap()
+                    .success());
+                json!({"url": bare.to_string_lossy()})
+            }
             "export_reveal" => {
                 // 先真正导出一次,reveal 才有目录可开(CI 上 `open` 打开目录窗口,无副作用)
                 let state = app.state::<AppState>();

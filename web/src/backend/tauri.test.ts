@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
