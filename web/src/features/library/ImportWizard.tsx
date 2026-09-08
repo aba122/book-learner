@@ -42,6 +42,8 @@ async function extractChapters(file: File, onProgress: (label: string) => void):
 export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
+  /** 选到 PDF:不导入,提示先用 Calibre 转成 EPUB(PDF 原生导入见 IMPLEMENTATION_PLAN 范围外) */
+  const [pdfName, setPdfName] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
   const importedBookId = useRef<number | null>(null)
@@ -133,14 +135,32 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
             <p className="mt-1 text-sm text-ink-3">选择一本书,交给 AI 拆分知识地图</p>
             <label className="mt-6 block cursor-pointer rounded-l border-2 border-dashed border-line bg-paper-1 px-6 py-12 text-center transition-colors hover:border-new hover:bg-paper-3/40">
               <span className="font-serif text-lg text-ink-2">选择 EPUB 文件</span>
-              <span className="mt-1 block text-xs text-ink-4">点击浏览本机文件(.epub)</span>
+              <span className="mt-1 block text-xs text-ink-4">点击浏览本机文件(.epub;PDF 请先转成 EPUB)</span>
               <input
                 type="file"
-                accept=".epub"
+                accept=".epub,.pdf"
                 className="sr-only"
-                onChange={e => setFile(e.target.files?.[0] ?? null)}
+                onChange={e => {
+                  const picked = e.target.files?.[0] ?? null
+                  if (picked && /\.pdf$/i.test(picked.name)) {
+                    setPdfName(picked.name)
+                    setFile(null)
+                  } else {
+                    setPdfName(null)
+                    setFile(picked)
+                  }
+                }}
               />
             </label>
+            {pdfName && (
+              <div role="alert" className="mt-4 rounded-m bg-paper-3/60 px-4 py-3 text-sm leading-relaxed text-ink-2">
+                《{pdfName.replace(/\.pdf$/i, '')}》是 PDF。攻书目前只读 EPUB,请先用 Calibre 转换后再导入(终端执行):
+                <code className="mt-2 block select-all rounded-s bg-paper-1 px-3 py-2 text-xs text-ink-1">
+                  ebook-convert "{pdfName}" "{pdfName.replace(/\.pdf$/i, '')}.epub" --enable-heuristics
+                </code>
+                <span className="mt-2 block text-xs text-ink-4">扫描版 PDF 没有文字层,需先 OCR;转换说明与常见问题见仓库 docs/pdf-import.md。</span>
+              </div>
+            )}
             <div className="mt-5 flex justify-end">
               <Button onClick={close}>取消</Button>
             </div>

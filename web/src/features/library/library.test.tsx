@@ -191,6 +191,21 @@ describe('书架页', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
   })
 
+  it('选到 PDF 不导入:提示 Calibre 转换命令,换成 EPUB 后继续', async () => {
+    const user = userEvent.setup()
+    const importEpub = vi.spyOn(backendModule.backend, 'importEpub')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['%PDF-1.7'], '经济学原理.pdf', { type: 'application/pdf' }))
+    const hint = await screen.findByRole('alert')
+    expect(hint).toHaveTextContent('ebook-convert "经济学原理.pdf" "经济学原理.epub"')
+    expect(screen.queryByRole('button', { name: '教材' })).toBeNull()
+    expect(importEpub).not.toHaveBeenCalled()
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '经济学原理.epub', { type: 'application/epub+zip' }))
+    expect(await screen.findByRole('button', { name: '教材' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('作业失败后重试:导入与抽取只做一次,runMapJob 复用同一 jobId', async () => {
     const user = userEvent.setup()
     const importEpub = vi.spyOn(backendModule.backend, 'importEpub')
