@@ -408,6 +408,16 @@ mod tests {
         ])
     }
 
+    /// 本机诊断:`BL_TEST_EPUB=<path> cargo test --lib -- --ignored --nocapture opf_metadata_of_env_epub`
+    #[test]
+    #[ignore]
+    fn opf_metadata_of_env_epub() {
+        let path = std::env::var("BL_TEST_EPUB").expect("BL_TEST_EPUB");
+        let meta = ImportStore::epub_metadata(Path::new(&path));
+        eprintln!("metadata of {path}: {meta:?}");
+        assert!(meta.0.is_some(), "no title parsed");
+    }
+
     #[test]
     fn finalize_prefers_opf_title_and_creator_over_the_file_name() {
         let dir = tempfile::tempdir().unwrap();
