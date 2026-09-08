@@ -124,3 +124,5 @@ export interface NewReaderMark {
 /** 语音(M3 T3):whisper 模型清单项(壳层 <data_root>/models);转写结果 */
 export interface VoiceModel { name: string; file: string; note: string; present: boolean; bytes: number | null; selected: boolean }
 export interface Transcript { text: string; seconds: number; elapsed: number; model: string }
+/** codex 可执行路径(M3 T6):path 为设置项;resolved 为当前实际解析到的路径;解析失败时 error 为文案 */
+export interface CodexBin { path: string | null; resolved: string | null; error: string | null }

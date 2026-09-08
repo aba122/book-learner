@@ -66,7 +66,7 @@ describe('整书终评(M3 T1)', () => {
 
   it('未全部通过时 finalExamStart 冲突,页面显示错误并可返回书架', async () => {
     await renderAt('/final/1')
-    expect(screen.getByRole('alert')).toHaveTextContent(/冲突/)
+    expect(screen.getByRole('alert')).toHaveTextContent(/已被更新/)
     await click(screen.getByRole('button', { name: '返回书架' }))
     expect(screen.getByTestId('loc')).toHaveTextContent('/library')
   })

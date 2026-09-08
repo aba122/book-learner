@@ -151,6 +151,11 @@ export default function TodayPage() {
           <AsyncError error={stats.error} onRetry={stats.reload} variant="compact" />
         </div>
       )}
+      {pomodoroState.error && pomodoro === null && (
+        <div className="mb-6">
+          <AsyncError error={pomodoroState.error} onRetry={pomodoroState.reload} variant="compact" />
+        </div>
+      )}
 
       {queue.error && tasks !== null && (
         <div className="mb-6">

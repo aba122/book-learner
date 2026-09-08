@@ -261,7 +261,10 @@ impl ImportStore {
         let Some(opf) = read_entry(&mut archive, &rootfile) else {
             return (None, None);
         };
-        (element_text(&opf, "dc:title"), element_text(&opf, "dc:creator"))
+        (
+            element_text(&opf, "dc:title"),
+            element_text(&opf, "dc:creator"),
+        )
     }
 
     /// 完成导入:同 op_id 重复调用返回同一 book_id;校验失败 → 无书行且暂存清理;
@@ -410,15 +413,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (store, conn) = store(dir.path());
         store
-            .stage_chunk("op-meta", 0, &epub_with_metadata("道德經 &amp; 注", Some("  老子 ")))
+            .stage_chunk(
+                "op-meta",
+                0,
+                &epub_with_metadata("道德經 &amp; 注", Some("  老子 ")),
+            )
             .unwrap();
         let book_id = store
             .finalize(&conn, "op-meta", BookType::Humanities, "book-24039")
             .unwrap();
         let (title, author): (String, String) = conn
-            .query_row("SELECT title,author FROM book WHERE id=?1", [book_id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT title,author FROM book WHERE id=?1",
+                [book_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!((title.as_str(), author.as_str()), ("道德經 & 注", "老子"));
 

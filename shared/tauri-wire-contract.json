@@ -59,7 +59,9 @@
     { "method": "voiceImportModel", "command": "voice_import_model", "payloadKeys": ["path"] },
     { "method": "voiceSelectModel", "command": "voice_select_model", "payloadKeys": ["name"] },
     { "method": "voiceDeleteModel", "command": "voice_delete_model", "payloadKeys": ["name"] },
-    { "method": "voiceTranscribe", "command": "voice_transcribe", "payloadKeys": [] }
+    { "method": "voiceTranscribe", "command": "voice_transcribe", "payloadKeys": [] },
+    { "method": "codexBinGet", "command": "settings_codex_get", "payloadKeys": [] },
+    { "method": "codexBinSet", "command": "settings_codex_set", "payloadKeys": ["path"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

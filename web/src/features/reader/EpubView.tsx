@@ -1,6 +1,6 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -61,6 +61,8 @@ const EpubView = forwardRef<
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // 首屏骨架:rendition 首次 rendered 前显示,避免空白等待(T6.1)
+  const [ready, setReady] = useState(false)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
   const appliedHighlights = useRef<Set<string>>(new Set())
@@ -100,6 +102,7 @@ const EpubView = forwardRef<
     rendRef.current = rendition
     appliedHighlights.current = new Set()
     appliedSegments.current = new Set()
+    setReady(false)
     for (const [name, styles] of Object.entries(readerThemes(typographyRef.current))) {
       rendition.themes.register(name, styles)
     }
@@ -113,6 +116,7 @@ const EpubView = forwardRef<
     })
     // 学习模式:该章渲染后把块锚点的两点 CFI 组合成区间并加下划线(多段块每段一条)
     rendition.on('rendered', (section: SectionLike, view: ViewLike) => {
+      setReady(true)
       const doc = view?.contents?.document
       if (!doc) return
       for (const seg of segmentsRef.current ?? []) {
@@ -216,7 +220,19 @@ const EpubView = forwardRef<
     currentLocation: () => lastLocation.current,
   }))
 
-  return <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+      {!ready && (
+        <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
+          <div className="h-5 w-1/3 animate-pulse rounded-s bg-paper-3" />
+          {[92, 100, 96, 88, 100, 70].map((w, i) => (
+            <div key={i} className="h-3.5 animate-pulse rounded-s bg-paper-3" style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 })
 
 export default EpubView

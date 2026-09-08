@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -54,20 +54,20 @@ function actualType(value: unknown): string {
 function invalidShape(path: string, expected: string, value: unknown, code: ErrorCode = 'invalid_response'): never {
   throw new BackendError({
     code,
-    message: code === 'invalid_response' ? '后端返回数据格式无效' : '请求参数无法安全传输',
+    message: code === 'invalid_response' ? '应用内核返回了无法识别的数据' : '请求内容无法安全传输',
     retryable: false,
     details: { path, expected, actualType: actualType(value) },
   })
 }
 
 const IPC_ERRORS = {
-  invalid_request: { message: '请求参数无效', retryable: false },
+  invalid_request: { message: '请求内容无效', retryable: false },
   not_found: { message: '未找到请求的数据', retryable: false },
-  conflict: { message: '数据状态冲突，请刷新后重试', retryable: false },
+  conflict: { message: '数据已被更新,请刷新后重试', retryable: false },
   db_unavailable: { message: '无法读取本地学习数据', retryable: true },
   io_failure: { message: '无法访问本地文件', retryable: true },
   ai_unavailable: { message: 'AI 暂时没有回应,请重试', retryable: true },
-  not_implemented: { message: '此功能尚未在 Mac 版中实现', retryable: false },
+  not_implemented: { message: '此功能暂未提供', retryable: false },
   internal: { message: '应用内部错误', retryable: false },
 } as const
 
@@ -93,7 +93,7 @@ function normalizeInvokeError(value: unknown): BackendError {
   // details 只含脱敏摘要(类型/长度/键名,绝不带原文),并输出到控制台便于诊断(F8)。
   const details = redactedShape(value)
   console.error('[ipc] transport_error', details)
-  return new BackendError({ code: 'transport_error', message: '与本地后端通信失败', retryable: false, details })
+  return new BackendError({ code: 'transport_error', message: '与应用内核通信失败,请重试', retryable: false, details })
 }
 
 const REDACTED_KEY_LIMIT = 10
@@ -442,6 +442,14 @@ function decodePushResult(value: unknown): PushResult {
 
 const READER_MARK_KINDS = ['highlight', 'bookmark', 'position'] as const satisfies readonly ReaderMarkKind[]
 
+function decodeCodexBin(value: unknown): CodexBin {
+  const wire = objectAt(value, 'codexBin')
+  return {
+    path: nullableAt(wire.path, 'codexBin.path', stringAt),
+    resolved: nullableAt(wire.resolved, 'codexBin.resolved', stringAt),
+    error: nullableAt(wire.error, 'codexBin.error', stringAt),
+  }
+}
 function decodeVoiceModel(value: unknown, path = 'voiceModel'): VoiceModel {
   const wire = objectAt(value, path)
   return {
@@ -1030,6 +1038,17 @@ export class TauriBackend implements Backend {
 
   async statsDetail(): Promise<StatsDetail> {
     return this.gated('statsDetail', () => this.decode('stats_detail', { date: localCalendarDate() }, decodeStatsDetail))
+  }
+
+  // ---- codex 路径(M3 T6)----
+  codexBinGet(): Promise<CodexBin> {
+    return this.gated('codexBinGet', () => this.decode('settings_codex_get', {}, decodeCodexBin))
+  }
+  codexBinSet(path: string | null): Promise<CodexBin> {
+    return this.gated('codexBinSet', () => {
+      if (path !== null) outboundString(path, 'path')
+      return this.decode('settings_codex_set', { path }, decodeCodexBin)
+    })
   }
 
   // ---- 语音(M3 T3)----

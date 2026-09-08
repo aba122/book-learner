@@ -26,7 +26,7 @@ export default function ExportDialog({ book, onClose }: { book: Book; onClose: (
       <Card className="relative flex max-h-[86vh] w-150 max-w-[94vw] flex-col gap-4 overflow-y-auto p-7 shadow-pop">
         <div>
           <h2 className="font-serif text-xl font-semibold text-ink-1">导出到 Obsidian</h2>
-          <p className="mt-1 text-sm text-ink-3">《{book.title}》· 学习报告、各块复述终稿与评估历史、附加环节产出,按 TECH_DESIGN §9 结构写成带 frontmatter 与 wikilink 的 markdown。</p>
+          <p className="mt-1 text-sm text-ink-3">《{book.title}》· 学习报告、各块复述终稿与评估历史、附加环节产出,写成带属性头(frontmatter)与双链(wikilink)的 Markdown,可直接在 Obsidian 里打开。</p>
         </div>
         {preview.data === null ? (
           preview.error

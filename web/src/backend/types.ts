@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -68,6 +68,9 @@ export interface Backend {
   voiceSelectModel(name: string): Promise<VoiceModel[]>
   voiceDeleteModel(name: string): Promise<VoiceModel[]>
   voiceTranscribe(pcm: Int16Array, lang: string, hint: string): Promise<Transcript>
+  /** codex 可执行路径(M3 T6):set 校验绝对路径且可执行,空则清除 */
+  codexBinGet(): Promise<CodexBin>
+  codexBinSet(path: string | null): Promise<CodexBin>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

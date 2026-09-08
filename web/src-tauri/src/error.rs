@@ -73,7 +73,7 @@ impl IpcError {
     pub(crate) fn not_implemented(capability: String) -> Self {
         Self {
             code: ErrorCode::NotImplemented,
-            message: "此功能尚未在 Mac 版中实现".into(),
+            message: "此功能暂未提供".into(),
             retryable: false,
             details: Some(serde_json::json!({ "capability": capability })),
             internal_cause: "unsupported native capability".into(),
@@ -89,9 +89,9 @@ impl From<CoreError> for IpcError {
     fn from(source: CoreError) -> Self {
         let internal_cause = source.to_string();
         let (code, message, retryable) = match source {
-            CoreError::InvalidInput(_) => (ErrorCode::InvalidRequest, "请求参数无效", false),
+            CoreError::InvalidInput(_) => (ErrorCode::InvalidRequest, "请求内容无效", false),
             CoreError::NotFound(_) => (ErrorCode::NotFound, "未找到请求的数据", false),
-            CoreError::Conflict(_) => (ErrorCode::Conflict, "数据状态冲突，请刷新后重试", false),
+            CoreError::Conflict(_) => (ErrorCode::Conflict, "数据已被更新,请刷新后重试", false),
             CoreError::Db(_) => (ErrorCode::DbUnavailable, "无法读取本地学习数据", true),
             CoreError::Io(_) => (ErrorCode::IoFailure, "无法访问本地文件", true),
             // m1-e2e 实测:codex 超时曾映射为不可重试的 internal,页面没有"重试"入口(2026-09-08)

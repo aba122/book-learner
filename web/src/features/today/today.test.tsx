@@ -454,13 +454,13 @@ describe('今日学习页', () => {
     const alert = await within(row).findByRole('alert')
     expect(alert).toHaveTextContent('桌面端暂不支持完成任务')
     expect(within(alert).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
-    const unavailableButton = within(cards[1]).getByRole('button', { name: '完成暂不可用' })
+    const unavailableButton = within(cards[1]).getByRole('button', { name: '讲完自动完成' })
     expect(unavailableButton).toBeDisabled()
     expect(within(cards[1]).getByRole('button', { name: '专注' })).toBeEnabled()
     expect(within(cards[1]).getByRole('button', { name: '回读原文' })).toBeEnabled()
 
     await user.click(within(cards[0]).getByRole('button', { name: '完成' }))
-    const weakRetestUnavailableButton = within(cards[0]).getByRole('button', { name: '完成暂不可用' })
+    const weakRetestUnavailableButton = within(cards[0]).getByRole('button', { name: '讲完自动完成' })
     expect(weakRetestUnavailableButton).toBeDisabled()
     expect(within(cards[0]).getByRole('button', { name: '专注' })).toBeEnabled()
     expect(within(cards[0]).getByRole('button', { name: '开始重考' })).toBeEnabled()
@@ -483,7 +483,7 @@ describe('今日学习页', () => {
     renderToday()
     const cards = await screen.findAllByTestId('task-card')
     await user.click(within(cards[1]).getByRole('button', { name: '完成' }))
-    expect(await within(cards[1]).findByRole('button', { name: '完成暂不可用' })).toBeDisabled()
+    expect(await within(cards[1]).findByRole('button', { name: '讲完自动完成' })).toBeDisabled()
     expect(await within(screen.getByTestId('task-row-2')).findByRole('alert')).toHaveTextContent('刷新后重试')
 
     // 另一任务完成成功 → 队列刷新成功 → conflict 行按其文案承诺重新可用

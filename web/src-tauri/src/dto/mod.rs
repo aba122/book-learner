@@ -857,6 +857,16 @@ pub struct GitRemoteDto {
     pub url: Option<String>,
 }
 
+/// codex 可执行路径(M3 T6):`path` 为设置项(绝对路径或未设置),`resolved` 为当前实际解析到的路径,
+/// 解析失败时 `error` 给用户文案。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexBinDto {
+    pub path: Option<String>,
+    pub resolved: Option<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PushResultDto {
