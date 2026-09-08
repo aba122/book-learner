@@ -58,9 +58,9 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/db.rs`, `core/tests/foundation.rs`(v4→v5 用例), `TECH_DESIGN.md` §4
 
-- [ ] **T0.1 失败测试**:v4 库(含 feynman_session/session_turn 各若干行)迁到 v5 后:`session_turn` 行数不变、三个 partial unique index 仍在(`db.rs:235-237`)、`user_version=5`;新列/表存在;二次 `migrate` 幂等;`open_creates_base_tables` 的版本断言(`db.rs:296`)更新。
-- [ ] **T0.2 实现(仅 ALTER/CREATE,不重建)**:`ALTER TABLE feynman_session ADD COLUMN extra_kind TEXT CHECK(extra_kind IN ('application','methodology','discussion'))`(NULL = 普通会话);`CREATE UNIQUE INDEX feynman_session_extra_once ON feynman_session(block_id, extra_kind) WHERE extra_kind IS NOT NULL`;`CREATE TABLE study_minutes(id PK, date TEXT NOT NULL, book_id INTEGER, task_id INTEGER REFERENCES daily_task(id) ON DELETE SET NULL, minutes INTEGER NOT NULL, source TEXT NOT NULL CHECK(source IN ('pomodoro')), created_at TEXT NOT NULL)` + `(date)` 索引。TECH_DESIGN §4 补 v5。
-- [ ] **T0.3** core 门禁;PR `feat/m2-t0-schema-v5`。
+- [x] **T0.1 失败测试**:v4 库(含 feynman_session/session_turn 各若干行)迁到 v5 后:`session_turn` 行数不变、三个 partial unique index 仍在(`db.rs:235-237`)、`user_version=5`;新列/表存在;二次 `migrate` 幂等;`open_creates_base_tables` 的版本断言(`db.rs:296`)更新。
+- [x] **T0.2 实现(仅 ALTER/CREATE,不重建)**:`ALTER TABLE feynman_session ADD COLUMN extra_kind TEXT CHECK(extra_kind IN ('application','methodology','discussion'))`(NULL = 普通会话);`CREATE UNIQUE INDEX feynman_session_extra_once ON feynman_session(block_id, extra_kind) WHERE extra_kind IS NOT NULL`;`CREATE TABLE study_minutes(id PK, date TEXT NOT NULL, book_id INTEGER, task_id INTEGER REFERENCES daily_task(id) ON DELETE SET NULL, minutes INTEGER NOT NULL, source TEXT NOT NULL CHECK(source IN ('pomodoro')), created_at TEXT NOT NULL)` + `(date)` 索引。TECH_DESIGN §4 补 v5。
+- [x] **T0.3** core 门禁;PR `feat/m2-t0-schema-v5`。
 
 ### Task T1: 间隔复习与薄弱点重考的"快问"会话(core + web,1 天;依赖 T0)
 
