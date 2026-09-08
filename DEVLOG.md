@@ -472,3 +472,9 @@
 - **web**:`StatsDetail` 类型族;`statsDetail()`(日期同 `stats()` 由前端本地日历日给);解码器新增 `finiteNumberAt`/`nullableAt`;Mock 进度按书/块推导、投入与质量为确定性样例;`StatsPage` 汇总卡下新增独立加载的三区(`StatsDetailSections`):进度(按书条形 + 通过/巩固/截止/预计完成)、投入(14 天柱状图纯 div、56 格打卡日历 `grid-rows-7`)、质量(薄弱点新增/修复双柱、评估均分三条、复习通过率 `ProgressRing`);空数据每区给说明文案;详情失败只影响三区且可重试。用例 3 条 + tauri 解码 1 条。
 - 门禁:core 147/27/1/1、web 288/2、lint 0、`pnpm build`、rustfmt、clippy 0;src-tauri 由 Mac 原生 `cargo test` 与 CI 验证。
 
+## 2026-09-08 · M2 T9:门禁与回写(无人值守段)
+- **全量门禁(Mac 原生,经隧道无人值守)**:结果表已填入 `docs/smoke/m2-gate.md` §9——core 146/1 失败(见下)+ 27/1/1、clippy 0、fmt;src-tauri foundation 26、clippy 0、fmt;web 287/1 跳过、lint 0、`pnpm build`;`tauri build --debug --bundles app`(41 MB)与 release(15.4 MB)通过;debug bundle 干净目录首启:`app.db` v5 含 M2 新表/索引、记忆库 git 初始化、无 ERROR、通知权限 Granted、投影恢复 0、按 pid 干净退出。
+- **唯一失败**:`ai::tests::timeout_kills_descendants` 再次在并行负载下抖动——不是"没杀干净",而是 bash 晚于 3s 超时才启动,超时把还没起来的脚本连带杀掉,marker 缺失。改为逐级放大超时(3s → 6s → 12s)重试直到 marker 出现再断言"孙进程已被进程组终止";断言语义不变。Linux 单跑通过。
+- **回写**:`docs/smoke/m2-gate.md` 补齐 T3(番茄钟/托盘 5 项)、T5(附加环节 5 项)、T6(画像 2 项)、T7(统计 1 项)目检项;IMPLEMENTATION_PLAN M2 节加实施状态(2.1–2.5 代码全入 main;2.3 的"个人情境 AI 提取与确认流"未做,留 M3);CLAUDE.md 状态区;TECH_DESIGN §10 实现说明(notify::decide、30s 轮询线程、番茄钟状态机/托盘/事件)。
+- **待桌面会话**:`docs/smoke/m2-gate.md` §1–§8 目检并签字 → main 打 `m2`;`mac-m1`/`m1` 两个 tag 同样待相应冒烟签字。
+

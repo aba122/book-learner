@@ -20,7 +20,9 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - [x] M1 web 契约 v2(Linux,feat/m1-web-contract,tag `m1-linux-b`):契约/Mock/门控解码器、费曼/地图/导入向导接新契约、EPUB 抽取与多段 CFI 锚定(Playwright),web 247/2 绿
 - [x] Mac 阶段代码(2026-09-07,feat/mac-m1-wiring,PR #6,经 SSH 隧道在 Apple Silicon 实施):契约常量同步、F3、独立连接/启动恢复/codex 解析、地图组 5 条、会话组 5 条、EPUB 原生导入(ADR-0004 B)、epubUrl/blockSource、stats、tray/关窗隐藏/有序退出、受控测试日期;`unsupportedCapabilities` 仅剩 `completeTask`;CI 三任务绿
 - [ ] **Mac 阶段收尾(需桌面会话)**:M2 Foundation 原生冒烟签字(tag `mac-m1`)、`tauri dev` 七路由/tray/Cmd+Q 目检、真实 WebView 导入吞吐(ADR-0004)、M8.1 真书 + 真 codex 七步端到端(`docs/smoke/m1-e2e-gate.md`)→ 合并 PR #3→#4→#5→#6 → main 上 tag `m1`
-- [ ] M2 学习系统 / M3 体验完善(见 IMPLEMENTATION_PLAN)
+- [x] M2 学习系统代码(2026-09-08,PR #9–#17 合入 main,计划 `docs/superpowers/plans/2026-09-08-m2-learning-system.md` T0–T8):schema v5、快问会话、落后重排确认、单主攻书补完、提醒通知、Rust 番茄钟 + 托盘倒计时、学习者画像编辑、三类书通过后附加环节、统计页三区;记忆库写入一律经 outbox
+- [ ] **M2 桌面门禁(需桌面会话)**:`docs/smoke/m2-gate.md` 目检(通知/托盘/番茄钟/附加环节/画像/统计)签字 → main 打 `m2`
+- [ ] M3 体验完善(语音输入、Obsidian 导出、整书终评、阅读器打磨;见 IMPLEMENTATION_PLAN)
 
 ## 开发环境要求
 

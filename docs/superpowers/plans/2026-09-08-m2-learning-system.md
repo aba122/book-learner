@@ -132,7 +132,7 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 ### Task T9: M2 门禁与回写(半天)
 
 - [ ] **T9.1** `docs/smoke/m2-gate.md`:以 `pnpm -C web tauri build --debug --bundles app` 的 .app 运行;三类书各学 ≥2 块含附加环节;推进受控日期制造连续 2 天落后 → 重排弹窗两分支;关窗常驻下到点通知(每日/晚间)、番茄钟托盘倒计时与结束通知;第 1 天通过的块第 2 天出现复习并以快问完成;已学完书的复习照常。
-- [ ] **T9.2** 全量门禁(三套测试、clippy、fmt、lint、tsc、build、debug/release 构建、干净目录冒烟);回写 IMPLEMENTATION_PLAN M2 状态、CLAUDE.md、TECH_DESIGN §4/§10;DEVLOG 收尾;签字后 main 打 `m2`。
+- [x] **T9.2**(无人值守段完成;桌面目检签字与 tag `m2` 待用户)全量门禁(三套测试、clippy、fmt、lint、tsc、build、debug/release 构建、干净目录冒烟);回写 IMPLEMENTATION_PLAN M2 状态、CLAUDE.md、TECH_DESIGN §4/§10;DEVLOG 收尾;签字后 main 打 `m2`。
 
 ## 完成定义(DoD)
 
