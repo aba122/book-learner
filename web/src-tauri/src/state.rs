@@ -20,6 +20,67 @@ pub type SharedProvider = Arc<dyn AiProvider + Send + Sync>;
 /// Finder 启动的 GUI 不继承 shell PATH,故在 `$PATH` 之后再查这些固定目录。
 pub const CODEX_FALLBACK_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 
+/// 计算 GUI 进程应使用的 PATH:把存在但缺失的工具目录**前置**(Homebrew / npm 全局 / nvm 最新 / volta /
+/// ~/.local/bin)。codex 是 `#!/usr/bin/env node` 脚本,Finder 启动时 PATH 只有系统目录,子进程会以 127
+/// "env: node: No such file or directory" 失败(2026-09-08 用户导入 CFA 笔记时发现)。纯函数便于测试。
+pub fn augmented_path(
+    current: Option<&std::ffi::OsStr>,
+    home: Option<&Path>,
+    fallback_dirs: &[&str],
+) -> OsString {
+    let existing: Vec<PathBuf> = current
+        .map(|value| std::env::split_paths(value).collect())
+        .unwrap_or_default();
+    let mut candidates: Vec<PathBuf> = fallback_dirs.iter().map(PathBuf::from).collect();
+    if let Some(home) = home {
+        candidates.push(home.join(".npm-global").join("bin"));
+        candidates.push(home.join(".volta").join("bin"));
+        candidates.push(home.join(".local").join("bin"));
+        if let Ok(entries) = std::fs::read_dir(home.join(".nvm").join("versions").join("node")) {
+            let mut versions: Vec<PathBuf> = entries
+                .flatten()
+                .map(|entry| entry.path().join("bin"))
+                .collect();
+            versions.sort();
+            if let Some(latest) = versions.pop() {
+                candidates.push(latest);
+            }
+        }
+    }
+    let mut prefix: Vec<PathBuf> = Vec::new();
+    for candidate in candidates {
+        if candidate.is_dir() && !existing.contains(&candidate) && !prefix.contains(&candidate) {
+            prefix.push(candidate);
+        }
+    }
+    std::env::join_paths(prefix.into_iter().chain(existing))
+        .unwrap_or_else(|_| current.map(OsString::from).unwrap_or_default())
+}
+
+/// 进程级修正 PATH(启动时调用一次):让 codex/node/git 等子进程在 Finder 启动的 app 里也能找到。
+pub fn ensure_gui_path() {
+    let current = std::env::var_os("PATH");
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let augmented = augmented_path(current.as_deref(), home.as_deref(), CODEX_FALLBACK_DIRS);
+    if current.as_deref() != Some(augmented.as_os_str()) {
+        tracing::info!(path = %augmented.to_string_lossy(), "PATH 已补全工具目录(GUI 启动)");
+        std::env::set_var("PATH", augmented);
+    }
+}
+
+/// 把某个可执行文件所在目录前置到 PATH(配置的 codex 路径可能在 nvm 等目录,其 `node` 也在旁边)。
+fn ensure_dir_on_path(directory: &Path) {
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    if std::env::split_paths(&current).any(|entry| entry == directory) {
+        return;
+    }
+    if let Ok(joined) = std::env::join_paths(
+        std::iter::once(directory.to_path_buf()).chain(std::env::split_paths(&current)),
+    ) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
 /// 进行中的慢命令(导入/地图作业/回合/评估)计数;退出前等待其收尾(M7 有序退出)。
 #[derive(Default)]
 pub struct JobRegistry {
@@ -206,6 +267,9 @@ impl AppState {
             std::env::var_os("HOME").map(PathBuf::from),
             CODEX_FALLBACK_DIRS,
         )?;
+        if let Some(directory) = bin.parent() {
+            ensure_dir_on_path(directory);
+        }
         Ok((
             Arc::new(CodexCliProvider {
                 bin,
