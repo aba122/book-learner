@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -648,6 +648,54 @@ export class MockBackend implements Backend {
       this.marks.push(m)
     }
     return { ...m }
+  }
+
+  // ---- 语音(M3 T3):内存模型清单;转写返回固定文本(按时长稍等) ----
+  private voiceModelList: VoiceModel[] = [
+    { name: 'large-v3-turbo-q5_0', file: 'ggml-large-v3-turbo-q5_0.bin', note: '中文效果好,约 570 MB', present: false, bytes: null, selected: false },
+    { name: 'small', file: 'ggml-small.bin', note: '更快,约 480 MB', present: true, bytes: 487601967, selected: true },
+    { name: 'base', file: 'ggml-base.bin', note: '最快,约 150 MB,中文一般', present: false, bytes: null, selected: false },
+  ]
+  async voiceModels(): Promise<VoiceModel[]> {
+    return this.voiceModelList.map(m => ({ ...m }))
+  }
+  async voiceImportModel(path: string | null): Promise<VoiceModel | null> {
+    if (path === null) return null
+    const file = path.split('/').pop() ?? ''
+    const m = /^ggml-([A-Za-z0-9._-]+)\.bin$/.exec(file)
+    if (!m) throw new BackendError({ code: 'invalid_request', message: '模型文件名必须形如 ggml-<名称>.bin', retryable: false })
+    const name = m[1]
+    let entry = this.voiceModelList.find(x => x.name === name)
+    if (!entry) {
+      entry = { name, file, note: '自定义模型', present: false, bytes: null, selected: false }
+      this.voiceModelList.push(entry)
+    }
+    entry.present = true
+    entry.bytes = 300 << 20
+    if (!this.voiceModelList.some(x => x.selected && x.present)) entry.selected = true
+    return { ...entry }
+  }
+  async voiceSelectModel(name: string): Promise<VoiceModel[]> {
+    const entry = this.voiceModelList.find(x => x.name === name)
+    if (!entry?.present) throw new BackendError({ code: 'invalid_request', message: '该模型尚未导入', retryable: false })
+    for (const x of this.voiceModelList) x.selected = x === entry
+    return this.voiceModels()
+  }
+  async voiceDeleteModel(name: string): Promise<VoiceModel[]> {
+    const entry = this.voiceModelList.find(x => x.name === name)
+    if (!entry?.present) throw notFound()
+    if (entry.note === '自定义模型') this.voiceModelList = this.voiceModelList.filter(x => x !== entry)
+    else { entry.present = false; entry.bytes = null }
+    return this.voiceModels()
+  }
+  async voiceTranscribe(pcm: Int16Array, lang: string, hint: string): Promise<Transcript> {
+    if (pcm.length === 0) throw invalidRequest()
+    const selected = this.voiceModelList.find(x => x.selected && x.present)
+    if (!selected) throw new BackendError({ code: 'invalid_request', message: '还没有可用的语音模型,请先在设置页导入', retryable: false })
+    const seconds = pcm.length / 16_000
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const topic = hint.trim() ? `关于「${hint.trim()}」,` : ''
+    return { text: `${topic}我的理解是:这个概念描述的是一种变化对另一种变化的敏感程度(${lang},${seconds.toFixed(1)} 秒语音转写示例)。`, seconds, elapsed: 0.3, model: selected.name }
   }
 
   async finalExamEligible(bookId: number): Promise<boolean> {

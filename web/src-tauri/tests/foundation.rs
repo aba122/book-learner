@@ -2397,6 +2397,42 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "profile_save" => json!({"profile": {
                 "background": "经济学本科", "mastered": "", "pitfalls": "", "context": "研究者"
             }}),
+            "voice_models" => json!({}),
+            "voice_import_model" => {
+                // 无模型文件:校验失败 invalid_request(不会弹原生选择器,因为 path 非空)
+                assert_eq!(entry["payloadKeys"], json!(["path"]), "{command}");
+                let bogus = export_vault.path().join("ggml-nope.bin");
+                let error =
+                    invoke_json(&webview, command, json!({"path": bogus.to_string_lossy()}))
+                        .expect_err(command);
+                assert_eq!(error["code"], "invalid_request", "{error}");
+                continue;
+            }
+            "voice_select_model" => {
+                let error =
+                    invoke_json(&webview, command, json!({"name": "small"})).expect_err(command);
+                assert_eq!(error["code"], "invalid_request", "{error}");
+                continue;
+            }
+            "voice_delete_model" => {
+                let error =
+                    invoke_json(&webview, command, json!({"name": "small"})).expect_err(command);
+                assert_eq!(error["code"], "not_found", "{error}");
+                continue;
+            }
+            "voice_transcribe" => {
+                // 原始请求体:payloadKeys 为空;没有模型时报 invalid_request(不加载 whisper)
+                assert_eq!(entry["payloadKeys"], json!([]), "{command}");
+                let error = invoke_raw(
+                    &webview,
+                    command,
+                    vec![0u8; 3200],
+                    &[("x-bl-lang", "zh"), ("x-bl-hint", "%E5%BC%B9%E6%80%A7")],
+                )
+                .expect_err(command);
+                assert_eq!(error["code"], "invalid_request", "{error}");
+                continue;
+            }
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对
@@ -2440,4 +2476,170 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
         );
     }
     assert!(invoke_json(&webview, "health_check", json!({})).is_err());
+}
+
+// ---- 语音(M3 T3):模型目录/导入校验/选择/删除白名单/PCM 与头部校验(不加载 whisper 模型)----
+
+fn sparse_model_file(dir: &Path, name: &str, bytes: u64) -> std::path::PathBuf {
+    let path = dir.join(name);
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(bytes).unwrap();
+    path
+}
+
+#[test]
+fn voice_models_import_select_and_delete_are_whitelisted_to_models_dir() {
+    use book_learner_app::voice;
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("voice.db")).unwrap();
+    let source = tempfile::tempdir().unwrap();
+
+    let initial = commands::voice_models_inner(&state).unwrap();
+    assert_eq!(
+        initial.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        voice::KNOWN_MODELS
+            .iter()
+            .map(|(n, _, _)| *n)
+            .collect::<Vec<_>>()
+    );
+    assert!(initial.iter().all(|m| !m.present && m.bytes.is_none()));
+    assert_eq!(
+        initial.iter().find(|m| m.selected).map(|m| m.name.as_str()),
+        Some(voice::DEFAULT_MODEL)
+    );
+
+    // 文件名与体积校验
+    let bad_name = sparse_model_file(source.path(), "model.bin", voice::MIN_MODEL_BYTES);
+    assert_eq!(
+        commands::voice_import_model_inner(&state, &bad_name)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let too_small = sparse_model_file(source.path(), "ggml-tiny.bin", 1024);
+    assert_eq!(
+        commands::voice_import_model_inner(&state, &too_small)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::voice_import_model_inner(&state, &source.path().join("ggml-missing.bin"))
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+
+    // 首个导入的模型自动选中;文件被复制进 <data_root>/models(临时文件已改名)
+    let small = sparse_model_file(source.path(), "ggml-small.bin", voice::MIN_MODEL_BYTES);
+    let imported = commands::voice_import_model_inner(&state, &small).unwrap();
+    assert!(imported.present && imported.selected);
+    assert_eq!(imported.bytes, Some(voice::MIN_MODEL_BYTES));
+    let models_dir = voice::models_dir(&state);
+    assert!(models_dir.join("ggml-small.bin").is_file());
+    assert!(!models_dir.join("ggml-small.bin.tmp").exists());
+    assert!(small.is_file(), "source file is copied, not moved");
+
+    // 自定义模型进入清单;再导入不改变当前选择
+    let custom = sparse_model_file(
+        source.path(),
+        "ggml-my.custom_v2.bin",
+        voice::MIN_MODEL_BYTES,
+    );
+    let imported = commands::voice_import_model_inner(&state, &custom).unwrap();
+    assert_eq!(
+        (imported.name.as_str(), imported.selected),
+        ("my.custom_v2", false)
+    );
+    let listed = commands::voice_models_inner(&state).unwrap();
+    assert_eq!(listed.len(), voice::KNOWN_MODELS.len() + 1);
+    assert_eq!(listed.iter().filter(|m| m.selected).count(), 1);
+
+    // 选择只接受已导入的模型;名字非法或未导入 → invalid_request
+    assert_eq!(
+        commands::voice_select_model_inner(&state, "large-v3-turbo-q5_0")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::voice_select_model_inner(&state, "../etc")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let selected = commands::voice_select_model_inner(&state, "my.custom_v2").unwrap();
+    assert_eq!(
+        selected
+            .iter()
+            .find(|m| m.selected)
+            .map(|m| m.name.as_str()),
+        Some("my.custom_v2")
+    );
+    assert_eq!(voice::selected_model(&state).unwrap(), "my.custom_v2");
+
+    // 删除:白名单目录内、按名称;越界名字 invalid_request,不存在 not_found
+    assert_eq!(
+        commands::voice_delete_model_inner(&state, "../voice")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::voice_delete_model_inner(&state, "base")
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let after = commands::voice_delete_model_inner(&state, "small").unwrap();
+    assert!(!models_dir.join("ggml-small.bin").exists());
+    assert!(after
+        .iter()
+        .find(|m| m.name == "small")
+        .is_some_and(|m| !m.present));
+    let after = commands::voice_delete_model_inner(&state, "my.custom_v2").unwrap();
+    assert!(after.iter().all(|m| m.name != "my.custom_v2"));
+}
+
+#[test]
+fn voice_transcribe_validates_pcm_and_requires_a_model() {
+    use book_learner_app::voice;
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("voice.db")).unwrap();
+
+    assert_eq!(
+        commands::voice_transcribe_inner(&state, &[1, 2, 3], "zh", "")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::voice_transcribe_inner(&state, &[], "zh", "")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let too_long = vec![0u8; (voice::MAX_AUDIO_SECS * voice::SAMPLE_RATE + 1) * 2];
+    assert_eq!(
+        commands::voice_transcribe_inner(&state, &too_long, "zh", "")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    // 合法 PCM 但没有模型:invalid_request 且不会尝试加载 whisper
+    let silence = vec![0u8; 3200];
+    let error = commands::voice_transcribe_inner(&state, &silence, "zh", "弹性").unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert!(error.message.contains("模型"), "{}", error.message);
+
+    let pcm = voice::pcm_i16_to_f32(&[0xFF, 0x7F, 0x00, 0x80, 0x00, 0x00]).unwrap();
+    assert!((pcm[0] - 32767.0 / 32768.0).abs() < 1e-6);
+    assert_eq!(pcm[1], -1.0);
+    assert_eq!(pcm[2], 0.0);
+    assert_eq!(
+        voice::percent_decode("%E5%BC%B9%E6%80%A7+%2F+x"),
+        "弹性 / x"
+    );
+    assert_eq!(voice::percent_decode("plain"), "plain");
+    assert_eq!(voice::percent_decode("%zz%"), "%zz%");
 }

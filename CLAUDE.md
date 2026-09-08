@@ -22,11 +22,11 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - [ ] **Mac 阶段收尾(需桌面会话)**:M2 Foundation 原生冒烟签字(tag `mac-m1`)、`tauri dev` 七路由/tray/Cmd+Q 目检、真实 WebView 导入吞吐(ADR-0004)、M8.1 真书 + 真 codex 七步端到端(`docs/smoke/m1-e2e-gate.md`)→ 合并 PR #3→#4→#5→#6 → main 上 tag `m1`
 - [x] M2 学习系统代码(2026-09-08,PR #9–#17 合入 main,计划 `docs/superpowers/plans/2026-09-08-m2-learning-system.md` T0–T8):schema v5、快问会话、落后重排确认、单主攻书补完、提醒通知、Rust 番茄钟 + 托盘倒计时、学习者画像编辑、三类书通过后附加环节、统计页三区;记忆库写入一律经 outbox
 - [x] 三份桌面门禁(2026-09-08,经用户 SSH 隧道 + 辅助功能权限 + debug-only 自动化桥执行):`mac-m1-native-smoke.md` → tag `mac-m1`;`m1-e2e-gate.md`(真书 + 真 codex 七步,发现并修 PR #21/#22)→ tag `m1`;`m2-gate.md`(通知/托盘番茄钟/落后重排/单主攻书/快问/三类附加环节/画像/统计)→ tag `m2`。门禁脚本 `docs/smoke/scripts/`
-- [ ] M3 体验完善(语音输入、Obsidian 导出、整书终评、阅读器打磨;见 IMPLEMENTATION_PLAN)
+- [ ] M3 体验完善(计划 `docs/superpowers/plans/2026-09-08-m3-experience.md`):T1 整书终评(PR #25)、T2 Obsidian 导出(PR #26)、T5 数据安全(PR #27)、T4 阅读器打磨(PR #28)已合入 main;T3 whisper 语音输入在 `feat/m3-t3-voice`;T6 收尾与打包待做
 
 ## 开发环境要求
 
-前端/core 可在 Linux 开发;Tauri 原生发布门禁需 macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、codex CLI 已安装并登录(`codex exec "hi"` 可用)。
+前端/core 可在 Linux 开发;Tauri 原生发布门禁需 macOS(Apple Silicon)、Rust stable、Node 20+、pnpm、**cmake**(`brew install cmake`,whisper.cpp 经 whisper-rs 编译;M3 T3 起)、codex CLI 已安装并登录(`codex exec "hi"` 可用)。语音转写模型不随 app 分发:下载 `ggml-*.bin` 后在设置页导入。
 
 ## 约定
 

@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -62,6 +62,12 @@ export interface Backend {
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>
+  /** 语音(M3 T3):模型清单/导入(path 为 null 时原生选择器,取消返回 null)/选择/删除;转写输入 16 kHz 单声道 i16 PCM,结果填入输入框不直接发送 */
+  voiceModels(): Promise<VoiceModel[]>
+  voiceImportModel(path: string | null): Promise<VoiceModel | null>
+  voiceSelectModel(name: string): Promise<VoiceModel[]>
+  voiceDeleteModel(name: string): Promise<VoiceModel[]>
+  voiceTranscribe(pcm: Int16Array, lang: string, hint: string): Promise<Transcript>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

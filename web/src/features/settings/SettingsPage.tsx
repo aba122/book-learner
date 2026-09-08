@@ -9,6 +9,7 @@ import { useBackendOperation } from '../../lib/useBackendOperation'
 import Confirm from '../../components/Confirm'
 import { localCalendarDate } from '../../lib/localDate'
 import type { AppSettings, BackupList, Profile } from '../../types'
+import VoiceSection from './VoiceSection'
 
 function Field({
   label,
@@ -345,19 +346,8 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
               />
             )}
           </Field>
-          <Field label="whisper 模型">
-            {id => (
-              <input
-                id={id}
-                type="text"
-                disabled
-                placeholder="Mac 阶段配置"
-                title="语音输入随 whisper 在 Mac 阶段接入"
-                className={`${inputCls} w-72`}
-              />
-            )}
-          </Field>
         </Card>
+        <VoiceSection />
         <ProfileSection />
         <DataSection />
       </div>

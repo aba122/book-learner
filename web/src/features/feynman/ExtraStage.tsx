@@ -8,6 +8,7 @@ import { newClientId } from '../../lib/ids'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { Book, ExtraOutcome, KnowledgeBlock, SessionView, TurnResult } from '../../types'
+import VoiceInput from './VoiceInput'
 import TranscriptLines, { StudentAvatar, type Line } from './Transcript'
 
 /** 结束请求 id 为常量:core 按 `extra:{session}:{id}` 命名空间化,重进后同 id 即重放同一整理稿 */
@@ -65,6 +66,8 @@ function ExtraStageBody({ book, block, onDone }: { book: Book; block: KnowledgeB
   const [readyToEnd, setReadyToEnd] = useState(false)
   const [answers, setAnswers] = useState(0)
   const [draft, setDraft] = useState('')
+  /** 语音转写结果:追加到输入框(不直接发送,可编辑) */
+  const appendDraft = useCallback((text: string) => setDraft(d => (d.trim() ? `${d.trimEnd()}\n${text}` : text)), [])
   const [outcome, setOutcome] = useState<ExtraOutcome | null>(null)
   const scrollAnchor = useRef<HTMLDivElement>(null)
 
@@ -207,6 +210,7 @@ function ExtraStageBody({ book, block, onDone }: { book: Book; block: KnowledgeB
         <div ref={scrollAnchor} />
       </div>
       <div className="flex items-end gap-3">
+        <VoiceInput hint={block.title} disabled={inputLocked} onText={appendDraft} />
         <textarea
           aria-label="附加环节输入"
           rows={2}

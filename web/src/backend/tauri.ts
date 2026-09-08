@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -33,6 +33,9 @@ export const POMODORO_CHANGED_EVENT = 'pomodoro_changed'
 export const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024
 export const IMPORT_OP_ID_HEADER = 'x-op-id'
 export const IMPORT_CHUNK_INDEX_HEADER = 'x-chunk-index'
+/** 语音转写请求头(与 commands/mod.rs 一致):语言码;提示词经 encodeURIComponent(头部只能是 ASCII) */
+export const VOICE_LANG_HEADER = 'x-bl-lang'
+export const VOICE_HINT_HEADER = 'x-bl-hint'
 
 const defaultListen: ListenFn = async (event, handler) => {
   const { listen } = await import('@tauri-apps/api/event')
@@ -439,6 +442,26 @@ function decodePushResult(value: unknown): PushResult {
 
 const READER_MARK_KINDS = ['highlight', 'bookmark', 'position'] as const satisfies readonly ReaderMarkKind[]
 
+function decodeVoiceModel(value: unknown, path = 'voiceModel'): VoiceModel {
+  const wire = objectAt(value, path)
+  return {
+    name: stringAt(wire.name, `${path}.name`),
+    file: stringAt(wire.file, `${path}.file`),
+    note: stringAt(wire.note, `${path}.note`),
+    present: booleanAt(wire.present, `${path}.present`),
+    bytes: nullableAt(wire.bytes, `${path}.bytes`, safeIntegerAt),
+    selected: booleanAt(wire.selected, `${path}.selected`),
+  }
+}
+function decodeTranscript(value: unknown): Transcript {
+  const wire = objectAt(value, 'transcript')
+  return {
+    text: stringAt(wire.text, 'transcript.text'),
+    seconds: finiteNumberAt(wire.seconds, 'transcript.seconds'),
+    elapsed: finiteNumberAt(wire.elapsed, 'transcript.elapsed'),
+    model: stringAt(wire.model, 'transcript.model'),
+  }
+}
 function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
   const wire = objectAt(value, path)
   return {
@@ -1007,6 +1030,42 @@ export class TauriBackend implements Backend {
 
   async statsDetail(): Promise<StatsDetail> {
     return this.gated('statsDetail', () => this.decode('stats_detail', { date: localCalendarDate() }, decodeStatsDetail))
+  }
+
+  // ---- 语音(M3 T3)----
+  voiceModels(): Promise<VoiceModel[]> {
+    return this.gated('voiceModels', () => this.decode('voice_models', {}, value => arrayAt(value, 'voiceModels', decodeVoiceModel)))
+  }
+  voiceImportModel(path: string | null): Promise<VoiceModel | null> {
+    return this.gated('voiceImportModel', () => {
+      if (path !== null) outboundString(path, 'path')
+      return this.decode('voice_import_model', { path }, value => nullableAt(value, 'voiceModel', decodeVoiceModel))
+    })
+  }
+  voiceSelectModel(name: string): Promise<VoiceModel[]> {
+    return this.gated('voiceSelectModel', () => {
+      outboundString(name, 'name')
+      return this.decode('voice_select_model', { name }, value => arrayAt(value, 'voiceModels', decodeVoiceModel))
+    })
+  }
+  voiceDeleteModel(name: string): Promise<VoiceModel[]> {
+    return this.gated('voiceDeleteModel', () => {
+      outboundString(name, 'name')
+      return this.decode('voice_delete_model', { name }, value => arrayAt(value, 'voiceModels', decodeVoiceModel))
+    })
+  }
+  /** 原始请求体 = i16 小端 PCM 字节;单块上限与导入相同(8 MiB ≈ 262 s @16 kHz),前端录音已限 120 s */
+  voiceTranscribe(pcm: Int16Array, lang: string, hint: string): Promise<Transcript> {
+    return this.gated('voiceTranscribe', async () => {
+      outboundString(lang, 'lang')
+      if (pcm.length === 0) throw new BackendError({ code: 'invalid_request', message: '没有录到声音', retryable: false })
+      const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)
+      const value = await this.callRaw('voice_transcribe', bytes, {
+        [VOICE_LANG_HEADER]: lang,
+        [VOICE_HINT_HEADER]: encodeURIComponent(hint),
+      })
+      return decodeTranscript(value)
+    })
   }
 
   // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----

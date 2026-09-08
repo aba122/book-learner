@@ -64,3 +64,7 @@ export const EXTRA_STAGE: Record<ExtraKind, { title: string; intro: string; open
     archiveFile: '_notes.md',
   },
 }
+/** 语音输入(M3 T3):录音上限(秒)与壳层转写采样率;输入设备偏好键(deviceId) */
+export const VOICE_MAX_SECONDS = 120
+export const VOICE_SAMPLE_RATE = 16_000
+export const VOICE_DEVICE_KEY = 'bookLearner.voiceDevice'
