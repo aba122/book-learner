@@ -88,7 +88,8 @@ Each behavioral node uses RED → minimal GREEN → focused/full regression → 
 
 ### Node 1 — ADRs, contract v2, and schema v3
 
-> **2026-09-05 状态**:Linux 加固切片已完成其中不依赖 ADR 的部分:v2 迁移收敛、v3 子表外键重建(孤儿回滚)、`book_single_active`、并发策略(busy_timeout + 读后写 IMMEDIATE)与两连接并发用例(H-T9a)。剩余:spine 缓存/锚点段/会话表/outbox 等仍待 ADR。
+> **2026-09-05 状态**:Linux 加固切片已完成其中不依赖 ADR 的部分:v2 迁移收敛、v3 子表外键重建(孤儿回滚)、`book_single_active`、并发策略(busy_timeout + 读后写 IMMEDIATE)与两连接并发用例(H-T9a)。
+> **2026-09-05 Plan A(A-T0/A-T1)**:ADR 0001–0004 已落档(`docs/adr/`,0004 Deferred);schema v4 追加式完成 spine 缓存、多段锚点(含 hint/text)、地图作业、AI 幂等表、会话状态/版本/幂等键、回合表、outbox,v3 行保留与外键/唯一用例齐备。契约 v2(TypeScript 侧)在 Plan B。
 
 Create reviewed ADRs before code for:
 
@@ -122,7 +123,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 ### Node 4 — harden Codex and add orchestration
 
-> **2026-09-05 状态**:已完成 stderr 并发排空(有界 tail)、进程组终止(超时与正常退出)、错误尾部有界(H-T7)。剩余:二进制/工作目录/字节上限校验、同 ID 重试编排、JSON 纠错重试、测试连接用例。
+> **2026-09-05 状态**:已完成 stderr 并发排空(有界 tail)、进程组终止(超时与正常退出)、错误尾部有界(H-T7)。
+> **2026-09-05 Plan A(A-T2/A-T3)**:`validate`/`test_connection`、prompt 100 KiB 与输出 1 MiB 上限、`orchestrate` 同 ID 重放/accept 才记 done/传输重试 2 次/JSON 纠错一次、非 autocommit 拒绝——本节点 Linux 可做部分完成;Codex 设置项(bin/model)接线与脱敏日志留 Mac。
 
 - Drain stderr concurrently into a bounded tail (or a bounded temporary file) while the child runs.
 - Kill and reap the complete spawned process group on timeout/cancel; remove temporary output deterministically.
@@ -141,9 +143,12 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 **Tests:** malformed/extra JSON, missing dependency, cycle, duplicate title/slug, partial chapter failure/resume, stale event ignored, cancellation/restart, three book-type prompt differences.
 
+> **2026-09-05 Plan A(A-T4/A-T5)**:core 侧完成——三类书 Stage A/B prompt、严格 schema、`mapgen::run_map_job`(断点续跑、长章分片、草图校验、语义无效不记 done、候选压缩)。进度事件经 `MapProgress` 回调,Tauri event 发射与取消留 Mac;stale event 由前端 generation 处理(Plan B)。
+
 ### Node 6 — map confirmation, anchors, and memory initialization
 
-> **2026-09-05 状态**:记忆库写入已改为临时文件 + fsync + rename,slug 白名单校验(H-T8);MapEditBlock 稳定 id / 修订号仍待 ADR4。
+> **2026-09-05 状态**:记忆库写入已改为临时文件 + fsync + rename,slug 白名单校验(H-T8)。
+> **2026-09-05 Plan A(A-T6/A-T9)**:`map::apply_draft_map`/`confirm_map`(稳定 id、`expected_revision`、操作集 Rename/RenameModule/Reorder/SetSkipped/Merge,Split 留 Mac)、`slugify`、`set_anchor_segments`/`list_anchors`;`init_book`/`sync_map` 经 outbox 重放。剩余:小节标题 → CFI 解析(Plan B,JS)、手动校正 UI、Split。
 
 - Replace `MapEditBlock[]` with a stable operation request containing `bookId`, expected map revision, stable block IDs, and explicit rename/reorder/skip/merge/split operations.
 - Resolve source section headings into ordered CFI segments. Record whole-chapter fallback precision and expose manual correction; never pretend fallback is exact.
@@ -170,6 +175,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 **Tests:** double start, remount/resume, double send, concurrent version conflict, timeout/retry after persisted user turn, crash before/after Codex reply persistence, abandon/reopen, no raw client transcript trust.
 
+> **2026-09-05 Plan A(A-T7)**:core 侧完成——`session::start_or_resume_session`/`get_session`/`submit_turn`/`abandon_session`/`fixed_context_for_block`,回合协议与重启续跑用例齐备。Tauri command 接线与前端水合在 Mac/Plan B。
+
 ### Node 9 — evaluation, verdict, task transition, and outbox
 
 - `requestEvaluation(sessionId, requestId)` stores/reuses one strict evaluation result; JSON corrective retry uses the same request identity.
@@ -178,6 +185,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 - Enqueue and replay block/map/weakpoint Markdown projections and one git commit keyed by the verdict operation ID.
 
 **Tests:** double confirm, crash/retry, pass/relearn, weak point fixed/open, new/weak/review task semantics, projection/git failure then restart replay, exactly one history entry and git commit.
+
+> **2026-09-05 Plan A(A-T8/A-T9/A-T10)**:core 侧完成——`verdict::request_evaluation`/`confirm_session_verdict`(单事务、用户判定覆盖、任务类型分流、确认幂等)与 `projection::run_pending`(顺序重放、失败即停、failed 重试、跨崩溃幂等);端到端集成 `core/tests/m1_engine.rs`。前端去掉 confirmVerdict+completeTask 两调用与 `completeTask` 保持 unsupported 在 Plan B/Mac。
 
 ### Node 10 — Feynman UI operational recovery
 

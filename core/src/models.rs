@@ -233,10 +233,11 @@ pub fn list_blocks(conn: &Connection, book_id: i64) -> Result<Vec<KnowledgeBlock
     rows.map(|row| parse_block(row?)).collect()
 }
 
+/// 下一批待学新块:`unlearned` 与 `learning`(已开始但未通过,重学后仍需再入队)纯按 seq 交错。
 pub fn next_new_blocks(conn: &Connection, book_id: i64, n: usize) -> Result<Vec<KnowledgeBlock>> {
     let mut st = conn.prepare(&format!(
         "SELECT {BLOCK_COLS} FROM knowledge_block \
-         WHERE book_id=?1 AND status='unlearned' AND skipped=0 ORDER BY seq LIMIT ?2"
+         WHERE book_id=?1 AND status IN ('unlearned','learning') AND skipped=0 ORDER BY seq LIMIT ?2"
     ))?;
     let rows = st.query_map(rusqlite::params![book_id, n as i64], row_to_raw_block)?;
     rows.map(|row| parse_block(row?)).collect()
@@ -274,5 +275,34 @@ mod tests {
         let (slug, ty) = super::get_book_slug_type(&conn, b).unwrap();
         assert_eq!(slug, "microecon");
         assert_eq!(ty, super::BookType::Textbook);
+    }
+
+    #[test]
+    fn next_new_blocks_includes_learning_blocks() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let b = super::insert_book(&conn, "书", "", super::BookType::Textbook, "bk").unwrap();
+        for i in 1..=3 {
+            super::insert_block(&conn, b, "m", i, &format!("块{i}"), &format!("b{i}"), &[])
+                .unwrap();
+        }
+        conn.execute(
+            "UPDATE knowledge_block SET status='learning' WHERE seq=2",
+            [],
+        )
+        .unwrap();
+        let next: Vec<i64> = super::next_new_blocks(&conn, b, 2)
+            .unwrap()
+            .iter()
+            .map(|k| k.seq)
+            .collect();
+        assert_eq!(next, vec![1, 2], "learning 与 unlearned 纯按 seq 交错");
+        conn.execute("UPDATE knowledge_block SET status='passed' WHERE seq=1", [])
+            .unwrap();
+        let next: Vec<i64> = super::next_new_blocks(&conn, b, 2)
+            .unwrap()
+            .iter()
+            .map(|k| k.seq)
+            .collect();
+        assert_eq!(next, vec![2, 3]);
     }
 }

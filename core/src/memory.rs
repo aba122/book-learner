@@ -66,16 +66,20 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// 块 md 投影(ADR-0001/0003):文件 `blocks/{block_id:04}-{slug}.md`;`passed` 为用户判定(覆盖 eval.verdict);
+    /// `entry_key`(通常为 outbox op_id)写入评估历史行,同 key 已存在则整次调用 no-op(跨崩溃重放幂等)。
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_eval(
         &self,
         book_slug: &str,
-        seq: i64,
+        block_id: i64,
         title: &str,
         block_slug: &str,
         eval: &crate::eval::EvalResult,
+        passed: bool,
+        entry_key: &str,
         date: &str,
     ) -> Result<()> {
-        use crate::eval::Verdict;
         let book_slug = validate_slug(book_slug)?;
         let block_slug = validate_slug(block_slug)?;
         let path = self
@@ -83,8 +87,12 @@ impl MemoryStore {
             .join("books")
             .join(book_slug)
             .join("blocks")
-            .join(format!("{seq:02}-{block_slug}.md"));
+            .join(format!("{block_id:04}-{block_slug}.md"));
         let old = std::fs::read_to_string(&path).unwrap_or_default();
+        let marker = format!("<!-- {entry_key} -->");
+        if old.contains(&marker) {
+            return Ok(());
+        }
         let old_final = extract_section(&old, "## 复述终稿");
         let old_history = extract_section(&old, "## 评估历史");
         let old_notes = extract_section(&old, "## AI 观察笔记");
@@ -92,7 +100,7 @@ impl MemoryStore {
             .lines()
             .find_map(|l| l.strip_prefix("passed_at: ").map(str::to_string));
 
-        let is_pass = eval.verdict == Verdict::PassSuggested;
+        let is_pass = passed;
         let n = old_history
             .lines()
             .filter(|l| l.trim_start().starts_with("- "))
@@ -139,9 +147,9 @@ impl MemoryStore {
             notes.push_str(&format!("- {date} {}", eval.observation_note));
         }
         let content = format!(
-"---\nblock_seq: {seq}\nstatus: {status}\nscores: {{accuracy: {}, completeness: {}, clarity: {}}}\npassed_at: {passed_at}\nreview_stage: 0\n---\n# {title}\n\n\
+"---\nblock_id: {block_id}\nstatus: {status}\nscores: {{accuracy: {}, completeness: {}, clarity: {}}}\npassed_at: {passed_at}\nreview_stage: 0\n---\n# {title}\n\n\
 ## 复述终稿\n\n{final_text}\n\n\
-## 评估历史\n\n- {date} 第{n}次:{verdict_cn};薄弱点:{wp_str}\n{}\n\
+## 评估历史\n\n- {date} 第{n}次:{verdict_cn};薄弱点:{wp_str} {marker}\n{}\n\
 ## AI 观察笔记\n\n{notes}\n",
             eval.scores.accuracy, eval.scores.completeness, eval.scores.clarity,
             if old_history.is_empty() { String::new() } else { format!("{old_history}\n") });
@@ -231,7 +239,7 @@ impl MemoryStore {
 
 /// slug 白名单:非空、≤128 字符、仅 Unicode 字母数字与 `._-`(天然排除路径分隔符与控制字符),
 /// 且不得全为 `.`(`.`/`..` 会把文件写到 books/ 本身或其上级)。所有拼接进路径的 slug 必经此处。
-fn validate_slug(slug: &str) -> Result<&str> {
+pub(crate) fn validate_slug(slug: &str) -> Result<&str> {
     let ok = !slug.is_empty()
         && slug.chars().count() <= 128
         && slug
@@ -322,6 +330,8 @@ mod tests {
             "供需弹性",
             "elasticity",
             &sample_eval(false),
+            false,
+            "k1",
             "2026-08-29",
         )
         .unwrap();
@@ -331,11 +341,15 @@ mod tests {
             "供需弹性",
             "elasticity",
             &sample_eval(true),
+            true,
+            "k2",
             "2026-08-30",
         )
         .unwrap();
-        let f = std::fs::read_to_string(dir.path().join("books/microecon/blocks/03-elasticity.md"))
-            .unwrap();
+        let f =
+            std::fs::read_to_string(dir.path().join("books/microecon/blocks/0003-elasticity.md"))
+                .unwrap();
+        assert!(f.contains("block_id: 3"), "frontmatter block_id");
         assert!(f.contains("status: passed"), "frontmatter status");
         assert!(f.contains("## 复述终稿") && f.contains("弹性是相对变化率"));
         assert!(f.matches("- 2026-08-").count() >= 2, "评估历史两条: {f}");
@@ -413,7 +427,16 @@ mod tests {
         assert!(!dir.path().join("../evil").exists());
         assert!(!dir.path().join("books/a").exists());
         let e = m
-            .apply_eval("ok", 1, "T", "../x", &sample_eval(true), "2026-09-05")
+            .apply_eval(
+                "ok",
+                1,
+                "T",
+                "../x",
+                &sample_eval(true),
+                true,
+                "k",
+                "2026-09-05",
+            )
             .unwrap_err();
         assert!(matches!(e, crate::CoreError::InvalidInput(_)));
         assert!(matches!(
@@ -439,6 +462,8 @@ mod tests {
             "供需弹性",
             "elasticity",
             &sample_eval(true),
+            true,
+            "k1",
             "2026-09-05",
         )
         .unwrap();
@@ -474,10 +499,12 @@ mod tests {
             "供需弹性",
             "elasticity",
             &sample_eval(false),
+            false,
+            "k1",
             "2026-09-04",
         )
         .unwrap();
-        let path = dir.path().join("books/microecon/blocks/03-elasticity.md");
+        let path = dir.path().join("books/microecon/blocks/0003-elasticity.md");
         let original = std::fs::read(&path).unwrap();
         let blocks = dir.path().join("books/microecon/blocks");
         std::fs::set_permissions(&blocks, std::fs::Permissions::from_mode(0o555)).unwrap();
@@ -487,6 +514,8 @@ mod tests {
             "供需弹性",
             "elasticity",
             &sample_eval(true),
+            true,
+            "k2",
             "2026-09-05",
         );
         let after = std::fs::read(&path).unwrap();
@@ -499,5 +528,56 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(after, original, "原文件必须逐字节不变");
         assert!(leftovers.is_empty(), "残留: {leftovers:?}");
+    }
+
+    #[test]
+    fn apply_eval_same_key_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("microecon", "微观经济学").unwrap();
+        for _ in 0..3 {
+            m.apply_eval(
+                "microecon",
+                3,
+                "供需弹性",
+                "elasticity",
+                &sample_eval(true),
+                true,
+                "verdict:5:req-1:block_eval",
+                "2026-09-05",
+            )
+            .unwrap();
+        }
+        let f =
+            std::fs::read_to_string(dir.path().join("books/microecon/blocks/0003-elasticity.md"))
+                .unwrap();
+        assert_eq!(f.matches("第1次").count(), 1, "{f}");
+        assert_eq!(f.matches("倾向用比喻").count(), 1, "{f}");
+        assert!(f.contains("<!-- verdict:5:req-1:block_eval -->"));
+    }
+
+    #[test]
+    fn apply_eval_passed_overrides_verdict() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("microecon", "微观经济学").unwrap();
+        // AI 建议重学,用户判定通过 → md 以用户判定为准
+        m.apply_eval(
+            "microecon",
+            3,
+            "供需弹性",
+            "elasticity",
+            &sample_eval(false),
+            true,
+            "k1",
+            "2026-09-05",
+        )
+        .unwrap();
+        let f =
+            std::fs::read_to_string(dir.path().join("books/microecon/blocks/0003-elasticity.md"))
+                .unwrap();
+        assert!(f.contains("status: passed") && f.contains("passed_at: 2026-09-05"));
+        assert!(f.contains("弹性是相对变化率"), "终稿按通过写入: {f}");
+        assert!(f.contains("通过建议 ✓"));
     }
 }

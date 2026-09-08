@@ -79,14 +79,24 @@ fn full_block_lifecycle() {
         messages: vec![],
         workdir: mem_root.clone(),
         read_only: true,
+        request_id: String::new(),
         timeout_secs: 10,
     };
     let raw = ai::AiProvider::complete(&provider, &req).unwrap();
     let eval = eval::parse_eval(&raw).unwrap();
 
     sched::apply_eval_to_db(&conn, blk1, &eval, day0).unwrap(); // SQLite 半边
-    mem.apply_eval("microecon", 1, "供需弹性", "elasticity", &eval, day0)
-        .unwrap(); // md 半边
+    mem.apply_eval(
+        "microecon",
+        blk1,
+        "供需弹性",
+        "elasticity",
+        &eval,
+        true,
+        "lifecycle-day0",
+        day0,
+    )
+    .unwrap(); // md 半边
     let (open, fixed) = sched::list_weakpoints(&conn, book).unwrap();
     mem.sync_weakpoints("microecon", &open, &fixed).unwrap();
     let blocks = models::list_blocks(&conn, book).unwrap();
@@ -111,7 +121,8 @@ fn full_block_lifecycle() {
 
     // 断言:md 镜像与块文件
     let block_md =
-        std::fs::read_to_string(mem_root.join("books/microecon/blocks/01-elasticity.md")).unwrap();
+        std::fs::read_to_string(mem_root.join("books/microecon/blocks/0001-elasticity.md"))
+            .unwrap();
     assert!(block_md.contains("status: passed") && block_md.contains("相对变化率"));
     let wp_md = std::fs::read_to_string(mem_root.join("books/microecon/_weakpoints.md")).unwrap();
     assert!(wp_md.contains("弹性vs斜率"));

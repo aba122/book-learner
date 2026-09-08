@@ -2,12 +2,18 @@ pub mod ai;
 pub mod db;
 pub mod eval;
 pub mod library;
+pub mod map;
+pub mod mapgen;
 pub mod memory;
 pub mod models;
+pub mod orchestrate;
 pub mod planning;
+pub mod projection;
 pub mod prompts;
 pub mod sched;
+pub mod session;
 pub mod settings;
+pub mod verdict;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CoreError {

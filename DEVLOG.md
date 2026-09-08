@@ -212,3 +212,69 @@
 - **待推送**:`linux-local` 领先 `origin/feat/mac-m1` 23 提交(8 Mac Foundation 续做 + 15 加固)。命令:`git push origin linux-local:feat/mac-m1`;远端 feat/mac-m1 之前是直接 merge 进 main 的,这批需再开 PR(feat/mac-m1 → main)。
 - 便携方案:`/bigtemp/fzv6en/book-learner/feat-mac-m1-pending.bundle` 含这 23 个提交,可在有凭证的机器上 `git fetch <bundle> linux-local` 后推送。
 - 权威工作副本为 `/bigtemp/fzv6en/book-learner/review-clone`;`/p/fzv6enresearch/xwl/book-learner` 副本停留在 d23ab9f(卷满不可写)。
+
+## 2026-09-05 · Plan A 评审通过与启动(feat/m1-core-engine,Linux)
+- 环境事故:本机 `/p/fzv6enresearch`(corezfs02 NFS)挂死,`~/.bashrc` 的 conda hook 让所有登录 shell 卡在 D 状态;已给两个 conda 块加 `timeout --foreground -s KILL 5 python -c pass` 可达性守卫(原文件备份 `~/.bashrc.bak-2026-09-05-before-nfs-guard`),shell 恢复。/p 卷仍不可用,工作全部在 /bigtemp 与 /u。
+- Plan A 独立评审两轮:第一轮 10 条 Issue + 9 条建议(planA-review.md)全部并入;第二轮新发现 5 条 Issue(用户判定未传到 md 投影、Stage B 语义无效草图卡死作业、source_section 格式与 hint 列、pending 回合 id 未暴露、block_eval 跨崩溃重放重复)+ 8 条建议,全部并入后 **Approved**;末轮 4 条 advisory 亦已写入计划。与建议的一处有意偏离:relearn 保持 `learning`,改 `next_new_blocks` 含 learning(计划文首"评审修订记录")。
+- 计划范围:schema v4、Codex 限额/校验、幂等 AI 编排、prompt 与严格解析、两阶段地图作业、地图确认、持久会话/回合、评估与判定、投影 outbox、端到端集成;ADR 0001–0004 落档(0004 Deferred)。
+- 基线(独立复跑):core 53 单测 + 27 foundation + 1 lifecycle 全绿、1 ignored;web vitest 186 passed / 2 skipped(16 files)。
+- 推送:本机无凭证,每 Task 本地 commit;Plan A DoD 达成后打 tag `m1-linux-a`。
+
+## 2026-09-05 · A-T1 schema v4 完成
+- 追加式迁移 v3→v4:`book.map_revision/import_state`,新表 `spine_item`(不对 href 唯一)/`block_anchor`(含 `hint`/`text`)/`map_job`/`ai_request`/`session_turn`/`projection_outbox`,`feynman_session` 增 `task_id/state/version/client_request_id/verdict_request_id/verdict_json` 与三条部分唯一索引(每任务一未确认会话、请求 id、判定 id)。
+- RED:4 条新用例 + 3 条既有版本断言失败(7 failed);GREEN 后 core 57 单测 + 27 foundation + 1 lifecycle,clippy -D warnings 干净,fmt 通过。
+- 偏差:无。`ai_request` 主键重复的扩展码是 `SQLITE_CONSTRAINT_PRIMARYKEY`(TEXT 主键非 rowid 别名),用例按此断言。
+
+## 2026-09-05 · A-T2 Codex provider request_id、限额、校验与连接测试完成
+- `CompletionRequest` 增 `request_id` 并派生 Clone(ai.rs 7 处 + lifecycle.rs 1 处字面量补齐);`MAX_PROMPT_BYTES=100 KiB`(渲染后 UTF-8 字节,spawn 前拒绝)、`MAX_OUTPUT_BYTES=1 MiB`(metadata 先判);`validate(workdir)`(裸名走 PATH 查找)与 `test_connection()`(`--version`,10s,进程组)。子进程等待/超时/补杀抽为 `wait_with_timeout`,stdout/stderr 排空共用泛型 drain。
+- RED:5 条新用例编译失败(缺字段/常量/方法);GREEN 后 core 62 单测 + 27 + 1,clippy/fmt 通过。恰在 100 KiB 上限的 prompt 实测可 spawn(Linux MAX_ARG_STRLEN 128 KiB)。
+
+## 2026-09-05 · A-T3 幂等 AI 请求编排完成
+- 新模块 `orchestrate.rs`:`AiPolicy`(传输重试 2、纠错 1、退避 500ms 起,测试置 0)、`run_ai_request`(非 autocommit 直接拒绝;done 重放;pending/failed 续跑;accept 通过才记 done;`Ai|Io` 重试,其它不重试)、`run_ai_json`(parse 闭包兼 accept;失败恰纠错一次并把摘要追加到 system;Replayed 结果不再通过时作废重调)、`validate_request_id`/`validate_client_id`。
+- RED:13 条用例编译失败;GREEN 后 core 75 单测 + 27 + 1,clippy/fmt 通过。
+- 偏差:策略结构体多一个 `retry_backoff_ms` 字段(计划未列,用于让测试不等待退避)。
+
+## 2026-09-05 · A-T4 地图/迁移/情境化/讨论/终评 prompt 与严格解析完成
+- prompts:`map_stage_a_prompt(ty, href, title, text)`(source_section 固定 `"{href}#{小节标题}"`)、`map_stage_b_prompt(ty, candidates_json)`(三类书组织原则 + 15–45 分钟 + 沿用格式)、`application_prompt`/`methodology_prompt`/`humanities_discussion_prompt`/`final_exam_prompt`(prompt only,本计划无消费者)。
+- eval:`ChapterCandidate`/`DraftMap{modules[{name, blocks[{title, summary, source_sections, prereqs}]}]}`/`ApplicationResult`/`MethodologyFragment`/`DiscussionNote`/`FinalReport`(全部 deny_unknown_fields + Serialize),数组提取 `[`..`]`,终评 overall 1–5 校验。
+- RED:6 条用例编译失败;GREEN 后 core 81 单测 + 27 + 1,clippy/fmt 通过。测试字面量含 `"#` 需避开 raw string 终止符(已改写)。
+
+## 2026-09-05 · A-T5 两阶段知识地图作业完成
+- 新模块 `mapgen.rs`:`store_spine`/`list_spine`(替换式缓存,`import_state='extracted'`,同 href 允许重复)、`resolve_source_section`(href / 章标题 / 文件名尾 → (href, hint))、`compact_candidates`、`validate_draft`(块数 1..=200、标题唯一、prereq 存在且三色 DFS 无环、source_sections 可解析、每模块 ≥1 块)、`run_map_job`(job 建/续:Stage A 逐章,>60 KiB 章按段落/字符边界切片 `:p{k}`;每章短事务存 next_chapter/candidates_json;Stage B 经 `run_ai_json` 且 parse 闭包含 validate_draft;候选超限先去 summary 压缩、仍超则 `too large` 失败;done 作业直接返回草图;失败记 stage/error)。
+- RED:7 条用例编译失败;GREEN 后 core 88 单测 + 27 + 1,clippy/fmt 通过。
+- 偏差:`run_map_job` 比计划多一个 `workdir: &Path` 参数(codex `-C` 需要记忆库根,计划签名漏列;后续 session/verdict 同样处理)。
+
+## 2026-09-05 · 并行测试偶发 ETXTBSY 修复(A-T5 门禁复跑)
+- A-T5 提交时的全量运行中 `ai::tests::codex_provider_returns_last_message` 偶发失败,复跑 5 次抓到根因:`spawn …: Text file busy (os error 26)`——并行测试写入可执行脚本时,另一测试 fork 出的子进程在 exec 前短暂继承了该写 fd。这是 L1 起就存在的测试设计隐患,新增的 5 个 spawn 用例让概率上升。
+- 修复:`CodexCliProvider` 的两处 spawn 改经 `spawn_with_retry`(`ErrorKind::ExecutableFileBusy` 有界重试 20×10ms;生产中二进制被替换时同样受益)。门禁脚本 `/bigtemp/fzv6en/book-learner/gate.sh`(test + clippy + fmt --check,任一失败非零)连续 6 次全绿。
+- 流程修正:此前 commit 命令未以门禁退出码串联,A-T5 提交时未拦住偶发失败(提交内容本身与该失败无关);此后所有 commit 一律 `gate.sh && git commit`。
+
+## 2026-09-05 · A-T6 地图草图落库、slugify 与稳定 id/修订号的地图确认完成
+- 新模块 `map.rs`:`slugify`(Unicode 字母数字保留、其余折叠为 `-`、≤40、空→`block-{seq}`、重复加 `-n`)、`AnchorSegment{spine_href,cfi_start,cfi_end,precision,hint,text}`、`apply_draft_map`(单事务:块/前置/每 source_section 一段 chapter_fallback 锚点含 hint;无法解析 → InvalidInput 整体回滚;revision 0→1;入队 `init_book`)、`confirm_map`(expected_revision 不等 → Conflict 无变更;Rename/RenameModule/Reorder(须为全排列)/SetSkipped/Merge(来源块 skipped、锚点段**复制**追加、prereq 重映射去重)/Split → InvalidInput;revision+1;入队 `sync_map`)、`set_anchor_segments`/`list_anchors`。
+- `memory::apply_eval` 新签名 `(book_slug, block_id, title, block_slug, eval, passed, entry_key, date)`:文件 `{block_id:04}-{slug}.md`、frontmatter `block_id:`、`passed` 覆盖 verdict、历史行尾 `<!-- entry_key -->`、同 key 整次 no-op;`validate_slug` 改 pub(crate)。`models::next_new_blocks` 含 learning 纯按 seq;`sched::check_behind` 剩余块计 learning。`projection.rs` 先落 `enqueue`(A9 补 run_pending)。
+- RED:42 处编译错误;GREEN 后 core 100 单测 + 27 + 1(含既有 memory 4 条改签名、lifecycle 改 `0001-elasticity.md`),门禁脚本全绿。
+- 偏差:`projection.rs` 提前在本 Task 创建(仅 enqueue);计划把它列在 A9。
+
+## 2026-09-05 · A-T7 持久化费曼会话、幂等回合与固定上下文组装完成
+- 新模块 `session.rs`:`get_session`(TurnView 含 `client_turn_id`/`ready_to_end`,学生文本输出时剥离 `[READY_TO_END]`)、`start_or_resume_session`(client_request_id 幂等;同任务未确认会话 resume;非当日/不存在 → NotFound;任务非 pending → Conflict;kind 映射 new→learn/weak_retest→retest/review→review)、`fixed_context_for_block`(exact 段 text 优先、fallback 整章且同章只取一次、60 KiB 字符边界截断、历史评估/薄弱点/前置状态)、`submit_turn`(①同 turn id done 重放/pending 续跑 ②事务 A 校验 state/无 pending/版本并写 pending 回合不 bump ③无事务 run_ai_request `turn:{sid}:{turn}` ④事务 B 复查 state='open'、落库学生原文、version+1)、`abandon_session`(允许 pending;confirmed/abandoned → Conflict)。
+- RED:31 处编译错误;GREEN 后 core 109 单测 + 27 + 1,门禁全绿。修了两处测试自身问题(RefCell 借用跨调用、clippy 类型复杂度)。
+- 偏差:`submit_turn` 比计划多 `workdir` 参数(同 A-T5 理由)。
+
+## 2026-09-05 · A-T8 评估请求与原子判定流转完成
+- `sched::apply_eval_in_tx(conn, block_id, eval, verdict, date)` 抽出(不开事务、显式 verdict),`apply_eval_to_db` 保留为包装;新模块 `verdict.rs`:`request_evaluation`(前置:无 pending 回合、≥1 用户回合;open→evaluating 短事务;`eval:{sid}:{rid}` 经 run_ai_json;成功 evaluated+version+1,失败回 open;evaluated 同 id 重放/异 id Conflict;evaluating 态无 eval 行或同 id 续跑、异 id Conflict)、`confirm_session_verdict`(单 IMMEDIATE 事务:同 `verdict:{sid}:{rid}` 已确认 → 从 verdict_json 重建且不看版本/pass;state 须 evaluated、版本一致;用户 pass 覆盖 AI verdict;new → apply_eval_in_tx + pass 时 task done;weak_retest/review 不改块、只走 on_weak_retest/on_review_result 且 task done;outbox new 4 行 / 其它 3 行,`block_eval` 载荷含 passed 与 entry_key;session confirmed、version+1)。
+- `verdict_request_id` 存命名空间化的 `verdict:{sid}:{rid}`(全局唯一索引下避免跨会话的客户端 id 碰撞)。
+- RED:16 处编译错误;GREEN 后 core 121 单测 + 27 + 1,门禁全绿。修正一处测试预期:人为把 state 置回 evaluating 后同 id 续跑会重做事务 B(版本再 +1),这是真实崩溃语义,不是缺陷。
+- 偏差:`request_evaluation` 多 `workdir` 参数(同前)。
+
+## 2026-09-05 · A-T9 投影 outbox 重放完成
+- `projection::run_pending(conn, memory)`:按 id 顺序处理 pending/failed 行(attempts+1),处理器 init_book(ensure_book)/ block_eval(先 ensure_book 防御,再 apply_eval 带 passed 与 entry_key)/ sync_weakpoints / sync_map / git_commit,slug/标题/块列表重放时从 SQLite 读取;成功 done、失败 failed+error 并停止本轮;返回成功条数;非 autocommit 拒绝。
+- 用例:完整链路(草图落库 → 会话 → 评估 → 确认)后重放 5 行 → 目录/块 md/薄弱点/地图镜像/INDEX/git 一致,二次重放 0;用户判定覆盖到 md;"文件已写、done 未落库"重放不重复历史行;.git 权限 000 → 前 4 行 done、git 行 failed,恢复后仅重试该行且 git 只多一提交;同 op_id 二次入队忽略;未知 kind failed 且不越过。
+- RED:8 处编译错误;GREEN 后 core 126 单测 + 27 + 1,门禁全绿。
+
+## 2026-09-05 · A-T10 端到端集成、文档回写与 Plan A 收尾(tag m1-linux-a)
+- 集成测试 `core/tests/m1_engine.rs`:建书 → store_spine(3 章)→ run_map_job → apply_draft_map → set_plan → Day0 队列 → 会话两回合(第二回合 READY_TO_END)→ 评估 → 确认通过 → run_pending 5 行(init_book + 4,不手工 ensure_book;块 md/薄弱点/地图/git 一致)→ **重开连接** run_pending=0、同 request_id 确认重放同 outcome → Day1 队列 `[weak_retest, review, new]`。MockProvider 在每次回调里用第二连接写入 7 行 probe,证明 AI 调用期间无事务持有。
+- 最终门禁:core **126 单测 + 27 foundation + 1 lifecycle + 1 m1_engine** 全绿、1 ignored(真实 codex),clippy `-D warnings` 干净,`cargo fmt --check` 通过;web 未改动(186/2 基线不变)。每 Task 用例数:A1 57 → A2 62 → A3 75 → A4 81 → A5 88 → A6 100 → A7 109 → A8 121 → A9 126。
+- 与计划的偏差汇总:①`run_map_job`/`submit_turn`/`request_evaluation` 各多一个 `workdir: &Path` 参数(codex `-C` 需记忆库根);②`AiPolicy` 多 `retry_backoff_ms`;③`projection.rs` 的 `enqueue` 提前到 A6;④`verdict_request_id` 存 `verdict:{session}:{request}` 命名空间形式;⑤修了一处 L1 起就存在的并行 spawn 测试 ETXTBSY 隐患(单独 commit);⑥relearn 保持 `learning` 并让 `next_new_blocks`/`check_behind` 计 learning(评审建议的有意偏离,计划文首已记)。
+- 回写:TECH_DESIGN §3.1(块文件命名 + 历史行幂等标记)、§3.3(outbox 投影已实现)、§4(v4 与 AI 期不持事务)、§5.1/5.2(编排与限额、CompletionRequest.request_id)、§6.1/6.2/6.3 已实现标注与 §6.4–6.8 prompt-only 标注、§7.2(锚点段 + hint);IMPLEMENTATION_PLAN 加 Plan A 注记;基线文档 Node 1/4/5/6/8/9 状态。
+- **Mac 阶段需接线的 command 清单(按 Plan B 契约 v2 命名 → core 用例)**:`storeSpine(bookId, chapters)` → `mapgen::store_spine`;`runMapJob(bookId, jobId)`(进度 `MapProgress` 经 Tauri event)→ `mapgen::run_map_job` + 完成后 `map::apply_draft_map`;`confirmMap(bookId, expectedRevision, ops)` → `map::confirm_map`;`setAnchorSegments(blockId, segments)`/`listAnchors(blockId)` → `map::*`;`startOrResumeSession(taskId, clientRequestId)` → `session::start_or_resume_session`(date=本地日历日);`getSession(sessionId)` → `session::get_session`;`submitTurn(sessionId, expectedVersion, clientTurnId, text)` → `session::fixed_context_for_block`(profile 摘要取 memory/profile.md 前两节)+ `session::submit_turn`(workdir=记忆库根);`abandonSession(sessionId, expectedVersion)` → `session::abandon_session`;`requestEvaluation(sessionId, requestId)` → `verdict::request_evaluation`;`confirmSessionVerdict(sessionId, expectedVersion, requestId, pass)` → `verdict::confirm_session_verdict`,随后异步 `projection::run_pending`;`runProjection()`(启动恢复与后台同步)→ `projection::run_pending`;设置页"测试连接" → `ai::CodexCliProvider::validate/test_connection`;`completeTask` 保持 unsupported。所有慢调用不得持 `Mutex<Connection>`(核心已保证 AI 期无事务,壳层需在调用期间释放连接守卫或使用独立连接)。
+- **待推送**:`feat/m1-core-engine`(A-T0…A-T10 共 12 提交,基于 linux-local)。Plan B 分支将基于本分支。

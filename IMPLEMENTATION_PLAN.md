@@ -9,6 +9,8 @@
 
 > 2026-09-02 实施基线:上述 Foundation 代码已本地收口,但 Apple Silicon 原生冒烟、远程 CI/PR/tag 仍是硬门禁。由于 L1/L2/Foundation 已预先完成了部分 M1/M2 基础,后续依赖顺序、当前缺口与每节点验收以 `docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md` 为执行基线;本文的产品范围与最终验收不变。
 
+> 2026-09-05 Plan A(Linux,`docs/superpowers/plans/2026-09-05-m1-core-engine-linux.md`,tag `m1-linux-a`):core 引擎完成 1.2 的 schema v4、1.4 的幂等编排/限额/连接测试、1.5 的投影 outbox 重放、1.6 的两阶段地图作业、1.7 的地图确认(core 侧,稳定 id + 修订号)、1.9 的持久会话/评估/判定(core 侧)、1.10 队列含 learning 块;ADR 0001–0004 落档。EPUB 抽取/CFI(1.3/1.8)与前端契约 v2 在 Plan B(JS 侧),Tauri command 接线在 Mac(清单见 DEVLOG A-T10)。
+
 > 2026-09-05 加固切片(Linux,`docs/superpowers/plans/2026-09-05-m1-hardening-linux.md`):在产品 M1 前完成了 review 判定的 P0 加固——前端异步读写收敛为 `lib/` 两个 hook 并迁移七页、费曼页写操作错误态、IPC transport_error;core 侧 Codex 子进程卫生、记忆库 slug 校验与原子写、schema v3 外键/主攻书唯一/迁移收敛、读后写事务 IMMEDIATE。不含产品行为与 ADR 依赖项。
 
 ## M1 核心闭环 —— 「能导入一本书并完整学完一个知识块」
