@@ -390,3 +390,8 @@ pub fn get_plan(state: &AppState, book_id: i64) -> Result<Option<StudyPlanDto>, 
         .with_connection(|connection| book_learner_core::planning::get_plan(connection, book_id))
         .map(|plan| plan.map(Into::into))
 }
+
+/// 标记学完(M2 T8):计划冻结、复习照常;之后不能再设为主攻书。
+pub fn finish_book(state: &AppState, book_id: i64) -> Result<(), IpcError> {
+    state.with_connection(|connection| book_learner_core::library::finish_book(connection, book_id))
+}

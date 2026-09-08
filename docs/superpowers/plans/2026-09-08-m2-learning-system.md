@@ -83,9 +83,9 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/{sched.rs,library.rs}`, `web/src-tauri/{...}`, 契约六处, `web/src/backend/{types,mock,tauri}.ts`, `web/src/features/library/LibraryPage.tsx`
 
-- [ ] **T8.1 失败测试(core)**:暂停书与已学完书的到期复习仍汇入今日队列(`generate_daily` 复习查询不按主攻书过滤——补回归用例);暂停书计划 `active=0` 不产新块;新增 `library::finish_book(conn, book_id)`(状态 → finished、计划 active=0;若该书为主攻则全局无主攻);`set_active_book` 对 finished 书 → Conflict("已学完的书不能设为主攻,其复习照常")。
-- [ ] **T8.2 壳层/契约/web**:`library_finish_book[bookId]`;书架卡片 已暂停/已学完 徽标、"复习照常"说明、"标记为已学完"确认;切换确认文案含"当前书计划冻结";Mock 同语义。
-- [ ] **T8.3** 门禁;DEVLOG;PR `feat/m2-t8-single-active`。
+- [x] **T8.1 失败测试(core)**:暂停书与已学完书的到期复习仍汇入今日队列(`generate_daily` 复习查询不按主攻书过滤——补回归用例);暂停书计划 `active=0` 不产新块;新增 `library::finish_book(conn, book_id)`(状态 → finished、计划 active=0;若该书为主攻则全局无主攻);`set_active_book` 对 finished 书 → Conflict("已学完的书不能设为主攻,其复习照常")。
+- [x] **T8.2 壳层/契约/web**:`library_finish_book[bookId]`;书架卡片 已暂停/已学完 徽标、"复习照常"说明、"标记为已学完"确认;切换确认文案含"当前书计划冻结";Mock 同语义。
+- [x] **T8.3** 门禁(src-tauri 由 CI 验证);DEVLOG;PR `feat/m2-t8-single-active`。
 
 ### Task T2: 提醒判定与系统通知(半天;不依赖 T0)
 
