@@ -2,11 +2,10 @@
 export const TEST_DATE_KEY = 'bookLearner.testDate'
 const CALENDAR_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** 读 window.localStorage 而非裸 globalThis.localStorage:Node ≥ 25 的实验性全局在未开 --localstorage-file 时为 undefined,会遮住 jsdom */
 function devTestDateOverride(): string | null {
   if (!import.meta.env.DEV) return null
   try {
-    const value = (typeof window === 'undefined' ? undefined : window.localStorage)?.getItem(TEST_DATE_KEY)
+    const value = globalThis.localStorage?.getItem(TEST_DATE_KEY)
     return value && CALENDAR_DAY_RE.test(value) ? value : null
   } catch {
     return null
