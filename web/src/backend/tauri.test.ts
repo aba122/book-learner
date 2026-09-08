@@ -396,7 +396,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -439,6 +439,25 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     await expect(backend.importEpub(new File([], 'empty.epub'), 'textbook')).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(backend.importEpub(new File([new Uint8Array([1])], 'x.epub'), 'novel' as never)).rejects.toMatchObject({ code: 'invalid_request' })
     expect(calls).toHaveLength(0)
+  })
+
+  it('statsDetail requests the local calendar day and decodes three sections with nullable fields (Mac M2 T7)', async () => {
+    const detail = {
+      books: [{ id: 1, title: '微观经济学', status: 'active', total: 12, passed: 3, consolidated: 1, deadline: '2026-09-30', projectedFinish: null }],
+      days: [{ date: '2026-09-07', minutes: 45, pomodoros: 2 }],
+      streakCalendar: [{ date: '2026-09-07', active: true }],
+      weakTrend: [{ date: '2026-09-07', opened: 1, fixed: 0 }],
+      avgScores: { accuracy: 4.5, completeness: 4, clarity: 3.5, samples: 2 },
+      reviewPassRate: 0.75,
+    }
+    const { calls, invoke } = recorder({ stats_detail: detail })
+    expect(await new TauriBackend(invoke).statsDetail()).toEqual(detail)
+    expect(calls[0].command).toBe('stats_detail')
+    expect(calls[0].payload).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) })
+    const empty = { ...detail, books: [], avgScores: null, reviewPassRate: null }
+    expect(await new TauriBackend(recorder({ stats_detail: empty }).invoke).statsDetail()).toEqual(empty)
+    const bad = new TauriBackend(async <T>() => ({ ...detail, reviewPassRate: 'x' }) as T)
+    await expect(bad.statsDetail()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('requests stats for the local calendar day and decodes all six counters', async () => {

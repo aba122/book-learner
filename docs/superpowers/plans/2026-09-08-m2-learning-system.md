@@ -125,9 +125,9 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/stats.rs`, `web/src-tauri/{...}`, 契约六处, `web/src/backend/{types,mock,tauri}.ts`, `web/src/features/stats/StatsPage.tsx`
 
-- [ ] **T7.1 失败测试(core)**:`stats::detail(conn, date) -> StatsDetail`:进度区 `books[]{id,title,total,passed,consolidated,deadline,projected_finish}`(按最近 7 天日均通过数外推;0 → null);投入区 `days[14]{date,minutes,pomodoros}`(minutes 同 `compute` 的合并规则)、`streak_calendar[56]{date,active}`;质量区 `weak_trend[14]{date,opened,fixed}`、`avg_scores`(最近 10 次评估均值)、`review_pass_rate`(近 30 天:`daily_task.kind='review' AND status='done'` 经 `ref_id` 关联 `review_schedule.status` 的 done/(done+failed),按 `daily_task.date` 取窗口)。主攻书范围(投入区不分书)。
-- [ ] **T7.2 壳层/契约/前端**:`stats_detail[date]` → `StatsDetailDto`;StatsPage 三区(纯 CSS/SVG 图,遵守 `tokens.css`);Mock 确定性数据。vitest:渲染与空态。
-- [ ] **T7.3** 门禁;DEVLOG;PR `feat/m2-t7-stats-detail`。
+- [x] **T7.1 失败测试(core)**:`stats::detail(conn, date) -> StatsDetail`:进度区 `books[]{id,title,total,passed,consolidated,deadline,projected_finish}`(按最近 7 天日均通过数外推;0 → null);投入区 `days[14]{date,minutes,pomodoros}`(minutes 同 `compute` 的合并规则)、`streak_calendar[56]{date,active}`;质量区 `weak_trend[14]{date,opened,fixed}`、`avg_scores`(最近 10 次评估均值)、`review_pass_rate`(近 30 天:`daily_task.kind='review' AND status='done'` 经 `ref_id` 关联 `review_schedule.status` 的 done/(done+failed),按 `daily_task.date` 取窗口)。主攻书范围(投入区不分书)。
+- [x] **T7.2 壳层/契约/前端**:`stats_detail[date]` → `StatsDetailDto`;StatsPage 三区(纯 CSS/SVG 图,遵守 `tokens.css`);Mock 确定性数据。vitest:渲染与空态。
+- [x] **T7.3** 门禁;DEVLOG;PR `feat/m2-t7-stats-detail`。
 
 ### Task T9: M2 门禁与回写(半天)
 

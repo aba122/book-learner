@@ -9,7 +9,7 @@ use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
     MapProgressDto, MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto,
-    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -375,6 +375,13 @@ pub fn block_source(state: &AppState, block_id: i64) -> Result<BlockSourceDto, I
 pub fn stats(state: &AppState, date: &str) -> Result<StatsDto, IpcError> {
     state
         .with_connection(|connection| book_learner_core::stats::compute(connection, date))
+        .map(Into::into)
+}
+
+/// 统计详情(M2 T7):三区一次取齐;`date` 仍由前端本地日历日提供。
+pub fn stats_detail(state: &AppState, date: &str) -> Result<StatsDetailDto, IpcError> {
+    state
+        .with_connection(|connection| book_learner_core::stats::detail(connection, date))
         .map(Into::into)
 }
 

@@ -59,6 +59,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::profile_save,
         commands::extra_start,
         commands::extra_finish,
+        commands::stats_detail,
     ])
 }
 

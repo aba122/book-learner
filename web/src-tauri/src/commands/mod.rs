@@ -5,7 +5,8 @@ use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
     MapProgressDto, MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto,
-    SpineChapterDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto,
+    VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -76,6 +77,8 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
         "extra_finish",
         &["sessionId", "expectedVersion", "requestId"],
     ),
+    // M2 T7:统计详情三区
+    ("stats_detail", &["date"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -458,6 +461,12 @@ pub fn extra_finish_inner(
     })
 }
 
+pub fn stats_detail_inner(state: &AppState, date: &str) -> Result<StatsDetailDto, IpcError> {
+    run_command(state, "stats_detail", || {
+        application::stats_detail(state, date)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -768,4 +777,14 @@ pub async fn extra_finish<R: tauri::Runtime>(
         }
     });
     Ok(outcome)
+}
+
+// ---- 统计详情命令(M2 T7)----
+
+#[tauri::command(async)]
+pub async fn stats_detail(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<StatsDetailDto, IpcError> {
+    stats_detail_inner(&state, &date)
 }

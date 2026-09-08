@@ -99,6 +99,8 @@ describe('Tauri wire contract fixture', () => {
       // Mac M2 T5:通过后附加环节
       { method: 'extraStart', command: 'extra_start', payloadKeys: ['blockId', 'kind', 'clientRequestId'] },
       { method: 'extraFinish', command: 'extra_finish', payloadKeys: ['sessionId', 'expectedVersion', 'requestId'] },
+      // Mac M2 T7:统计详情
+      { method: 'statsDetail', command: 'stats_detail', payloadKeys: ['date'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

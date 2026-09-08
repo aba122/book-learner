@@ -466,3 +466,9 @@
 - **web**:`ExtraKind`/`SessionView.extraKind`/`ExtraOutcome`;`extraStart/extraFinish`(Mock:块须 passed、同块同类一次、按种类脚本回复、结束返回整理稿;解码器校验枚举);`config` 的 `EXTRA_KIND_FOR_BOOK` 与 `EXTRA_STAGE`(标题/说明/opener/归档文件);回合渲染抽为 `Transcript.tsx`(`TranscriptLines`/`StudentAvatar`)供讲授页与附加环节共用;`ExtraStage`:新块判定"通过"后替代评估卡出现(其余判定直接回今日)——按书类型标题与说明、开始/跳过;开始后 `extraStart` → 固定 opener 自动开场(提示行在事件里入流,effect 只发送,避开 `set-state-in-effect`)→ 作答 → "整理并归档"(≥1 次作答可用,收尾后主强调)→ 展示整理稿与 `books/<slug>/<file>` 归档路径 → 返回今日;已结束会话重进直接以常量 request id 重放整理稿。用例:三类分支、跳过不调 extraStart、不通过不给、全流程参数与归档文案、extraStart 失败重试沿用同一 id;原"确认通过回今日"两条改为先出附加环节。
 - 门禁:core 145/27/1/1、web 282/2、lint 0、`pnpm build`、rustfmt、clippy 0;src-tauri 在 Mac 原生 `cargo test` + CI 验证。
 
+## 2026-09-08 · M2 T7:统计页三区
+- **core**:`stats::detail(conn, date) -> StatsDetail`——进度区 `books[]`(全部书,主攻在前;total/passed/consolidated、`study_plan.deadline`、`projected_finish` = 今天 + ceil(剩余 × 7 / 近 7 天通过数),无通过或已学完为 None);投入区 `days[14]`(不分书;minutes 同 `compute` 口径 max(预估, 番茄),pomodoros 为 `study_minutes` 段数)与 `streak_calendar[56]`(当天有 done 任务即 active);质量区(主攻书范围)`weak_trend[14]`(按 `created_at`/`fixed_at` 前 10 位取日)、`avg_scores`(最近 10 次 `eval_json` 均分,None 表示无评估)、`review_pass_rate`(近 30 天 `daily_task.kind='review' AND status='done'` 经 `ref_id` 关联 `review_schedule.status` 的 done/(done+failed),None 表示无复习)。两条单测:全量数字与空库安全。stable Rust 无 `div_ceil`,用整数算式。
+- **壳层/契约**:`StatsDetailDto` 及 5 个子 DTO(camelCase、可空字段 null);`stats_detail[date]`;六处同步;foundation 用例校验三区长度、camelCase、可空字段与非法日期 invalid_request。
+- **web**:`StatsDetail` 类型族;`statsDetail()`(日期同 `stats()` 由前端本地日历日给);解码器新增 `finiteNumberAt`/`nullableAt`;Mock 进度按书/块推导、投入与质量为确定性样例;`StatsPage` 汇总卡下新增独立加载的三区(`StatsDetailSections`):进度(按书条形 + 通过/巩固/截止/预计完成)、投入(14 天柱状图纯 div、56 格打卡日历 `grid-rows-7`)、质量(薄弱点新增/修复双柱、评估均分三条、复习通过率 `ProgressRing`);空数据每区给说明文案;详情失败只影响三区且可重试。用例 3 条 + tauri 解码 1 条。
+- 门禁:core 147/27/1/1、web 288/2、lint 0、`pnpm build`、rustfmt、clippy 0;src-tauri 由 Mac 原生 `cargo test` 与 CI 验证。
+

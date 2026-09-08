@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import * as errorModule from '../../backend/errors'
 import { BackendError } from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
-import type { Stats } from '../../types'
+import type { Stats, StatsDetail } from '../../types'
 import StatsPage from './StatsPage'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
@@ -125,5 +125,54 @@ describe('统计页', () => {
     })))
 
     expect(normalize).not.toHaveBeenCalled()
+  })
+})
+
+describe('统计页 · 三区详情(M2 T7)', () => {
+  it('进度按书显示通过/巩固/截止/预计完成;投入 14 根柱与 56 格打卡;质量显示均分与复习通过率', async () => {
+    render(<StatsPage />)
+    const progress = await screen.findByTestId('section-progress')
+    const rows = within(progress).getAllByTestId('progress-book')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('微观经济学')
+    expect(rows[0]).toHaveTextContent('主攻中')
+    expect(rows[0]).toHaveTextContent(/已通过 2\/12 · 已巩固 0 · 截止 未设 · 预计完成 \d{4}-\d{2}-\d{2}/)
+    const effort = screen.getByTestId('section-effort')
+    expect(within(effort).getAllByTestId('effort-bar')).toHaveLength(14)
+    expect(within(effort).getByTestId('effort-minutes')).toHaveTextContent('320')
+    expect(within(effort).getByTestId('effort-pomodoros')).toHaveTextContent('13')
+    const cells = within(effort).getAllByTestId('streak-cell')
+    expect(cells).toHaveLength(56)
+    expect(cells[55]).toHaveAttribute('data-active', 'true')
+    expect(cells[54]).toHaveAttribute('data-active', 'false')
+    const quality = screen.getByTestId('section-quality')
+    expect(within(quality).getByTestId('weak-opened')).toHaveTextContent('6')
+    expect(within(quality).getByTestId('weak-fixed')).toHaveTextContent('4')
+    expect(within(quality).getAllByTestId('avg-score').map(e => e.textContent)).toEqual(['4.5', '4.0', '4.5'])
+    expect(within(quality).getByText(/近 2 次/)).toBeInTheDocument()
+    expect(within(quality).getByTestId('review-pass-rate')).toHaveTextContent('75%')
+  })
+
+  it('空数据:每区给出说明而不是伪造数字', async () => {
+    const empty: StatsDetail = { books: [], days: [], streakCalendar: [], weakTrend: [], avgScores: null, reviewPassRate: null }
+    vi.spyOn(backendModule.backend, 'statsDetail').mockResolvedValue(empty)
+    render(<StatsPage />)
+    expect(await screen.findByText(/书架为空/)).toBeInTheDocument()
+    expect(screen.queryAllByTestId('effort-bar')).toHaveLength(0)
+    expect(screen.getByText(/尚无评估/)).toBeInTheDocument()
+    expect(screen.getByText(/近 30 天没有间隔复习记录/)).toBeInTheDocument()
+    expect(screen.getByTestId('effort-minutes')).toHaveTextContent('0')
+  })
+
+  it('详情失败只影响三区,汇总卡照常;重试后出现', async () => {
+    const detail = vi.spyOn(backendModule.backend, 'statsDetail')
+      .mockRejectedValueOnce(new BackendError({ code: 'io_failure', message: '详情汇总失败', retryable: true }))
+    render(<StatsPage />)
+    expect(await screen.findByText('2/12')).toBeInTheDocument()
+    const alert = (await screen.findByText('详情汇总失败')).closest('[role="alert"]') as HTMLElement
+    expect(screen.queryByTestId('section-progress')).toBeNull()
+    await userEvent.click(within(alert).getByRole('button', { name: '重试' }))
+    expect(await screen.findByTestId('section-progress')).toBeInTheDocument()
+    expect(detail).toHaveBeenCalledTimes(2)
   })
 })

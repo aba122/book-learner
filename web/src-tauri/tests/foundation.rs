@@ -840,6 +840,28 @@ fn extra_stage_runs_after_a_passed_block_and_archives_to_memory() {
 }
 
 #[test]
+fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("stats.db")).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    let detail = commands::stats_detail_inner(&state, DAY).unwrap();
+    let value = serde_json::to_value(&detail).unwrap();
+    assert_eq!(value["books"][0]["id"], json!(first));
+    assert!(value["books"][0].get("projectedFinish").is_some());
+    assert_eq!(value["days"].as_array().unwrap().len(), 14);
+    assert_eq!(value["streakCalendar"].as_array().unwrap().len(), 56);
+    assert_eq!(value["weakTrend"].as_array().unwrap().len(), 14);
+    assert_eq!(value["avgScores"], Value::Null);
+    assert_eq!(value["reviewPassRate"], Value::Null);
+    assert_eq!(
+        commands::stats_detail_inner(&state, "bad")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
 fn profile_round_trips_through_memory_and_enqueues_a_git_commit() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("app.db")).unwrap();
@@ -1890,6 +1912,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "library_epub_url" => json!({"bookId": second}),
             "map_block_source" => json!({"blockId": second_block}),
             "stats_get" => json!({"date": DAY}),
+            "stats_detail" => json!({"date": DAY}),
             "planning_check_behind" => json!({"bookId": first, "date": DAY}),
             "planning_get_plan" => json!({"bookId": first}),
             "library_finish_book" => json!({"bookId": second}),
