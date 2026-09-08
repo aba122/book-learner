@@ -30,6 +30,43 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe('设置页 · 语音(M3 T3)', () => {
+  it('列出 whisper 模型(已导入者可选/可删),按路径导入后出现并可切换,删除经确认', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    const list = await screen.findByRole('list', { name: 'whisper 模型' })
+    expect(within(list).getAllByTestId('voice-model-row')).toHaveLength(3)
+    expect(within(list).getByRole('radio', { name: '使用 small' })).toBeChecked()
+    expect(within(list).getByRole('radio', { name: '使用 base' })).toBeDisabled()
+    expect(within(list).queryByRole('button', { name: '删除模型 base' })).toBeNull()
+
+    await user.type(screen.getByLabelText('模型文件路径'), '~/Downloads/ggml-large-v3-turbo-q5_0.bin')
+    await user.click(screen.getByRole('button', { name: '导入路径' }))
+    await waitFor(() => expect(within(list).getByRole('radio', { name: '使用 large-v3-turbo-q5_0' })).toBeEnabled())
+    expect(screen.getByLabelText('模型文件路径')).toHaveValue('')
+    await user.click(within(list).getByRole('radio', { name: '使用 large-v3-turbo-q5_0' }))
+    await waitFor(() => expect(within(list).getByRole('radio', { name: '使用 large-v3-turbo-q5_0' })).toBeChecked())
+    expect(within(list).getByRole('radio', { name: '使用 small' })).not.toBeChecked()
+
+    await user.click(within(list).getByRole('button', { name: '删除模型 small' }))
+    await user.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(within(list).getByRole('radio', { name: '使用 small' })).toBeDisabled())
+    expect(within(list).getAllByText('未导入')).toHaveLength(2)
+  })
+
+  it('导入非法文件名展示后端错误;选择文件被取消不报错', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    await screen.findByRole('list', { name: 'whisper 模型' })
+    await user.type(screen.getByLabelText('模型文件路径'), '/tmp/model.bin')
+    await user.click(screen.getByRole('button', { name: '导入路径' }))
+    expect((await screen.findByText('模型文件名必须形如 ggml-<名称>.bin')).closest('[role=alert]')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '选择文件…' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '选择文件…' })).toBeEnabled())
+    expect(screen.getByLabelText('输入设备')).toHaveValue('')
+  })
+})
+
 describe('设置页 · 学习者画像(M2 T6)', () => {
   it('展示画像四节:知识背景/个人情境可编辑,已掌握/误区只读', async () => {
     render(<SettingsPage />)

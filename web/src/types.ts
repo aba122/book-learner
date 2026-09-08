@@ -121,3 +121,6 @@ export interface NewReaderMark {
   kind: ReaderMarkKind; spineHref: string; cfiStart: string; cfiEnd?: string | null; text?: string; color?: string; note?: string
 }
 
+/** 语音(M3 T3):whisper 模型清单项(壳层 <data_root>/models);转写结果 */
+export interface VoiceModel { name: string; file: string; note: string; present: boolean; bytes: number | null; selected: boolean }
+export interface Transcript { text: string; seconds: number; elapsed: number; model: string }

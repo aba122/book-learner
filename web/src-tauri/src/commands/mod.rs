@@ -11,12 +11,16 @@ use crate::dto::{
 };
 use crate::error::IpcError;
 use crate::state::AppState;
+use crate::voice::{TranscriptDto, VoiceModelDto};
 
 /// 地图作业进度事件名(与 web/src/backend/tauri.ts 的 MAP_JOB_PROGRESS_EVENT 一致)。
 pub const MAP_JOB_PROGRESS_EVENT: &str = "map_job_progress";
 /// 分块导入请求头(与 web/src/backend/tauri.ts 一致)。
 pub const IMPORT_OP_ID_HEADER: &str = "x-op-id";
 pub const IMPORT_CHUNK_INDEX_HEADER: &str = "x-chunk-index";
+/// 语音转写请求头(与 web/src/backend/tauri.ts 一致):语言码;提示词经 encodeURIComponent
+pub const VOICE_LANG_HEADER: &str = "x-bl-lang";
+pub const VOICE_HINT_HEADER: &str = "x-bl-hint";
 
 pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("library_list_books", &[]),
@@ -105,6 +109,12 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("reader_mark_update", &["id", "note", "color"]),
     ("reader_mark_remove", &["id"]),
     ("reader_position_set", &["bookId", "spineHref", "cfi"]),
+    // M3 T3:语音(模型目录管理;转写为原始请求体 = 16 kHz 单声道 i16 PCM,头 x-bl-lang / x-bl-hint)
+    ("voice_models", &[]),
+    ("voice_import_model", &["path"]),
+    ("voice_select_model", &["name"]),
+    ("voice_delete_model", &["name"]),
+    ("voice_transcribe", &[]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -623,6 +633,51 @@ pub fn reader_position_set_inner(
     })
 }
 
+pub fn voice_models_inner(state: &AppState) -> Result<Vec<VoiceModelDto>, IpcError> {
+    run_command(state, "voice_models", || crate::voice::list(state))
+}
+
+pub fn voice_import_model_inner(
+    state: &AppState,
+    path: &std::path::Path,
+) -> Result<VoiceModelDto, IpcError> {
+    run_command(state, "voice_import_model", || {
+        crate::voice::import(state, path)
+    })
+}
+
+pub fn voice_select_model_inner(
+    state: &AppState,
+    name: &str,
+) -> Result<Vec<VoiceModelDto>, IpcError> {
+    run_command(state, "voice_select_model", || {
+        crate::voice::set_selected(state, name)
+    })
+}
+
+pub fn voice_delete_model_inner(
+    state: &AppState,
+    name: &str,
+) -> Result<Vec<VoiceModelDto>, IpcError> {
+    run_command(state, "voice_delete_model", || {
+        crate::voice::delete(state, name)
+    })
+}
+
+/// 转写:`bytes` 为 16 kHz 单声道 i16 小端 PCM;`hint` 已解码(当前块标题等)
+pub fn voice_transcribe_inner(
+    state: &AppState,
+    bytes: &[u8],
+    lang: &str,
+    hint: &str,
+) -> Result<TranscriptDto, IpcError> {
+    run_command(state, "voice_transcribe", || {
+        let pcm = crate::voice::pcm_i16_to_f32(bytes)?;
+        let _guard = state.jobs().begin();
+        crate::voice::transcribe(state, &pcm, lang, hint)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -1113,4 +1168,93 @@ pub async fn reader_position_set(
     cfi: String,
 ) -> Result<ReaderMarkDto, IpcError> {
     reader_position_set_inner(&state, book_id, &spine_href, &cfi)
+}
+
+// ---- 语音(M3 T3)----
+
+#[tauri::command(async)]
+pub async fn voice_models(state: State<'_, AppState>) -> Result<Vec<VoiceModelDto>, IpcError> {
+    voice_models_inner(&state)
+}
+
+/// `path` 为空时用原生文件选择器(rfd,须在主线程);取消返回 null。
+#[tauri::command(async)]
+pub async fn voice_import_model<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<Option<VoiceModelDto>, IpcError> {
+    let path = match path.as_deref().map(str::trim) {
+        Some(raw) if !raw.is_empty() => {
+            application::expand_home(raw, std::env::var_os("HOME").map(Into::into).as_deref())
+        }
+        _ => match pick_model_file(&app)? {
+            Some(picked) => picked,
+            None => return Ok(None),
+        },
+    };
+    voice_import_model_inner(&state, &path).map(Some)
+}
+
+fn pick_model_file<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<Option<std::path::PathBuf>, IpcError> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let picked = rfd::FileDialog::new()
+            .set_title("选择 whisper 模型文件(ggml-*.bin)")
+            .add_filter("whisper 模型", &["bin"])
+            .pick_file();
+        let _ = sender.send(picked);
+    })
+    .map_err(|error| IpcError::internal(format!("main thread dispatch failed: {error}")))?;
+    receiver
+        .recv()
+        .map_err(|_| IpcError::internal("model picker dropped without a result"))
+}
+
+#[tauri::command(async)]
+pub async fn voice_select_model(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Vec<VoiceModelDto>, IpcError> {
+    voice_select_model_inner(&state, &name)
+}
+
+#[tauri::command(async)]
+pub async fn voice_delete_model(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Vec<VoiceModelDto>, IpcError> {
+    voice_delete_model_inner(&state, &name)
+}
+
+/// 转写:请求体为原始 PCM 字节(`invoke(cmd, Uint8Array, { headers })`),语言与提示词走头部。
+#[tauri::command(async)]
+pub async fn voice_transcribe(
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<TranscriptDto, IpcError> {
+    let lang = request
+        .headers()
+        .get(VOICE_LANG_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("zh")
+        .to_string();
+    let hint = request
+        .headers()
+        .get(VOICE_HINT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(crate::voice::percent_decode)
+        .unwrap_or_default();
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err(IpcError::invalid_request(
+                "语音数据必须是原始字节体",
+                "transcribe body was JSON, expected raw bytes",
+            ))
+        }
+    };
+    voice_transcribe_inner(&state, bytes, &lang, &hint)
 }

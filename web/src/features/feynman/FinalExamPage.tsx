@@ -12,6 +12,7 @@ import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { Book, FinalReport, SessionView, TurnResult } from '../../types'
 import TranscriptLines, { StudentAvatar, type Line } from './Transcript'
+import VoiceInput from './VoiceInput'
 
 interface SendArgs { clientTurnId: string; text: string; expectedVersion: number }
 interface ExamSession { book: Book; view: SessionView }
@@ -67,6 +68,8 @@ function ExamRoom({ session }: { session: ExamSession }) {
   const [readyToEnd, setReadyToEnd] = useState(done.filter(t => t.role === 'student').at(-1)?.readyToEnd ?? false)
   const [answers, setAnswers] = useState(done.filter(t => t.role === 'user' && t.clientTurnId !== OPENER_TURN_ID).length)
   const [draft, setDraft] = useState('')
+  /** 语音转写结果:追加到输入框(不直接发送,可编辑) */
+  const appendDraft = useCallback((text: string) => setDraft(d => (d.trim() ? `${d.trimEnd()}\n${text}` : text)), [])
   const [report, setReport] = useState<FinalReport | null>(null)
   const scrollAnchor = useRef<HTMLDivElement>(null)
 
@@ -187,6 +190,7 @@ function ExamRoom({ session }: { session: ExamSession }) {
       </div>
       <div className="border-t border-line bg-paper-2/70 px-6 py-4">
         <div className="mx-auto flex max-w-2xl items-end gap-3">
+          <VoiceInput hint={book.title} disabled={inputLocked} onText={appendDraft} />
           <textarea
             aria-label="终评输入"
             rows={2}

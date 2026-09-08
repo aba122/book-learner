@@ -7,6 +7,7 @@ pub mod import;
 pub mod notify;
 pub mod pomodoro;
 pub mod state;
+pub mod voice;
 
 use std::path::Path;
 use std::time::Duration;
@@ -79,6 +80,11 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::reader_mark_update,
         commands::reader_mark_remove,
         commands::reader_position_set,
+        commands::voice_models,
+        commands::voice_import_model,
+        commands::voice_select_model,
+        commands::voice_delete_model,
+        commands::voice_transcribe,
         commands::automation_report,
     ])
 }

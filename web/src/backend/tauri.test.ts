@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -511,6 +511,30 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(calls[2].payload).toEqual({ id: 3, note: 'n', color: null })
     const bad = new TauriBackend(async <T>() => ([{ ...mark, kind: 'note' }]) as T)
     await expect(bad.readerMarkList(1)).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('voice: model list/import/select/delete decode; transcribe sends raw PCM with lang and encoded hint headers (M3 T3)', async () => {
+    const model = { name: 'small', file: 'ggml-small.bin', note: '更快,约 480 MB', present: true, bytes: 487601967, selected: true }
+    const { calls, invoke } = recorder({
+      voice_models: [model], voice_import_model: null, voice_select_model: [model], voice_delete_model: [{ ...model, present: false, bytes: null }],
+      voice_transcribe: { text: '弹性是需求量对价格变化的敏感程度', seconds: 3.2, elapsed: 1.1, model: 'small' },
+    })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.voiceModels()).toEqual([model])
+    expect(await backend.voiceImportModel(null)).toBeNull()
+    expect(await backend.voiceSelectModel('small')).toEqual([model])
+    expect((await backend.voiceDeleteModel('small'))[0].bytes).toBeNull()
+    const pcm = new Int16Array([0, 32767, -32768])
+    const transcript = await backend.voiceTranscribe(pcm, 'zh', '弹性/斜率')
+    expect(transcript).toEqual({ text: '弹性是需求量对价格变化的敏感程度', seconds: 3.2, elapsed: 1.1, model: 'small' })
+    expect(calls.map(c => c.command)).toEqual(['voice_models', 'voice_import_model', 'voice_select_model', 'voice_delete_model', 'voice_transcribe'])
+    expect(calls[1].payload).toEqual({ path: null })
+    expect(calls[4].payload).toBeInstanceOf(Uint8Array)
+    expect(Array.from(calls[4].payload as Uint8Array)).toEqual([0, 0, 0xff, 0x7f, 0x00, 0x80])
+    expect(calls[4].headers).toEqual({ 'x-bl-lang': 'zh', 'x-bl-hint': encodeURIComponent('弹性/斜率') })
+    await expect(backend.voiceTranscribe(new Int16Array(0), 'zh', '')).rejects.toMatchObject({ code: 'invalid_request' })
+    const bad = new TauriBackend(async <T>() => ({ text: 'x', seconds: 'slow', elapsed: 1, model: 'm' }) as T)
+    await expect(bad.voiceTranscribe(pcm, 'zh', '')).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('backup/git: snapshot list, restore marker, remote and push decode (M3 T5)', async () => {

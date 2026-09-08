@@ -54,7 +54,12 @@
     { "method": "readerMarkAdd", "command": "reader_mark_add", "payloadKeys": ["bookId", "mark"] },
     { "method": "readerMarkUpdate", "command": "reader_mark_update", "payloadKeys": ["id", "note", "color"] },
     { "method": "readerMarkRemove", "command": "reader_mark_remove", "payloadKeys": ["id"] },
-    { "method": "readerPositionSet", "command": "reader_position_set", "payloadKeys": ["bookId", "spineHref", "cfi"] }
+    { "method": "readerPositionSet", "command": "reader_position_set", "payloadKeys": ["bookId", "spineHref", "cfi"] },
+    { "method": "voiceModels", "command": "voice_models", "payloadKeys": [] },
+    { "method": "voiceImportModel", "command": "voice_import_model", "payloadKeys": ["path"] },
+    { "method": "voiceSelectModel", "command": "voice_select_model", "payloadKeys": ["name"] },
+    { "method": "voiceDeleteModel", "command": "voice_delete_model", "payloadKeys": ["name"] },
+    { "method": "voiceTranscribe", "command": "voice_transcribe", "payloadKeys": [] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

@@ -123,6 +123,12 @@ describe('Tauri wire contract fixture', () => {
       { method: 'readerMarkUpdate', command: 'reader_mark_update', payloadKeys: ['id', 'note', 'color'] },
       { method: 'readerMarkRemove', command: 'reader_mark_remove', payloadKeys: ['id'] },
       { method: 'readerPositionSet', command: 'reader_position_set', payloadKeys: ['bookId', 'spineHref', 'cfi'] },
+      // M3 T3:语音(转写为原始请求体 = 16 kHz i16 PCM,payloadKeys 为空,语言/提示词走 x-bl-lang / x-bl-hint 头)
+      { method: 'voiceModels', command: 'voice_models', payloadKeys: [] },
+      { method: 'voiceImportModel', command: 'voice_import_model', payloadKeys: ['path'] },
+      { method: 'voiceSelectModel', command: 'voice_select_model', payloadKeys: ['name'] },
+      { method: 'voiceDeleteModel', command: 'voice_delete_model', payloadKeys: ['name'] },
+      { method: 'voiceTranscribe', command: 'voice_transcribe', payloadKeys: [] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

@@ -16,6 +16,7 @@ import type { DailyTask, EvalResult, EvaluationView, KnowledgeBlock, SessionView
 import EvalCard from './EvalCard'
 import ExtraStage from './ExtraStage'
 import TranscriptLines, { StudentAvatar, type Line } from './Transcript'
+import VoiceInput from './VoiceInput'
 
 /**
  * 评估/判定的请求 id 为每会话常量:core 按 `eval:{session}:{id}` / `verdict:{session}:{id}` 命名空间化,
@@ -129,6 +130,8 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const [evalResult, setEvalResult] = useState<EvalResult | null>(hydrated.evalResult)
   const [pendingTurn, setPendingTurn] = useState<PendingTurn | null>(hydrated.pendingTurn)
   const [draft, setDraft] = useState('')
+  /** 语音转写结果:追加到输入框(不直接发送,可编辑) */
+  const appendDraft = useCallback((text: string) => setDraft(d => (d.trim() ? `${d.trimEnd()}\n${text}` : text)), [])
   const [typing, setTyping] = useState<string | null>(null)
   const [typingKey, setTypingKey] = useState(0)
   const typingFull = useRef('')
@@ -389,13 +392,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
 
         <div className="border-t border-line bg-paper-2/70 px-6 py-4">
           <div className="mx-auto flex max-w-2xl items-end gap-3">
-            <button
-              disabled
-              title="语音输入 Mac 版可用"
-              className="cursor-not-allowed rounded-m border border-line px-3 py-2 text-sm text-ink-4 opacity-60"
-            >
-              🎙
-            </button>
+            <VoiceInput hint={block.title} disabled={inputLocked} onText={appendDraft} />
             <textarea
               aria-label="复述输入"
               rows={2}
