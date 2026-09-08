@@ -508,3 +508,9 @@
 - **web**:`ExportPreview/ExportReport` 类型、`exportPreview/exportObsidian/exportReveal`、解码器与用例;Mock 按书/块推导清单并镜像"首次全写、再次全不变";书架卡新增"导出到 Obsidian"→ `ExportDialog`(清单预览 → 确认导出 → 写入/未变计数 → 在 Finder 中显示;目标目录不存在时提示去设置页并禁用导出;失败可重试)。用例 2 条。
 - 门禁:core 159/27/1/1、clippy 0、fmt;web 297/2、lint 0、build;src-tauri 由 Mac 原生 `cargo test` + CI 验证。
 
+## 2026-09-08 · M3 T5:数据安全(快照/恢复/git 远程)
+- **core**:新模块 `backup`——`snapshot`(`VACUUM INTO` → `.tmp` + fsync + rename,同日覆盖)、`prune`(最近 7 份 + 近 3 个月各最早一份,只删本模块命名的文件)、`list`、`restore_plan`(文件名白名单 `app-YYYY-MM-DD.db`、`integrity_check`、`user_version ≤ SCHEMA_VERSION`)、`request_restore/pending_restore/cancel_restore`(标记文件)、`apply_pending_restore`(启动前替换库,移走热日志,原库 `.replaced-<ts>`,标记无论成败消费);`db::SCHEMA_VERSION = 7`,v7 加列 `projection_outbox.lane/next_retry_at`;`memory::{remote_url, set_remote, push}` + 带超时/无 TTY 提示的 `git_timeout`(复用 `ai::wait_with_timeout` 进程组兜底);`projection::{enqueue_in, run_push_lane}`,`run_pending` 只处理 main 通道且 `git_commit` 成功后有远程即补 push 行。单测 5 条(快照/覆盖/保留策略/恢复标记与热日志/push 通道用本地 bare 仓库验证成功、退避与 main 不受影响)。
+- **壳层/契约**:`SnapshotDto/BackupListDto/GitRemoteDto/PushResultDto`;`initialize_state` 在打开库前应用待恢复标记并对所有书入队镜像再生,之后"每日首次启动快照";`orderly_shutdown` 退出前刷新当日快照;`run_startup_recovery` 顺带跑 push 通道;命令 `backup_snapshot_now[date]/backup_list/backup_restore[name]/backup_cancel_restore/git_remote_get/git_remote_set[url]/git_push_now`(手动推送清退避);六处同步;foundation 用例覆盖快照 → 登记 → 重启后库被替换与 `.replaced` 保留 → 镜像再生入队 → 远程校验/拒绝非法 URL → 提交后自动推送到 bare 仓库 → 立即推送。
+- **web**:类型与 `backupSnapshotNow/backupList/backupRestore/backupCancelRestore/gitRemoteGet/gitRemoteSet/gitPushNow`,解码器与用例;Mock 内存实现;设置页"数据"分区替代原禁用占位:快照清单/立即快照/恢复登记(确认对话框)与取消/远程 URL 保存并校验/立即推送结果。用例 2 条。
+- 门禁:core 163/27/1/1、clippy 0、fmt;web 300/2、lint 0、build;src-tauri 由 Mac 原生 `cargo test` + CI 验证(首跑因用例数据目录布局与 `initialize_state` 不一致失败,已改用 `<dir>/book-learner/app.db`)。
+

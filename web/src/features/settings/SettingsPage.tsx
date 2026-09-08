@@ -6,7 +6,9 @@ import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
-import type { AppSettings, Profile } from '../../types'
+import Confirm from '../../components/Confirm'
+import { localCalendarDate } from '../../lib/localDate'
+import type { AppSettings, BackupList, Profile } from '../../types'
 
 function Field({
   label,
@@ -46,6 +48,95 @@ function parsePositiveInt(draft: string): number | null {
 interface LoadedSettings {
   settings: AppSettings
   version: number
+}
+
+const formatBytes = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+
+/** 数据安全(M3 T5):SQLite 快照(每日首次启动/退出前自动,可手动)、登记恢复(下次启动生效)、记忆库 git 远程与推送 */
+function DataSection() {
+  const backups = useAsyncResource(useCallback(() => backend.backupList(), []))
+  const remote = useAsyncResource(useCallback(() => backend.gitRemoteGet(), []))
+  const [list, setList] = useState<BackupList | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null)
+  const [urlDraft, setUrlDraft] = useState<string | null>(null)
+  const [pushMessage, setPushMessage] = useState<string | null>(null)
+  const snapshotOp = useBackendOperation(async () => { await backend.backupSnapshotNow(localCalendarDate()); setList(await backend.backupList()) })
+  const restoreOp = useBackendOperation(async (name: string) => { setList(await backend.backupRestore(name)) })
+  const cancelOp = useBackendOperation(async () => { setList(await backend.backupCancelRestore()) })
+  const remoteOp = useBackendOperation(async (url: string) => { const r = await backend.gitRemoteSet(url); setUrlDraft(r.url ?? '') })
+  const pushOp = useBackendOperation(async () => {
+    const r = await backend.gitPushNow()
+    setPushMessage(r.pushed ? '已推送到远程' : `推送失败:${r.error ?? '未知原因'}`)
+  })
+  const current = list ?? backups.data
+  const currentUrl = urlDraft ?? remote.data?.url ?? ''
+  const busy = snapshotOp.pending.size > 0 || restoreOp.pending.size > 0 || cancelOp.pending.size > 0
+  const firstError = snapshotOp.errors.get('snapshot') ?? restoreOp.errors.get('restore') ?? cancelOp.errors.get('cancel')
+  const remoteError = remoteOp.errors.get('remote')
+  return (
+    <Card className="px-6 py-4">
+      <h2 className="font-serif text-base font-semibold text-ink-1">数据</h2>
+      <p className="mt-0.5 text-xs text-ink-3">SQLite 每日首次启动与退出前自动快照(保留最近 7 份 + 近 3 个月各一份);恢复在下次启动时替换数据库,原库保留为 .replaced 文件。</p>
+      <div className="mt-4 flex items-center justify-between">
+        <h3 className="text-sm text-ink-2">快照</h3>
+        <Button onClick={() => { snapshotOp.clearError('snapshot'); void snapshotOp.run('snapshot') }} disabled={busy}>{snapshotOp.pending.has('snapshot') ? '快照中…' : '立即快照'}</Button>
+      </div>
+      {firstError && <div className="mt-2"><AsyncError error={firstError} variant="compact" /></div>}
+      {current === null ? (
+        backups.error ? <div className="mt-2"><AsyncError error={backups.error} onRetry={backups.reload} variant="compact" /></div> : <p className="mt-2 text-sm text-ink-3">正在读取快照…</p>
+      ) : (
+        <>
+          {current.pendingRestore && (
+            <div role="status" className="mt-2 flex items-center justify-between rounded-m bg-review-soft px-3 py-2 text-xs text-ink-2">
+              <span>已登记恢复 <code>{current.pendingRestore}</code>,下次启动 app 时生效。</span>
+              <Button className="px-2 py-1 text-xs" disabled={busy} onClick={() => void cancelOp.run('cancel')}>取消恢复</Button>
+            </div>
+          )}
+          {current.snapshots.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-3">还没有快照;首次启动或退出时会自动生成。</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line text-sm">
+              {current.snapshots.map(s => (
+                <li key={s.name} className="flex items-center justify-between py-2" data-testid="snapshot-row">
+                  <span className="text-ink-1">{s.date}<span className="ml-2 text-xs text-ink-4">{formatBytes(s.bytes)}</span></span>
+                  <Button className="px-2 py-1 text-xs" disabled={busy || current.pendingRestore === s.name} onClick={() => setRestoreTarget(s.name)}>恢复</Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      <div className="mt-5 border-t border-line pt-4">
+        <h3 className="text-sm text-ink-2">记忆库 git 远程</h3>
+        <p className="mt-0.5 text-xs text-ink-3">每次学习提交后自动推送(失败按退避重试);保存时会以 ls-remote 校验。凭据/known_hosts 请先在终端完成一次。</p>
+        {remote.data === null && remote.error && <div className="mt-2"><AsyncError error={remote.error} onRetry={remote.reload} variant="compact" /></div>}
+        <div className="mt-2 flex items-center gap-3">
+          <input
+            aria-label="记忆库 git 远程"
+            type="text"
+            value={currentUrl}
+            placeholder="git@github.com:you/book-learner-memory.git"
+            onChange={e => setUrlDraft(e.target.value)}
+            className={`${inputCls} flex-1`}
+          />
+          <Button disabled={remoteOp.pending.has('remote')} onClick={() => { remoteOp.clearError('remote'); void remoteOp.run('remote', currentUrl) }}>{remoteOp.pending.has('remote') ? '校验中…' : '保存并校验'}</Button>
+          <Button disabled={pushOp.pending.has('push') || !currentUrl.trim()} onClick={() => { setPushMessage(null); void pushOp.run('push') }}>{pushOp.pending.has('push') ? '推送中…' : '立即推送'}</Button>
+        </div>
+        {remoteError && <div className="mt-2"><AsyncError error={remoteError} variant="compact" /></div>}
+        {pushMessage && <p role="status" className="mt-2 text-xs text-ink-2">{pushMessage}</p>}
+      </div>
+      <Confirm
+        open={restoreTarget !== null}
+        title="恢复到这份快照?"
+        message={`下次启动时用 ${restoreTarget ?? ''} 替换当前数据库;当前库会保留为 .replaced 文件,记忆库文件会按恢复后的数据重生。`}
+        confirmText="登记恢复"
+        cancelText="取消"
+        danger
+        onConfirm={() => { const name = restoreTarget; setRestoreTarget(null); if (name) { restoreOp.clearError('restore'); void restoreOp.run('restore', name) } }}
+        onCancel={() => setRestoreTarget(null)}
+      />
+    </Card>
+  )
 }
 
 /** 学习者画像(M2 T6):独立加载/保存;知识背景与个人情境可编辑,误区模式与已掌握概念由 AI 积累、只读展示 */
@@ -266,20 +357,9 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
               />
             )}
           </Field>
-          <Field label="记忆库 git 远程">
-            {id => (
-              <input
-                id={id}
-                type="text"
-                disabled
-                placeholder="Mac 阶段配置"
-                title="学习记忆库 git 备份在 Mac 阶段接入"
-                className={`${inputCls} w-72`}
-              />
-            )}
-          </Field>
         </Card>
         <ProfileSection />
+        <DataSection />
       </div>
     </>
   )

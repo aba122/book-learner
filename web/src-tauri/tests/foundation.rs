@@ -876,7 +876,10 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 #[test]
 fn backup_snapshot_restore_marker_and_git_push_lane_work_end_to_end() {
     let directory = tempfile::tempdir().unwrap();
-    let db = directory.path().join("app.db");
+    // initialize_state(platform_dir) 解析为 <platform_dir>/book-learner/app.db(无调试覆盖时)
+    let data_root = directory.path().join("book-learner");
+    std::fs::create_dir_all(&data_root).unwrap();
+    let db = data_root.join("app.db");
     let state = AppState::open(&db).unwrap();
     let (first, _second, _block) = seed_books(&state);
     // 快照 + 清单 + 恢复标记
@@ -936,7 +939,7 @@ fn backup_snapshot_restore_marker_and_git_push_lane_work_end_to_end() {
         })
         .unwrap();
     assert!(resync >= 2, "{resync}");
-    assert!(directory.path().read_dir().unwrap().any(|e| e
+    assert!(data_root.read_dir().unwrap().any(|e| e
         .unwrap()
         .file_name()
         .to_string_lossy()

@@ -497,6 +497,28 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
+  it('backup/git: snapshot list, restore marker, remote and push decode (M3 T5)', async () => {
+    const snap = { name: 'app-2026-09-08.db', date: '2026-09-08', bytes: 12345 }
+    const list = { snapshots: [snap], pendingRestore: null }
+    const { calls, invoke } = recorder({
+      backup_snapshot_now: snap, backup_list: list, backup_restore: { ...list, pendingRestore: snap.name }, backup_cancel_restore: list,
+      git_remote_get: { url: null }, git_remote_set: { url: 'git@example.com:me/memory.git' }, git_push_now: { pushed: false, error: '推送失败' },
+    })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.backupSnapshotNow('2026-09-08')).toEqual(snap)
+    expect(await backend.backupList()).toEqual(list)
+    expect((await backend.backupRestore(snap.name)).pendingRestore).toBe(snap.name)
+    expect((await backend.backupCancelRestore()).pendingRestore).toBeNull()
+    expect(await backend.gitRemoteGet()).toEqual({ url: null })
+    expect(await backend.gitRemoteSet('git@example.com:me/memory.git')).toEqual({ url: 'git@example.com:me/memory.git' })
+    expect(await backend.gitPushNow()).toEqual({ pushed: false, error: '推送失败' })
+    expect(calls.map(c => c.command)).toEqual(['backup_snapshot_now', 'backup_list', 'backup_restore', 'backup_cancel_restore', 'git_remote_get', 'git_remote_set', 'git_push_now'])
+    expect(calls[0].payload).toEqual({ date: '2026-09-08' })
+    expect(calls[2].payload).toEqual({ name: snap.name })
+    const bad = new TauriBackend(async <T>() => ({ snapshots: [{ name: 'x' }], pendingRestore: null }) as T)
+    await expect(bad.backupList()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
   it('export: preview/write/reveal decode and send bookId (M3 T2)', async () => {
     const preview = { target: '/Users/me/Obsidian', targetExists: true, dir: '/Users/me/Obsidian/微观经济学', files: ['微观经济学/00-学习报告.md', '微观经济学/blocks/01-需求曲线.md'] }
     const report = { dir: '/Users/me/Obsidian/微观经济学', written: 2, unchanged: 0 }
