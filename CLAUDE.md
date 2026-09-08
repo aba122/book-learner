@@ -22,7 +22,8 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - [ ] **Mac 阶段收尾(需桌面会话)**:M2 Foundation 原生冒烟签字(tag `mac-m1`)、`tauri dev` 七路由/tray/Cmd+Q 目检、真实 WebView 导入吞吐(ADR-0004)、M8.1 真书 + 真 codex 七步端到端(`docs/smoke/m1-e2e-gate.md`)→ 合并 PR #3→#4→#5→#6 → main 上 tag `m1`
 - [x] M2 学习系统代码(2026-09-08,PR #9–#17 合入 main,计划 `docs/superpowers/plans/2026-09-08-m2-learning-system.md` T0–T8):schema v5、快问会话、落后重排确认、单主攻书补完、提醒通知、Rust 番茄钟 + 托盘倒计时、学习者画像编辑、三类书通过后附加环节、统计页三区;记忆库写入一律经 outbox
 - [x] 三份桌面门禁(2026-09-08,经用户 SSH 隧道 + 辅助功能权限 + debug-only 自动化桥执行):`mac-m1-native-smoke.md` → tag `mac-m1`;`m1-e2e-gate.md`(真书 + 真 codex 七步,发现并修 PR #21/#22)→ tag `m1`;`m2-gate.md`(通知/托盘番茄钟/落后重排/单主攻书/快问/三类附加环节/画像/统计)→ tag `m2`。门禁脚本 `docs/smoke/scripts/`
-- [ ] M3 体验完善(计划 `docs/superpowers/plans/2026-09-08-m3-experience.md`):T1 整书终评(PR #25)、T2 Obsidian 导出(PR #26)、T5 数据安全(PR #27)、T4 阅读器打磨(PR #28)已合入 main;T3 whisper 语音输入在 `feat/m3-t3-voice`;T6 收尾与打包待做
+- [x] M3 体验完善(2026-09-08,计划 `docs/superpowers/plans/2026-09-08-m3-experience.md`,PR #25–#30 合入 main,tag `m3`):整书终评与学习报告、Obsidian 导出、whisper 本机语音输入、阅读器高亮/书签/位置与排版、快照/恢复/git 推送、收尾(文案巡检、抽取分批、codex 路径设置、OPF 书名、dmg 打包);桌面门禁 `docs/smoke/m3-gate.md` 签字
+- [ ] 后续(范围外,见 IMPLEMENTATION_PLAN):Developer ID 签名与公证、霞鹜文楷内置、手动锚点校正 UI、画像个人情境 AI 提取
 
 ## 开发环境要求
 

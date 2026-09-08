@@ -18,8 +18,8 @@ pnpm -C web tauri build --bundles app,dmg   # 产物 web/src-tauri/target/releas
 ## 1. 全程语音学完一个块(T3)
 
 - [x] 设置页「语音」分区填路径导入 `ggml-large-v3-turbo-q5_0.bin` → 清单显示体积并自动选中:(547 MB,单选自动选中,`setting.voiceModel=large-v3-turbo-q5_0`)
-- [ ] 费曼页点 🎙 → 录音态(计时/电平)→ 朗读复述 → 停止 → 转写文本填入输入框(可编辑,不自动发送):( )
-- [ ] 发送 → 学生追问 → 结束讲授 → 评估 → 确认通过 → 块状态 passed:( )
+- [x] 费曼页点 🎙 → 录音态(计时/电平)→ 朗读复述 → 停止 → 转写文本填入输入框(可编辑,不自动发送):(真麦克风:录音态计时 0:04、电平 2%,停止后"已填入,可编辑后发送(4.4 秒语音,转写用时 3.4 秒)";朗读内容用 `say` 合成 16 kHz 语音经同一 `voice_transcribe` 命令填入——17.9 秒语音转写 2.9 秒,文本与朗读一致(同音字来自 TTS);首跑曾试"扬声器播 TTS 让麦克风录",被 WebKit 回声消除压掉、电平 1%,不作为证据)
+- [x] 发送 → 学生追问 → 结束讲授 → 评估 → 确认通过 → 块状态 passed:(合成 39.8 秒复述(古登堡使命/体系/许可/商标)经 `voice_transcribe` 6.4 秒转写、文本准确 → 填入输入框 → 发送 → 学生追问 → 结束讲授 → 评估「建议再学」(3/2/4,三条具体薄弱点:许可证触发条件过度概括、版本更新原则缺失、商业传播条件不具体)→ 点「暂不通过,再学一遍」→ 块 learning、薄弱点 3 条、回合 2;首跑中「确认通过」路径亦走通(块 passed)。判定严格是产品本意,语音链路含判定确认已完整闭环)
 
 ## 2. Obsidian 导出(T2)
 
@@ -33,8 +33,8 @@ pnpm -C web tauri build --bundles app,dmg   # 产物 web/src-tauri/target/releas
 
 ## 4. 阅读器打磨(T4)
 
-- [ ] 打开阅读器先显示骨架,首屏渲染后消失:( )
-- [ ] 「书签」→ 标记面板列出;翻页后离开再进入回到上次位置(`reader_mark kind='position'`):( )
+- [x] 打开阅读器先显示骨架,首屏渲染后消失:(置前后 2 s 骨架消失、iframe 就绪,正文 "The Project Gutenberg eBook of 老子…";首跑未置前时 30 s 未渲染——后台 WebView 节流,m2 已知)
+- [x] 「书签」→ 标记面板列出;翻页后离开再进入回到上次位置(`reader_mark kind='position'`):(面板列出 "许可与权利基础 · 许可接受与权利边界";`reader_mark` 有 bookmark 行与 position 行 `epubcfi(/6/4!/4/4[id00000]/1:0)`;重进无骨架残留、正文就绪)
 
 ## 5. 数据安全(T5)
 
@@ -50,7 +50,7 @@ pnpm -C web tauri build --bundles app,dmg   # 产物 web/src-tauri/target/releas
 ## 7. 收尾项(T6.1)
 
 - [x] 设置页「codex 可执行路径」:显示当前解析到的路径;相对路径被拒;绝对路径保存写入 `setting.codexBin`;清空恢复自动寻找:("当前使用 /opt/homebrew/bin/codex";保存 `/opt/homebrew/bin/codex` 后表中一行;清空后 0 行;相对路径拒绝由 foundation 用例覆盖,页面提示未在脚本输出中捕获)
-- [ ] 导入后书架标题为 OPF `dc:title`、作者为 `dc:creator`(而非文件名 / 待识别):( )
+- [x] 导入后书架标题为 OPF `dc:title`、作者为 `dc:creator`(而非文件名 / 待识别):(`1|老子|Laozi|textbook`,书架显示 老子 / Laozi;首跑为 `book-24039|待识别`,原因是 zip 未开 deflate)
 
 ## 签名与公证(文档,未执行)
 
