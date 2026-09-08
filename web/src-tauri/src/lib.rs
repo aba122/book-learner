@@ -4,6 +4,7 @@ pub mod dto;
 pub mod error;
 pub mod import;
 pub mod notify;
+pub mod pomodoro;
 pub mod state;
 
 use std::path::Path;
@@ -48,6 +49,12 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::stats_get,
         commands::planning_check_behind,
         commands::planning_get_plan,
+        commands::library_finish_book,
+        commands::pomodoro_start,
+        commands::pomodoro_pause,
+        commands::pomodoro_resume,
+        commands::pomodoro_stop,
+        commands::pomodoro_state,
     ])
 }
 
@@ -92,6 +99,8 @@ pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 /// 有序退出:等待进行中的导入/地图作业/回合/评估收尾;返回是否在宽限内全部收尾。
 pub fn orderly_shutdown(state: &state::AppState, grace: Duration) -> bool {
+    // 进行中的番茄先结束并落分钟(M2 T3)
+    pomodoro::stop_for_shutdown(state);
     let idle = state.jobs().wait_idle(grace);
     if idle {
         tracing::info!("有序退出:无进行中任务");
@@ -185,6 +194,8 @@ pub fn run() {
                         // 托盘不可用不致命:主窗口与 Cmd+Q 仍可用
                         tracing::warn!(%error, "托盘初始化失败");
                     }
+                    // 番茄钟 ticker(托盘倒计时/阶段事件/通知)
+                    pomodoro::spawn_ticker(app.handle().clone());
                     // 每日/晚间系统通知(常驻线程,30s 轮询,判定在 core::notify)
                     notify::spawn_reminder_thread(app.handle().clone());
                     // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫

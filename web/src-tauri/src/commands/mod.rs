@@ -4,8 +4,8 @@ use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
-    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    MapRevisionDto, PomodoroSnapshotDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto,
+    StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -59,6 +59,14 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     // M2 T4:落后检测(有副作用,先于当日队列生成调用)与计划读取
     ("planning_check_behind", &["bookId", "date"]),
     ("planning_get_plan", &["bookId"]),
+    // M2 T8:标记学完(计划冻结,复习照常)
+    ("library_finish_book", &["bookId"]),
+    // M2 T3:番茄钟(Rust 状态机;事件 pomodoro_changed 只作常量)
+    ("pomodoro_start", &["taskId", "date"]),
+    ("pomodoro_pause", &[]),
+    ("pomodoro_resume", &[]),
+    ("pomodoro_stop", &[]),
+    ("pomodoro_state", &[]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -377,6 +385,38 @@ pub fn planning_get_plan_inner(
     })
 }
 
+pub fn library_finish_book_inner(state: &AppState, book_id: i64) -> Result<(), IpcError> {
+    run_command(state, "library_finish_book", || {
+        application::finish_book(state, book_id)
+    })
+}
+
+pub fn pomodoro_start_inner(
+    state: &AppState,
+    task_id: i64,
+    date: &str,
+) -> Result<PomodoroSnapshotDto, IpcError> {
+    run_command(state, "pomodoro_start", || {
+        crate::pomodoro::start(state, task_id, date)
+    })
+}
+
+pub fn pomodoro_pause_inner(state: &AppState) -> Result<PomodoroSnapshotDto, IpcError> {
+    run_command(state, "pomodoro_pause", || crate::pomodoro::pause(state))
+}
+
+pub fn pomodoro_resume_inner(state: &AppState) -> Result<PomodoroSnapshotDto, IpcError> {
+    run_command(state, "pomodoro_resume", || crate::pomodoro::resume(state))
+}
+
+pub fn pomodoro_stop_inner(state: &AppState) -> Result<PomodoroSnapshotDto, IpcError> {
+    run_command(state, "pomodoro_stop", || crate::pomodoro::stop(state))
+}
+
+pub fn pomodoro_state_inner(state: &AppState) -> Result<PomodoroSnapshotDto, IpcError> {
+    run_command(state, "pomodoro_state", || crate::pomodoro::snapshot(state))
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -588,4 +628,40 @@ pub async fn planning_get_plan(
     book_id: i64,
 ) -> Result<Option<StudyPlanDto>, IpcError> {
     planning_get_plan_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn library_finish_book(state: State<'_, AppState>, book_id: i64) -> Result<(), IpcError> {
+    library_finish_book_inner(&state, book_id)
+}
+
+// ---- 番茄钟命令(M2 T3)----
+
+#[tauri::command(async)]
+pub async fn pomodoro_start(
+    state: State<'_, AppState>,
+    task_id: i64,
+    date: String,
+) -> Result<PomodoroSnapshotDto, IpcError> {
+    pomodoro_start_inner(&state, task_id, &date)
+}
+
+#[tauri::command(async)]
+pub async fn pomodoro_pause(state: State<'_, AppState>) -> Result<PomodoroSnapshotDto, IpcError> {
+    pomodoro_pause_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn pomodoro_resume(state: State<'_, AppState>) -> Result<PomodoroSnapshotDto, IpcError> {
+    pomodoro_resume_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn pomodoro_stop(state: State<'_, AppState>) -> Result<PomodoroSnapshotDto, IpcError> {
+    pomodoro_stop_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn pomodoro_state(state: State<'_, AppState>) -> Result<PomodoroSnapshotDto, IpcError> {
+    pomodoro_state_inner(&state)
 }

@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
+  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
   TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
@@ -88,6 +88,11 @@ export class MockBackend implements Backend {
   private nextBookId = 2
   private nextBlockId = 13
   private settings: AppSettings = { ...APP_DEFAULTS }
+  /** 番茄钟:镜像 core 状态机(endsAt 为 unix 秒),阶段切换用定时器推进并广播 */
+  private pomodoro: PomodoroSnapshot = { phase: 'idle', taskId: null, date: null, endsAt: null, remainingSecs: 0, pausedPhase: null }
+  private pomodoroTimer: ReturnType<typeof setTimeout> | null = null
+  private pomodoroListeners = new Set<(s: PomodoroSnapshot) => void>()
+  private pomodoroMinutes = 0
 
   constructor() {
     this.seed()
@@ -207,9 +212,16 @@ export class MockBackend implements Backend {
     return { revision: book.mapRevision }
   }
 
+  async finishBook(bookId: number): Promise<void> {
+    const book = this.books.find(b => b.id === bookId)
+    if (!book) throw notFound()
+    book.status = 'finished'
+  }
+
   async setActiveBook(bookId: number): Promise<void> {
-    // 与原生 library::set_active_book 一致:无学习计划的书不能成为主攻书(F4)
+    // 与原生 library::set_active_book 一致:无学习计划的书不能成为主攻书(F4);已学完的书不能再主攻(T8)
     if (!this.plans.some(p => p.bookId === bookId)) throw conflict()
+    if (this.books.find(b => b.id === bookId)?.status === 'finished') throw conflict()
     for (const b of this.books) {
       if (b.id === bookId) b.status = 'active'
       else if (b.status === 'active') b.status = 'paused'
@@ -287,6 +299,70 @@ export class MockBackend implements Backend {
       fixedWeakPoints: 1,
       minutesToday: this.tasks.filter(t => t.status === 'done').reduce((sum, t) => sum + t.estMinutes, 0),
     }
+  }
+
+  private pomodoroSnapshot(): PomodoroSnapshot {
+    const now = Math.floor(Date.now() / 1000)
+    const remaining = this.pomodoro.endsAt === null ? this.pomodoro.remainingSecs : Math.max(0, this.pomodoro.endsAt - now)
+    return { ...this.pomodoro, remainingSecs: remaining }
+  }
+  private pomodoroBroadcast(): void {
+    const snap = this.pomodoroSnapshot()
+    for (const l of this.pomodoroListeners) l(snap)
+  }
+  private pomodoroArm(): void {
+    if (this.pomodoroTimer) clearTimeout(this.pomodoroTimer)
+    this.pomodoroTimer = null
+    if (this.pomodoro.endsAt === null) return
+    const ms = Math.max(0, this.pomodoro.endsAt * 1000 - Date.now())
+    this.pomodoroTimer = setTimeout(() => {
+      if (this.pomodoro.phase === 'work') {
+        this.pomodoroMinutes += this.settings.pomodoroMinutes
+        this.pomodoro = { ...this.pomodoro, phase: 'break', endsAt: Math.floor(Date.now() / 1000) + this.settings.breakMinutes * 60 }
+        this.pomodoroArm()
+      } else if (this.pomodoro.phase === 'break') {
+        this.pomodoro = { phase: 'idle', taskId: null, date: null, endsAt: null, remainingSecs: 0, pausedPhase: null }
+      }
+      this.pomodoroBroadcast()
+    }, ms)
+  }
+
+  async pomodoroStart(taskId: number, date: string): Promise<PomodoroSnapshot> {
+    requireDate(date)
+    if (this.pomodoro.phase !== 'idle') throw conflict()
+    if (!this.tasks.some(t => t.id === taskId)) throw notFound()
+    this.pomodoro = {
+      phase: 'work', taskId, date, endsAt: Math.floor(Date.now() / 1000) + this.settings.pomodoroMinutes * 60,
+      remainingSecs: this.settings.pomodoroMinutes * 60, pausedPhase: null,
+    }
+    this.pomodoroArm()
+    return this.pomodoroSnapshot()
+  }
+  async pomodoroPause(): Promise<PomodoroSnapshot> {
+    if (this.pomodoro.phase !== 'work' && this.pomodoro.phase !== 'break') throw conflict()
+    const remaining = this.pomodoroSnapshot().remainingSecs
+    this.pomodoro = { ...this.pomodoro, phase: 'paused', pausedPhase: this.pomodoro.phase, endsAt: null, remainingSecs: remaining }
+    this.pomodoroArm()
+    return this.pomodoroSnapshot()
+  }
+  async pomodoroResume(): Promise<PomodoroSnapshot> {
+    if (this.pomodoro.phase !== 'paused' || !this.pomodoro.pausedPhase) throw conflict()
+    this.pomodoro = { ...this.pomodoro, phase: this.pomodoro.pausedPhase, pausedPhase: null, endsAt: Math.floor(Date.now() / 1000) + this.pomodoro.remainingSecs }
+    this.pomodoroArm()
+    return this.pomodoroSnapshot()
+  }
+  async pomodoroStop(): Promise<PomodoroSnapshot> {
+    if (this.pomodoro.phase === 'idle') throw conflict()
+    this.pomodoro = { phase: 'idle', taskId: null, date: null, endsAt: null, remainingSecs: 0, pausedPhase: null }
+    this.pomodoroArm()
+    return this.pomodoroSnapshot()
+  }
+  async pomodoroState(): Promise<PomodoroSnapshot> {
+    return this.pomodoroSnapshot()
+  }
+  async subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void> {
+    this.pomodoroListeners.add(handler)
+    return () => { this.pomodoroListeners.delete(handler) }
   }
 
   async getSettings(): Promise<AppSettings> {

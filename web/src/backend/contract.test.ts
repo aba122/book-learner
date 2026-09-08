@@ -85,6 +85,14 @@ describe('Tauri wire contract fixture', () => {
       // Mac M2 T4:落后检测(有副作用,先于当日队列)与计划读取
       { method: 'checkBehind', command: 'planning_check_behind', payloadKeys: ['bookId', 'date'] },
       { method: 'getPlan', command: 'planning_get_plan', payloadKeys: ['bookId'] },
+      // Mac M2 T8:标记学完(计划冻结、复习照常)
+      { method: 'finishBook', command: 'library_finish_book', payloadKeys: ['bookId'] },
+      // Mac M2 T3:番茄钟(Rust 状态机,事件 pomodoro_changed 为常量不进 JSON)
+      { method: 'pomodoroStart', command: 'pomodoro_start', payloadKeys: ['taskId', 'date'] },
+      { method: 'pomodoroPause', command: 'pomodoro_pause', payloadKeys: [] },
+      { method: 'pomodoroResume', command: 'pomodoro_resume', payloadKeys: [] },
+      { method: 'pomodoroStop', command: 'pomodoro_stop', payloadKeys: [] },
+      { method: 'pomodoroState', command: 'pomodoro_state', payloadKeys: [] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
