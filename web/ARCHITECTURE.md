@@ -54,3 +54,8 @@ src/
 | 显式 `not_implemented` | `importEpub`, `completeTask`, `blockSource`, `epubUrl`, `stats` |
 
 command 名、payload 顶层 key 与门控/未支持列表由 `../shared/tauri-wire-contract.json` 统一约束(`TauriBackend` 按该列表决定走真实 command 还是 `unsupported_capability`)。页面不根据运行时分叉业务成功路径;真实原生失败一律保留并呈现。`runMapJob` 进度经 Tauri event `map_job_progress`(payload `{ jobId, progress }`)按 jobId 过滤。 番茄钟阶段变化经 event `pomodoro_changed`(payload 为 `PomodoroSnapshot`),页面只经 `backend.subscribePomodoro` 订阅,不直连 Tauri event API。
+
+## 调试自动化桥(仅 debug 构建)
+
+`web/src-tauri/src/automation.rs`:设置 `BOOK_LEARNER_AUTOMATION_SOCK=<unix socket 路径>` 启动 debug 构建时,壳层监听该 socket,接受 `{"js"}`(在主 WebView 执行,结果经 `automation_report` 命令回传)、`{"tray_title"}`、`{"quit"}`。用途只有一个:经 SSH 在真实 bundle 上驱动 `docs/smoke/` 门禁(驱动器 `docs/smoke/scripts/bl-auto.py`)。它不在 `shared/tauri-wire-contract.json` 里,前端代码不得调用 `automation_report`;release 构建里桥不启动、命令恒拒绝。
+

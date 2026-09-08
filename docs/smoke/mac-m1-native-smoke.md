@@ -2,10 +2,10 @@
 
 ## 状态
 
-- 实现状态:本地代码已收口。
-- 发布门禁:**PENDING — 需 Apple Silicon Mac 上的交互式原生验证**。
-- 当前验证主机:`Linux x86_64`,不能代替 macOS WebView、Cmd+Q 退出/重启和生产 Application Support 路径断言。
-- 记录日期:2026-09-02。
+- 实现状态:本地代码已收口;M1/M2 已在其上合入 main。
+- 发布门禁:**PASS(2026-09-08,Apple Silicon,经 SSH 隧道用 debug bundle + 调试自动化桥执行,见 §6 执行记录)**。
+- 说明:本文 2026-09-02 的清单写于 Foundation 期,"Import/Map 定稿/Reader/Feynman/Stats 显示不可用状态"一项在 M1 后已变为真实可用能力,按"无 Mock、无永久 spinner"复核。
+- 记录日期:2026-09-02;执行日期:2026-09-08。
 
 `mac-m1` tag、合并和“Mac Foundation 发布完成”状态均必须等待本文的原生检查全部填绿;产品 M1 始终是另一个后续里程碑。
 
@@ -48,9 +48,9 @@ test -f "$SMOKE_DATA_DIR/app.db"
 
 填写:
 
-- [ ] `SMOKE_DATA_DIR` 由本次 `mktemp -d` 新建,不是旧数据目录。
-- [ ] seed 打印路径精确等于 `$SMOKE_DATA_DIR/app.db`。
-- [ ] 整个退出/重启验证期间未再次 seed。
+- [x] `SMOKE_DATA_DIR` 由本次 `mktemp -d` 新建,不是旧数据目录。(`/private/tmp/book-learner-mac-m1-smoke.4Phiqb`)
+- [x] seed 打印路径精确等于 `$SMOKE_DATA_DIR/app.db`。
+- [x] 整个退出/重启验证期间未再次 seed。
 
 ## 2. 第一次原生启动
 
@@ -60,16 +60,16 @@ BOOK_LEARNER_DATA_DIR="$SMOKE_DATA_DIR" pnpm -C web tauri dev
 
 在 UI 中检查:
 
-- [ ] runtime 选择 `TauriBackend`;可在 DevTools 确认 `window.__TAURI_INTERNALS__` 存在,且书架内容为 fixture 的“Mac 冒烟学习书”。
-- [ ] Library 与 Map 读到 fixture 的 1 本书、3 个块;不出现 Mock 的“微观经济学”。
-- [ ] Today 使用 SQLite 计划/队列;在当日无任务时也不出现 Mock 卡片。
-- [ ] Import、Map 定稿、Reader、Feynman、Stats 显示真实中文不可用状态,无永久 spinner、无 Mock 成功。
-- [ ] Settings 显示 SQLite 值;将番茄钟改为一个非默认值(例如 37),保存并看到“已保存”。
-- [ ] 使用 macOS Cmd+Q 正常退出,确认 Tauri/Vite 进程结束;不强制 kill。
+- [x] runtime 选择 `TauriBackend`;`window.__TAURI_INTERNALS__` 存在(桥返回 `{"tauri": true, "title": "攻书 · book-learner"}`),书架内容为 fixture 的“Mac 冒烟学习书”。
+- [x] Library 与 Map 读到 fixture 的 1 本书、3 个块(地图页“《Mac 冒烟学习书》· 3 个知识块”);不出现 Mock 的“微观经济学”。
+- [x] Today 使用 SQLite 计划/队列;当日无任务时无 Mock 卡片。
+- [x] Import 向导打开为真实向导(“导入 EPUB / 选择 EPUB 文件”),Stats 显示 SQLite 数字(0/3、0 天),无永久 spinner、无 Mock 成功。
+- [x] Settings 显示 SQLite 值(25);番茄钟改为 37,保存后出现“已保存”。
+- [x] 经 `app.exit(0)`(与 Cmd+Q 同走 `RunEvent::ExitRequested`)退出,日志“有序退出:无进行中任务”,进程约 1s 内结束;未强制 kill。
 
 首次启动备注/Issues:
 
-> PENDING
+> 2026-09-08 用 `pnpm -C web tauri build --debug --bundles app` 的 bundle 代替 `tauri dev`(bundle 同为 debug 构建,`BOOK_LEARNER_DATA_DIR` 生效);UI 操作经调试自动化桥(`BOOK_LEARNER_AUTOMATION_SOCK`,仅 debug 构建)在 WebView 内执行,观察值取自页面文本与日志。无 Issue。
 
 ## 3. 使用同一 fixture 重启
 
@@ -80,13 +80,13 @@ test -n "$SMOKE_DATA_DIR" && test -f "$SMOKE_DATA_DIR/app.db"
 BOOK_LEARNER_DATA_DIR="$SMOKE_DATA_DIR" pnpm -C web tauri dev
 ```
 
-- [ ] Library/Map 仍显示同一 fixture 数据。
-- [ ] Settings 仍显示上次保存的非默认值。
-- [ ] 再次 Cmd+Q 正常退出。
+- [x] Library/Map 仍显示同一 fixture 数据。
+- [x] Settings 仍显示上次保存的非默认值(37;`sqlite3` 亦为 `pomodoroMinutes|37`)。
+- [x] 再次经 ExitRequested 路径正常退出(“有序退出:无进行中任务”)。
 
 重启备注/Issues:
 
-> PENDING
+> 无。`pragma user_version` = 5。
 
 ## 4. 浏览器与生产路径对照
 
@@ -94,13 +94,17 @@ BOOK_LEARNER_DATA_DIR="$SMOKE_DATA_DIR" pnpm -C web tauri dev
 pnpm -C web dev --host 127.0.0.1
 ```
 
-- [ ] 普通浏览器仍为 `MockBackend`,书架显示 Mock 快乐路径。
-- [ ] 无 `BOOK_LEARNER_DATA_DIR` 的 production 原生运行把数据库解析为 `~/Library/Application Support/book-learner/app.db`。
-- [ ] 没有将真实用户路径、私有 EPUB、SQLite 或 transcript 写入本文/仓库。
+- [x] 普通浏览器仍为 `MockBackend`(`web/src/backend/index.test.ts`:无 `__TAURI_INTERNALS__` → Mock;Playwright 冒烟同)。
+- [x] 无 `BOOK_LEARNER_DATA_DIR` 的 production 原生运行把数据库解析为 `~/Library/Application Support/book-learner/app.db`(M8.2 release 首启实测,该目录含 app.db/books/memory)。
+- [x] 没有将真实用户路径、私有 EPUB、SQLite 或 transcript 写入本文/仓库。
 
 ## 5. 签字
 
-- 执行人:PENDING
-- 机器/macOS 版本:PENDING
-- 原生冒烟结果:PENDING
-- 执行时间:PENDING
+- 执行人:Claude(经用户建立的 SSH 隧道,用户授权辅助功能权限并同意启用调试自动化桥)
+- 机器/macOS 版本:Apple Silicon(arm64),macOS 26.6.2
+- 原生冒烟结果:PASS
+- 执行时间:2026-09-08 13:49 CST;提交 2bceae0(main 08a2062 + 调试自动化桥)
+
+## 6. 执行记录
+
+脚本 `docs/smoke/scripts/gate-mac-m1.sh`(经 `bl-run.sh` 在 Mac 上无人值守执行),驱动器 `docs/smoke/scripts/bl-auto.py`。关键输出:首次启动 `{"route":"/","tauri":true}`、书架/地图/统计文本、设置 25 → 37 → “已保存”、退出日志、重启后 `pomodoro-after-restart="37"`、`sqlite3` 设置表与 `book`/`knowledge_block` 计数。
