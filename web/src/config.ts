@@ -1,5 +1,5 @@
 import appDefaults from '../../shared/app-defaults.json'
-import type { AppSettings, TaskKind } from './types'
+import type { AppSettings, SessionKind, TaskKind } from './types'
 
 export const APP_DEFAULTS: Readonly<AppSettings> = Object.freeze({ ...appDefaults })
 export const REVIEW_STAGES = [1, 3, 7, 14] as const
@@ -17,3 +17,13 @@ export const READER_FONT_STEPS = [90, 100, 112, 126, 142] as const
 export const READER_FONT_DEFAULT_IDX = 1
 /** 学生回复打字机渐显速度(毫秒/字) */
 export const TYPEWRITER_CHAR_MS = 28
+/** 快问会话(review/retest,M2 T1):core 回合协议要求用户先开口,前端以固定 id 自动提交开场回合(幂等,重进不重复) */
+export const OPENER_TURN_ID = 'opener'
+export const OPENER_TEXT: Partial<Record<SessionKind, string>> = {
+  review: '请开始快问',
+  retest: '请针对我的薄弱点提问',
+}
+export const SESSION_HINT: Partial<Record<SessionKind, string>> = {
+  review: '间隔复习 · 快问,约 5 分钟',
+  retest: '薄弱点重考 · 优先讲清曾经混淆之处',
+}

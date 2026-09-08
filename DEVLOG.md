@@ -423,3 +423,8 @@
 ## 2026-09-08 · M2 T0:schema v5(追加式)
 - `SCHEMA_V5`:`feynman_session.extra_kind`(CHECK 三值,NULL = 普通会话)+ partial unique index `feynman_session_extra_once(block_id, extra_kind)`;`study_minutes(date, book_id?, task_id?→SET NULL, minutes≥0, source∈{pomodoro}, created_at)` + `(date)` 索引。**不重建任何表**(评审指出:`session_turn` 对 `feynman_session` 级联删除,重建会清空回合)。
 - 用例:`open_creates_schema_v5`(列/表/五个索引、extra_kind CHECK 与每块每类一次、负分钟拒绝)、`v4_rows_survive_v5_without_rebuilding_sessions`(v4 库含会话与 2 条回合 → v5 后回合不丢、索引不丢、`extra_kind` 为 NULL、二次打开幂等);既有版本断言 4→5。core 131/27/1/1、clippy 0。TECH_DESIGN §4 补 v5。
+
+## 2026-09-08 · M2 T1:间隔复习与薄弱点重考的"快问"会话
+- **core**:`prompts::review_quiz_system(ty, ctx, kind)`——只负责出题与一次追问,不含 JSON 子句(旧 `review_quiz_prompt` 保留未用);`session::submit_turn` 按会话 kind 选 system prompt(learn → 费曼学生;review/retest → 复习考官),快问会话学生回合达 `MAX_QUIZ_STUDENT_TURNS`(6)仍未收尾则强制附加 `[READY_TO_END]`;`sched::insert_new_weak_points`(评估中未修复薄弱点落库,同块同标题 open 者去重)与 `on_review_result_with(has_specific)`(评估已有薄弱点时不再插通用"间隔复习未通过");`confirm_session_verdict` 的 review/retest 分支调用之。开场协议:**core 回合协议不变**(用户先开口),前端以固定 `clientTurnId='opener'` 自动提交。m1_engine 扩展第 10–11 步:复习会话用快问 prompt、用户判定未通过 → stage 重置 1、评估薄弱点去重且无通用条目;重考会话 prompt 针对薄弱点、连续两日通过 → `fixed`。
+- **web**:TodayPage 重考/复习卡"开始重考/开始复习"直达 `/feynman/<taskId>`,review 卡"回读原文"进阅读器;FeynmanPage 对 review/retest 空会话把开场提示行作为初始对话流并 effect 发送一次(oxlint `set-state-in-effect` 规则下不在 effect 里 setState),opener 回合渲染为居中提示条,标题"复习:"+ 提示文案(`config.ts` 的 `OPENER_TEXT`/`SESSION_HINT`/`OPENER_TURN_ID`);Mock 对 opener 返回快问文案。用例:today 三条导航、feynman 三条(复习 opener/提示、重考 opener 与重挂载不重复、新块不开场)。**范围决定**:`completeTask` 的"完成"按钮流暂保留(原生显示"完成暂不可用"),清理留 T9。
+- 门禁:core 全绿(m1_engine 扩展)、web 259/2、lint 0、tsc。

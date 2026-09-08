@@ -18,9 +18,14 @@ const EVAL_JSON: &str = r#"评估完成:
 struct EngineMock {
     db_path: PathBuf,
     turns: Cell<usize>,
+    /// 最近一次回合请求的 system prompt(断言快问/费曼 prompt 选择)
+    last_system: std::cell::RefCell<String>,
 }
 impl ai::AiProvider for EngineMock {
     fn complete(&self, req: &ai::CompletionRequest) -> Result<String> {
+        if req.request_id.starts_with("turn:") {
+            *self.last_system.borrow_mut() = req.system.clone();
+        }
         // 无事务持有的证明:第二连接写入必须立即成功(否则 busy_timeout 5s 后报错)
         let probe = db::open(&self.db_path).unwrap();
         probe
@@ -73,6 +78,7 @@ fn m1_engine_end_to_end() {
     let provider = EngineMock {
         db_path: db_path.clone(),
         turns: Cell::new(0),
+        last_system: std::cell::RefCell::new(String::new()),
     };
     let conn = db::open(&db_path).unwrap();
 
@@ -159,6 +165,10 @@ fn m1_engine_end_to_end() {
     )
     .unwrap();
     assert!(!r1.ready_to_end && r1.version == 1);
+    assert!(
+        provider.last_system.borrow().contains("聪明但完全没学过"),
+        "learn 会话用费曼学生 prompt"
+    );
     let r2 = session::submit_turn(
         &conn,
         &provider,
@@ -245,4 +255,169 @@ fn m1_engine_end_to_end() {
             .collect::<Vec<_>>(),
         [("weak_retest", b1), ("review", b1), ("new", b2)]
     );
+
+    // 10. 次日复习:快问 prompt;用户判定"未通过" → stage 重置 1、评估薄弱点去重、不插通用条目
+    let review_task = q1.iter().find(|t| t.kind == "review").unwrap();
+    let rs = session::start_or_resume_session(&conn, review_task.id, "start-r1", DAY1).unwrap();
+    assert_eq!(rs.kind, "review");
+    let ctx1 = session::fixed_context_for_block(&conn, b1, "研究者").unwrap();
+    let rr = session::submit_turn(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        rs.session_id,
+        0,
+        "opener",
+        "请开始快问",
+        &ctx1,
+        models::BookType::Textbook,
+    )
+    .unwrap();
+    assert!(rr.version == 1);
+    {
+        let sys = provider.last_system.borrow();
+        assert!(sys.contains("复习考官") && sys.contains("快问"), "{sys}");
+        assert!(!sys.contains("聪明但完全没学过"));
+    }
+    let open_before: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM weak_point WHERE block_id=?1 AND status='open'",
+            [b1],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let ev1 = verdict::request_evaluation(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        rs.session_id,
+        "eval-r1",
+        &ctx1,
+    )
+    .unwrap();
+    let out_r = verdict::confirm_session_verdict(
+        &conn,
+        rs.session_id,
+        ev1.version,
+        "confirm-r1",
+        false,
+        DAY1,
+    )
+    .unwrap();
+    assert!(!out_r.passed && out_r.task_done);
+    let (failed, due_stage, due_date): (i64, i64, String) = conn
+        .query_row(
+            "SELECT (SELECT count(*) FROM review_schedule WHERE block_id=?1 AND status='failed'), \
+                    stage, due_date FROM review_schedule WHERE block_id=?1 AND status='due'",
+            [b1],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!((failed, due_stage, due_date.as_str()), (1, 1, "2026-09-07"));
+    let open_after: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM weak_point WHERE block_id=?1 AND status='open'",
+            [b1],
+            |r| r.get(0),
+        )
+        .unwrap();
+    // 评估里的"弹性vs斜率"已是 open 薄弱点 → 去重;评估有薄弱点 → 不插"间隔复习未通过"
+    assert_eq!(open_after, open_before);
+    let generic: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM weak_point WHERE title='间隔复习未通过'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(generic, 0);
+
+    // 11. 薄弱点重考:retest prompt;连续 2 天通过 → fixed
+    let retest = q1.iter().find(|t| t.kind == "weak_retest").unwrap();
+    let ts = session::start_or_resume_session(&conn, retest.id, "start-t1", DAY1).unwrap();
+    assert_eq!(ts.kind, "retest");
+    session::submit_turn(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        ts.session_id,
+        0,
+        "opener",
+        "请针对我的薄弱点提问",
+        &ctx1,
+        models::BookType::Textbook,
+    )
+    .unwrap();
+    assert!(provider.last_system.borrow().contains("薄弱点重考"));
+    let ev_t = verdict::request_evaluation(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        ts.session_id,
+        "eval-t1",
+        &ctx1,
+    )
+    .unwrap();
+    verdict::confirm_session_verdict(&conn, ts.session_id, ev_t.version, "confirm-t1", true, DAY1)
+        .unwrap();
+    let weak_id = retest.ref_id.unwrap();
+    let (streak, status): (i64, String) = conn
+        .query_row(
+            "SELECT pass_streak,status FROM weak_point WHERE id=?1",
+            [weak_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((streak, status.as_str()), (1, "open"));
+    const DAY2: &str = "2026-09-07";
+    let q2 = sched::generate_daily(&conn, DAY2).unwrap();
+    let retest2 = q2
+        .iter()
+        .find(|t| t.kind == "weak_retest" && t.ref_id == Some(weak_id))
+        .expect("weak point still open → retested again");
+    let ts2 = session::start_or_resume_session(&conn, retest2.id, "start-t2", DAY2).unwrap();
+    session::submit_turn(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        ts2.session_id,
+        0,
+        "opener",
+        "请针对我的薄弱点提问",
+        &ctx1,
+        models::BookType::Textbook,
+    )
+    .unwrap();
+    let ev_t2 = verdict::request_evaluation(
+        &conn,
+        &provider,
+        mem.root(),
+        &policy(),
+        ts2.session_id,
+        "eval-t2",
+        &ctx1,
+    )
+    .unwrap();
+    verdict::confirm_session_verdict(
+        &conn,
+        ts2.session_id,
+        ev_t2.version,
+        "confirm-t2",
+        true,
+        DAY2,
+    )
+    .unwrap();
+    let (streak, status): (i64, String) = conn
+        .query_row(
+            "SELECT pass_streak,status FROM weak_point WHERE id=?1",
+            [weak_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((streak, status.as_str()), (2, "fixed"));
 }

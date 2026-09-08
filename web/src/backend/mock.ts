@@ -1,4 +1,4 @@
-import { APP_DEFAULTS, KIND_ORDER, TASK_EST_MINUTES } from '../config'
+import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../config'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
@@ -55,6 +55,11 @@ const EVAL_FIXTURE: EvalResult = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const SESSION_KIND: Record<TaskKind, SessionKind> = { new: 'learn', weak_retest: 'retest', review: 'review' }
+/** 快问会话对开场回合的首条回复(镜像 core review_quiz_system:直接出题,不寒暄) */
+const QUIZ_OPENER: Partial<Record<SessionKind, string>> = {
+  review: '快问 1:用一句话说清本块的核心结论。快问 2:它成立的前提条件是什么?',
+  retest: '请讲清你之前混淆的那个点:它和相邻概念的区别到底在哪里?',
+}
 const UNCONFIRMED: readonly SessionState[] = ['open', 'evaluating', 'evaluated']
 const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const
 
@@ -372,8 +377,11 @@ export class MockBackend implements Backend {
     if (replay) return { ...replay }
     if (s.state !== 'open') throw conflict()
     if (s.version !== expectedVersion) throw conflict()
-    const reply = STUDENT_SCRIPT[Math.min(s.scriptIdx, STUDENT_SCRIPT.length - 1)]
-    s.scriptIdx += 1
+    const opener = clientTurnId === OPENER_TURN_ID ? QUIZ_OPENER[s.kind] : undefined
+    const reply = opener !== undefined
+      ? { text: opener, readyToEnd: false }
+      : STUDENT_SCRIPT[Math.min(s.scriptIdx, STUDENT_SCRIPT.length - 1)]
+    if (opener === undefined) s.scriptIdx += 1
     s.transcript.push({ role: 'user', text: trimmed, status: 'done', clientTurnId, readyToEnd: false })
     s.transcript.push({ role: 'student', text: reply.text, status: 'done', clientTurnId: null, readyToEnd: reply.readyToEnd })
     s.version += 1

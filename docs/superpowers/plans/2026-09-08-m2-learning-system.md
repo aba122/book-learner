@@ -66,10 +66,10 @@ docs/smoke/m2-gate.md  ← 新:M2 桌面验收清单
 
 **Files:** `core/src/{prompts.rs,session.rs,verdict.rs,sched.rs}`, `core/tests/m1_engine.rs`(扩), `web/src/features/today/TodayPage.tsx`, `web/src/features/feynman/FeynmanPage.tsx`, `web/src/backend/mock.ts`, `web/src/config.ts`
 
-- [ ] **T1.1 失败测试(core)**:①`prompts::review_quiz_system(ctx, kind)` 只负责**提问**(重考:优先考该块 open 薄弱点;复习:1–2 个快问、3 分钟),**不含 JSON 子句**;评分复用 `eval_prompt`/`EvalResult`。②`submit_turn` 对 kind=`review`/`retest` 的会话,provider 收到的 `system` 以 `review_quiz_system` 为基底;`learn` 仍为 `feynman_system`。③**开场协议**(不改 core 回合协议):前端以固定 `clientTurnId='opener'`、文本 `"请开始快问"`(重考:`"请针对我的薄弱点提问"`)提交首轮,学生回复即为问题;core 用例按此模拟。④`confirm_session_verdict` 的 review/retest 分支落库 `eval.weak_points` 为新薄弱点(去重:同块同标题 open 者不重复),`on_review_result` 失败时仅当 eval 无薄弱点才插通用条目;m1_engine 扩展:"复习失败 → stage 重置 1 + 具体薄弱点"、"重考连续 2 次通过 → fixed"。⑤review/retest 会话 6 轮后学生强制 `READY_TO_END`(`session::MAX_TURNS_BY_KIND`)。
-- [ ] **T1.2 实现(core)**:如上;`review_quiz_prompt` 旧构造器改名为 `review_quiz_grading_prompt` 保留(M3 终评可能复用)或删除并更新其单测。
-- [ ] **T1.3 web**:TodayPage 的 `review` 任务直达 `/feynman/<taskId>`(卡片保留"回看原文"链接到阅读器);FeynmanPage 对 review/retest 会话:进入后若 transcript 为空则自动提交 opener(经 `useBackendOperation`,幂等 id 固定);opener 回合渲染为系统提示条而非用户气泡;标题/提示("间隔复习 · 快问,约 5 分钟" / "薄弱点重考 · 优先讲清曾经混淆之处")用 `config.ts` 文案;Mock 的 `submitTurn` 对 opener 返回快问文案。vitest:today 导航、opener 自动提交且重进不重复、标题/提示。
-- [ ] **T1.4** 门禁 + DEVLOG + PR `feat/m2-t1-review-quiz`。
+- [x] **T1.1 失败测试(core)**:①`prompts::review_quiz_system(ctx, kind)` 只负责**提问**(重考:优先考该块 open 薄弱点;复习:1–2 个快问、3 分钟),**不含 JSON 子句**;评分复用 `eval_prompt`/`EvalResult`。②`submit_turn` 对 kind=`review`/`retest` 的会话,provider 收到的 `system` 以 `review_quiz_system` 为基底;`learn` 仍为 `feynman_system`。③**开场协议**(不改 core 回合协议):前端以固定 `clientTurnId='opener'`、文本 `"请开始快问"`(重考:`"请针对我的薄弱点提问"`)提交首轮,学生回复即为问题;core 用例按此模拟。④`confirm_session_verdict` 的 review/retest 分支落库 `eval.weak_points` 为新薄弱点(去重:同块同标题 open 者不重复),`on_review_result` 失败时仅当 eval 无薄弱点才插通用条目;m1_engine 扩展:"复习失败 → stage 重置 1 + 具体薄弱点"、"重考连续 2 次通过 → fixed"。⑤review/retest 会话 6 轮后学生强制 `READY_TO_END`(`session::MAX_TURNS_BY_KIND`)。
+- [x] **T1.2 实现(core)**:如上;`review_quiz_prompt` 旧构造器改名为 `review_quiz_grading_prompt` 保留(M3 终评可能复用)或删除并更新其单测。
+- [x] **T1.3 web**(范围决定:保留 `completeTask` 的"完成"按钮流,原生显示"完成暂不可用",清理留 T9):TodayPage 的 `review` 任务直达 `/feynman/<taskId>`(卡片保留"回看原文"链接到阅读器);FeynmanPage 对 review/retest 会话:进入后若 transcript 为空则自动提交 opener(经 `useBackendOperation`,幂等 id 固定);opener 回合渲染为系统提示条而非用户气泡;标题/提示("间隔复习 · 快问,约 5 分钟" / "薄弱点重考 · 优先讲清曾经混淆之处")用 `config.ts` 文案;Mock 的 `submitTurn` 对 opener 返回快问文案。vitest:today 导航、opener 自动提交且重进不重复、标题/提示。
+- [x] **T1.4** 门禁 + DEVLOG + PR `feat/m2-t1-review-quiz`。
 
 ### Task T4: 落后重排确认(半天;不依赖 T0)
 

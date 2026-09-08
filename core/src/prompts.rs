@@ -53,7 +53,26 @@ pub fn eval_prompt(ctx: &FixedContext, transcript: &str) -> String {
         context_block(ctx), transcript)
 }
 
-/// 间隔复习快问 prompt(TECH_DESIGN §6.7)。
+/// 间隔复习 / 薄弱点重考的**提问** system prompt(TECH_DESIGN §6.7,M2 T1):
+/// 只负责出快问与追问澄清,不含 JSON 子句;评分复用 `eval_prompt`。`kind` 为 `review` 或 `retest`。
+pub fn review_quiz_system(ty: BookType, ctx: &FixedContext, kind: &str) -> String {
+    let focus = if kind == "retest" {
+        "本轮是薄弱点重考:只针对『相关薄弱点』出 1 个针对性快问,要求用户讲清曾经混淆之处;"
+    } else {
+        "本轮是间隔复习快问:出 1-2 个快问(合计 3 分钟内可答完),优先考曾经的薄弱点;"
+    };
+    format!(
+        "你扮演复习考官,风格简短。规则:\n\
+1. 第一条回复直接给出题目(编号列出),不寒暄、不讲课;{focus}\n\
+2. 用户作答后,若有明显错误或遗漏,只追问澄清一次,绝不给出答案;\n\
+3. 用户已答清(或追问后仍无进展)时,回复以 [READY_TO_END] 结尾示意收尾;\n\
+4. 全程不超过 3 个来回。\n\n{}\n\n{}",
+        type_emphasis(ty),
+        context_block(ctx)
+    )
+}
+
+/// 间隔复习快问一体化 prompt(旧,TECH_DESIGN §6.7 原文,末尾要求 JSON;M2 起回合改用 `review_quiz_system`)。
 pub fn review_quiz_prompt(ctx: &FixedContext) -> String {
     format!(
 "针对以下知识块与其历史薄弱点,出 1-2 个快问(3 分钟内可答完),优先考曾经的薄弱点。\n\

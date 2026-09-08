@@ -313,13 +313,16 @@ pub fn confirm_session_verdict(
             let weak_id = ref_id.ok_or_else(|| {
                 CoreError::Other(format!("weak_retest task {task_id} without ref_id"))
             })?;
+            // 评估中暴露的新薄弱点也落库(去重),再推进被重考的那条
+            crate::sched::insert_new_weak_points(&tx, block_id, &eval, date)?;
             crate::sched::on_weak_retest(&tx, weak_id, pass, date)?;
             mark_task_done(&tx)?;
         }
         "review" => {
             let sched_id = ref_id
                 .ok_or_else(|| CoreError::Other(format!("review task {task_id} without ref_id")))?;
-            crate::sched::on_review_result(&tx, sched_id, pass, date)?;
+            let specific = crate::sched::insert_new_weak_points(&tx, block_id, &eval, date)?;
+            crate::sched::on_review_result_with(&tx, sched_id, pass, date, specific > 0)?;
             mark_task_done(&tx)?;
         }
         other => {

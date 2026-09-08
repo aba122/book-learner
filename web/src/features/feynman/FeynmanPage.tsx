@@ -7,7 +7,7 @@ import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Confirm from '../../components/Confirm'
 import Tag from '../../components/Tag'
-import { KIND_LABEL, TYPEWRITER_CHAR_MS } from '../../config'
+import { KIND_LABEL, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT, TYPEWRITER_CHAR_MS } from '../../config'
 import { newClientId } from '../../lib/ids'
 import { localCalendarDate } from '../../lib/localDate'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
@@ -30,6 +30,8 @@ interface TeachingSession {
 }
 interface SendArgs { clientTurnId: string; text: string; expectedVersion: number }
 interface PendingTurn { clientTurnId: string; text: string }
+/** 对话流一行:opener 回合(快问开场)标记为 system,渲染为居中提示而非用户气泡 */
+type Line = ChatMessage & { system?: boolean }
 
 const PENDING_TURN_NOTICE = () =>
   new BackendError({ code: 'io_failure', message: '上次发送未完成,学生还没有回复', retryable: true })
@@ -93,7 +95,11 @@ function fromView(view: SessionView) {
   const done = view.transcript.filter(t => t.status === 'done')
   const pending = view.transcript.find(t => t.role === 'user' && t.status === 'pending')
   return {
-    transcript: done.map((t): ChatMessage => ({ role: t.role, text: t.text })),
+    transcript: done.map((t): Line => ({
+      role: t.role,
+      text: t.text,
+      ...(t.clientTurnId === OPENER_TURN_ID ? { system: true } : {}),
+    })),
     readyToEnd: done.filter(t => t.role === 'student').at(-1)?.readyToEnd ?? false,
     evalResult: view.state === 'evaluated' ? view.eval : null,
     pendingTurn: pending?.clientTurnId ? { clientTurnId: pending.clientTurnId, text: pending.text } : null,
@@ -107,7 +113,17 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const evaluating = view.state === 'evaluating' // 上次评估中断:只允许"继续评估"或放弃
 
   const [hydrated] = useState(() => fromView(view))
-  const [transcript, setTranscript] = useState<ChatMessage[]>(hydrated.transcript)
+  // 快问会话(review/retest):core 协议要求用户先开口;进入空会话时以固定 id 自动提交开场回合,
+  // 开场提示行直接作为初始对话流(不在 effect 里 setState),发送由下方 effect 触发一次。
+  const quiz = view.kind === 'review' || view.kind === 'retest'
+  const openerText = OPENER_TEXT[view.kind]
+  const needsOpener =
+    quiz && openerText !== undefined && hydrated.transcript.length === 0 && hydrated.pendingTurn === null && view.state === 'open'
+  const [transcript, setTranscript] = useState<Line[]>(() =>
+    needsOpener && openerText !== undefined
+      ? [...hydrated.transcript, { role: 'user', text: openerText, system: true }]
+      : hydrated.transcript,
+  )
   const [version, setVersion] = useState(view.version)
   const [readyToEnd, setReadyToEnd] = useState(hydrated.readyToEnd)
   const [evalResult, setEvalResult] = useState<EvalResult | null>(hydrated.evalResult)
@@ -207,6 +223,14 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const busy = thinking || typing !== null
   const inputLocked = busy || evaluating || pendingTurn !== null || evalResult !== null
 
+  // 开场回合只在本次挂载发送一次;重试/重放由 hook 与服务端幂等 id 保证
+  const openerSent = useRef(false)
+  useEffect(() => {
+    if (!needsOpener || openerText === undefined || openerSent.current) return
+    openerSent.current = true
+    void sendOp.run('send', { clientTurnId: OPENER_TURN_ID, text: openerText, expectedVersion: view.version })
+  }, [needsOpener, openerText, view.version, sendOp])
+
   const send = () => {
     const text = draft.trim()
     if (!text || inputLocked) return
@@ -221,7 +245,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
     if (!pendingTurn || busy) return
     const { clientTurnId, text } = pendingTurn
     setPendingTurn(null)
-    setTranscript(cur => [...cur, { role: 'user', text }])
+    setTranscript(cur => [...cur, { role: 'user', text, ...(clientTurnId === OPENER_TURN_ID ? { system: true } : {}) }])
     sendOp.clearError('send')
     void sendOp.run('send', { clientTurnId, text, expectedVersion: version })
   }
@@ -277,7 +301,10 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
         <header className="flex items-center gap-3 border-b border-line bg-paper-2/70 px-6 py-3">
           <Tag tone={task.kind === 'new' ? 'new' : 'weak'}>{KIND_LABEL[task.kind]}</Tag>
           <h1 className="min-w-0 flex-1 truncate font-serif text-base font-semibold text-ink-1">
-            讲授:{block.title}
+            {quiz ? '复习' : '讲授'}:{block.title}
+            {SESSION_HINT[view.kind] && (
+              <span className="ml-3 text-xs font-normal text-ink-3">{SESSION_HINT[view.kind]}</span>
+            )}
           </h1>
           <Button
             className="px-3 py-1.5 text-xs"
@@ -321,7 +348,11 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
               </div>
             )}
             {transcript.map((m, i) =>
-              m.role === 'user' ? (
+              m.system ? (
+                <div key={i} className="self-center rounded-full bg-paper-3/60 px-3 py-1 text-xs text-ink-4">
+                  {m.text}
+                </div>
+              ) : m.role === 'user' ? (
                 <div key={i} className="self-end">
                   <div className="max-w-md rounded-m rounded-br-s bg-ink-1 px-4 py-2.5 text-sm leading-relaxed text-paper-2">
                     {m.text}
