@@ -832,3 +832,45 @@ pub struct ExportReportDto {
     pub written: usize,
     pub unchanged: usize,
 }
+
+// ---- 数据安全(M3 T5):快照/恢复/git 远程 ----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotDto {
+    pub name: String,
+    pub date: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupListDto {
+    pub snapshots: Vec<SnapshotDto>,
+    /// 已登记、下次启动生效的恢复目标快照名
+    pub pending_restore: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoteDto {
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushResultDto {
+    /// true = 已推送;false = 推送失败(见 error)或无远程
+    pub pushed: bool,
+    pub error: Option<String>,
+}
+
+impl From<book_learner_core::backup::SnapshotInfo> for SnapshotDto {
+    fn from(s: book_learner_core::backup::SnapshotInfo) -> Self {
+        Self {
+            name: s.name,
+            date: s.date,
+            bytes: s.bytes,
+        }
+    }
+}

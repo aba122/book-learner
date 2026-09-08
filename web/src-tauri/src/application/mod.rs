@@ -6,11 +6,11 @@ use book_learner_core::CoreError;
 use rusqlite::OptionalExtension;
 
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto, ImportChunkDto,
-    ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, ProfileDto,
-    ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto,
-    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
+    EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
+    GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
+    MapRevisionDto, ProfileDto, PushResultDto, ReplanDto, SessionViewDto, SpineChapterDto,
+    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -605,5 +605,128 @@ pub fn export_reveal(state: &AppState, book_id: i64) -> Result<(), IpcError> {
             "仅 macOS 支持在 Finder 中显示",
             "reveal unsupported on this platform",
         ))
+    }
+}
+
+// ---- 数据安全(M3 T5):SQLite 快照/恢复标记/git 远程与推送 ----
+
+pub fn snapshots_dir(state: &AppState) -> std::path::PathBuf {
+    state
+        .data_root()
+        .join(book_learner_core::backup::SNAPSHOT_DIR_NAME)
+}
+
+/// 用独立连接做当日快照(`VACUUM INTO` 持 SHARED 锁,写事务等 busy_timeout)。
+pub fn backup_snapshot_now(
+    state: &AppState,
+    date: &str,
+) -> Result<crate::dto::SnapshotDto, IpcError> {
+    let _job = state.jobs().begin();
+    let connection = state.open_connection()?;
+    let dir = snapshots_dir(state);
+    let path =
+        book_learner_core::backup::snapshot(&connection, &dir, date).map_err(IpcError::from)?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let bytes = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .map_err(|error| IpcError::from(CoreError::Io(error)))?;
+    Ok(crate::dto::SnapshotDto {
+        name,
+        date: date.to_string(),
+        bytes,
+    })
+}
+
+pub fn backup_list(state: &AppState) -> Result<BackupListDto, IpcError> {
+    let snapshots = book_learner_core::backup::list(&snapshots_dir(state))
+        .map_err(IpcError::from)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok(BackupListDto {
+        snapshots,
+        pending_restore: book_learner_core::backup::pending_restore(state.data_root()),
+    })
+}
+
+/// 登记恢复(校验后写标记),下次启动打开数据库前生效;运行中不替换库文件。
+pub fn backup_restore(state: &AppState, name: &str) -> Result<BackupListDto, IpcError> {
+    book_learner_core::backup::request_restore(state.data_root(), name).map_err(IpcError::from)?;
+    backup_list(state)
+}
+
+pub fn backup_cancel_restore(state: &AppState) -> Result<BackupListDto, IpcError> {
+    book_learner_core::backup::cancel_restore(state.data_root()).map_err(IpcError::from)?;
+    backup_list(state)
+}
+
+pub fn git_remote_get(state: &AppState) -> Result<GitRemoteDto, IpcError> {
+    Ok(GitRemoteDto {
+        url: state.memory().remote_url().map_err(IpcError::from)?,
+    })
+}
+
+/// 设置远程并以 `ls-remote` 校验(30 s 超时、无 TTY 提示);空串清除。慢命令持 JobGuard。
+pub fn git_remote_set(state: &AppState, url: &str) -> Result<GitRemoteDto, IpcError> {
+    let _job = state.jobs().begin();
+    Ok(GitRemoteDto {
+        url: state.memory().set_remote(url).map_err(IpcError::from)?,
+    })
+}
+
+/// 立即推送:入队一条 push 行并即刻跑 push 通道(失败按退避留在队列)。
+pub fn git_push_now(state: &AppState) -> Result<PushResultDto, IpcError> {
+    let _job = state.jobs().begin();
+    let connection = state.open_connection()?;
+    if state
+        .memory()
+        .remote_url()
+        .map_err(IpcError::from)?
+        .is_none()
+    {
+        return Ok(PushResultDto {
+            pushed: false,
+            error: Some("未配置记忆库远程".into()),
+        });
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    book_learner_core::projection::enqueue_in(
+        &connection,
+        &format!("push:manual:{}", chrono::Utc::now().timestamp_millis()),
+        "git_push",
+        &serde_json::json!({}),
+        "push",
+    )
+    .map_err(IpcError::from)?;
+    // 手动推送无视退避:把该通道的 next_retry_at 清掉
+    connection
+        .execute(
+            "UPDATE projection_outbox SET next_retry_at=NULL WHERE lane='push' AND status IN ('pending','failed')",
+            [],
+        )
+        .map_err(|error| IpcError::from(CoreError::from(error)))?;
+    match book_learner_core::projection::run_push_lane(&connection, state.memory(), &now)
+        .map_err(IpcError::from)?
+    {
+        Some(true) => Ok(PushResultDto {
+            pushed: true,
+            error: None,
+        }),
+        _ => {
+            let error: Option<String> = connection
+                .query_row(
+                    "SELECT error FROM projection_outbox WHERE lane='push' AND status='failed' ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            Ok(PushResultDto {
+                pushed: false,
+                error: Some(error.unwrap_or_else(|| "推送失败".into())),
+            })
+        }
     }
 }

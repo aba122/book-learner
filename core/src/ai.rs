@@ -70,14 +70,14 @@ fn render_prompt(req: &CompletionRequest) -> String {
 /// 终止整个进程组(子进程经 process_group(0) 成为组长)。
 /// 注:组长被回收后 pgid 理论上可被复用;Linux 上该窗口可忽略,勿"修复"掉此调用。
 #[cfg(unix)]
-fn kill_process_group(leader_pid: u32) {
+pub(crate) fn kill_process_group(leader_pid: u32) {
     // SAFETY: 纯系统调用,参数为进程组 id 与信号常量;失败(ESRCH 等)忽略即可。
     unsafe {
         libc::kill(-(leader_pid as i32), libc::SIGKILL);
     }
 }
 #[cfg(not(unix))]
-fn kill_process_group(_leader_pid: u32) {}
+pub(crate) fn kill_process_group(_leader_pid: u32) {}
 
 /// 在独立线程持续读取管道到有界尾部缓冲,避免子进程因管道写满而阻塞(被误判为超时)。
 fn spawn_stderr_drain<R: Read + Send + 'static>(stderr: Option<R>) -> mpsc::Receiver<Vec<u8>> {
@@ -126,7 +126,7 @@ fn spawn_with_retry(cmd: &mut std::process::Command) -> std::io::Result<std::pro
 }
 
 /// 轮询等待子进程,超时则整组 SIGKILL 并回收;正常退出后同样补杀进程组(不留孙进程)。
-fn wait_with_timeout(
+pub(crate) fn wait_with_timeout(
     child: &mut std::process::Child,
     timeout_secs: u64,
 ) -> Result<std::process::ExitStatus> {

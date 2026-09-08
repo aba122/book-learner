@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, PushResult, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -48,6 +48,14 @@ export interface Backend {
   exportPreview(bookId: number): Promise<ExportPreview>
   exportObsidian(bookId: number): Promise<ExportReport>
   exportReveal(bookId: number): Promise<void>
+  /** 数据安全(M3 T5):快照 `VACUUM INTO`(date 由前端本地日历日给);恢复只登记标记、下次启动生效;远程 URL 设置即校验 */
+  backupSnapshotNow(date: string): Promise<SnapshotInfo>
+  backupList(): Promise<BackupList>
+  backupRestore(name: string): Promise<BackupList>
+  backupCancelRestore(): Promise<BackupList>
+  gitRemoteGet(): Promise<GitRemote>
+  gitRemoteSet(url: string): Promise<GitRemote>
+  gitPushNow(): Promise<PushResult>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

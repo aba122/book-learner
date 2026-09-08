@@ -105,4 +105,9 @@ export interface Profile { background: string; mastered: string; pitfalls: strin
 /** Obsidian 导出(M3 T2):预览为目标目录(已展开 ~)与相对文件清单;写入结果为增量计数 */
 export interface ExportPreview { target: string; targetExists: boolean; dir: string; files: string[] }
 export interface ExportReport { dir: string; written: number; unchanged: number }
+/** 数据安全(M3 T5):SQLite 快照清单(新 → 旧)、待恢复标记、记忆库 git 远程与推送结果 */
+export interface SnapshotInfo { name: string; date: string; bytes: number }
+export interface BackupList { snapshots: SnapshotInfo[]; pendingRestore: string | null }
+export interface GitRemote { url: string | null }
+export interface PushResult { pushed: boolean; error: string | null }
 

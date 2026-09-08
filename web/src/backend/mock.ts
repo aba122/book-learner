@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, PushResult, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -563,6 +563,43 @@ export class MockBackend implements Backend {
   }
   async exportReveal(bookId: number): Promise<void> {
     if (!this.exported.has(bookId)) throw invalidRequest()
+  }
+
+  /** 数据安全(M3 T5):内存里的快照清单与恢复标记;远程 URL 校验镜像 core(空白/以 - 开头无效) */
+  private snapshots: SnapshotInfo[] = [{ name: 'app-2026-09-07.db', date: '2026-09-07', bytes: 204800 }]
+  private pendingRestore: string | null = null
+  private gitRemote: string | null = null
+  async backupSnapshotNow(date: string): Promise<SnapshotInfo> {
+    requireDate(date)
+    const snap = { name: `app-${date}.db`, date, bytes: 204800 + this.blocks.length * 1024 }
+    this.snapshots = [snap, ...this.snapshots.filter(s => s.name !== snap.name)].sort((a, z) => z.name.localeCompare(a.name))
+    return { ...snap }
+  }
+  async backupList(): Promise<BackupList> {
+    return { snapshots: this.snapshots.map(s => ({ ...s })), pendingRestore: this.pendingRestore }
+  }
+  async backupRestore(name: string): Promise<BackupList> {
+    if (!/^app-\d{4}-\d{2}-\d{2}\.db$/.test(name)) throw invalidRequest()
+    if (!this.snapshots.some(s => s.name === name)) throw notFound()
+    this.pendingRestore = name
+    return this.backupList()
+  }
+  async backupCancelRestore(): Promise<BackupList> {
+    this.pendingRestore = null
+    return this.backupList()
+  }
+  async gitRemoteGet(): Promise<GitRemote> {
+    return { url: this.gitRemote }
+  }
+  async gitRemoteSet(url: string): Promise<GitRemote> {
+    const trimmed = url.trim()
+    if (trimmed === '') { this.gitRemote = null; return { url: null } }
+    if (/\s/.test(trimmed) || trimmed.startsWith('-')) throw invalidRequest()
+    this.gitRemote = trimmed
+    return { url: trimmed }
+  }
+  async gitPushNow(): Promise<PushResult> {
+    return this.gitRemote ? { pushed: true, error: null } : { pushed: false, error: '未配置记忆库远程' }
   }
 
   async finalExamEligible(bookId: number): Promise<boolean> {

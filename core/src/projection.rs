@@ -17,11 +17,90 @@ pub fn enqueue(
     kind: &str,
     payload: &serde_json::Value,
 ) -> Result<()> {
+    enqueue_in(conn, op_id, kind, payload, "main")
+}
+
+/// 指定通道入队(M3 T5):`main` 为记忆库投影,`push` 为远程推送(独立退避,失败不阻塞 main)。
+pub fn enqueue_in(
+    conn: &Connection,
+    op_id: &str,
+    kind: &str,
+    payload: &serde_json::Value,
+    lane: &str,
+) -> Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO projection_outbox(op_id,kind,payload,created_at) VALUES(?1,?2,?3,?4)",
-        rusqlite::params![op_id, kind, payload.to_string(), now()],
+        "INSERT OR IGNORE INTO projection_outbox(op_id,kind,payload,created_at,lane) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params![op_id, kind, payload.to_string(), now(), lane],
     )?;
     Ok(())
+}
+
+/// `git_commit` 之后若配置了远程,则往 push 通道补一条(op_id 派生自 commit 的 op_id,幂等)。
+fn enqueue_push_after_commit(
+    conn: &Connection,
+    memory: &MemoryStore,
+    commit_op: &str,
+) -> Result<()> {
+    if memory.remote_url()?.is_some() {
+        enqueue_in(
+            conn,
+            &format!("push:{commit_op}"),
+            "git_push",
+            &serde_json::json!({}),
+            "push",
+        )?;
+    }
+    Ok(())
+}
+
+pub const PUSH_BACKOFF_BASE_SECS: i64 = 60;
+pub const PUSH_BACKOFF_MAX_SECS: i64 = 6 * 3600;
+
+/// push 通道:到期的 pending/failed 行一轮只推一次(push 是"推 HEAD",天然合并);成功 → 该通道全部标 done;
+/// 失败 → 全部标 failed、attempts+1,`next_retry_at` 按 2^attempts 分钟指数退避(上限 6h)。返回是否推送成功。
+pub fn run_push_lane(
+    conn: &Connection,
+    memory: &MemoryStore,
+    now_rfc3339: &str,
+) -> Result<Option<bool>> {
+    if !conn.is_autocommit() {
+        return Err(CoreError::Other(
+            "run_push_lane must not be called inside a transaction".into(),
+        ));
+    }
+    let due: i64 = conn.query_row(
+        "SELECT count(*) FROM projection_outbox WHERE lane='push' AND status IN ('pending','failed')          AND (next_retry_at IS NULL OR next_retry_at <= ?1)",
+        [now_rfc3339],
+        |r| r.get(0),
+    )?;
+    if due == 0 {
+        return Ok(None);
+    }
+    let attempts: i64 = conn.query_row(
+        "SELECT COALESCE(max(attempts),0) FROM projection_outbox WHERE lane='push' AND status IN ('pending','failed')",
+        [],
+        |r| r.get(0),
+    )?;
+    match memory.push() {
+        Ok(_) => {
+            conn.execute(
+                "UPDATE projection_outbox SET status='done', done_at=?1, error=NULL                  WHERE lane='push' AND status IN ('pending','failed')",
+                [now_rfc3339],
+            )?;
+            Ok(Some(true))
+        }
+        Err(e) => {
+            let wait = (PUSH_BACKOFF_BASE_SECS << attempts.min(12)).min(PUSH_BACKOFF_MAX_SECS);
+            let next = chrono::DateTime::parse_from_rfc3339(now_rfc3339)
+                .map(|t| (t + chrono::Duration::seconds(wait)).to_rfc3339())
+                .unwrap_or_else(|_| now_rfc3339.to_string());
+            conn.execute(
+                "UPDATE projection_outbox SET status='failed', attempts=attempts+1, error=?1, next_retry_at=?2                  WHERE lane='push' AND status IN ('pending','failed')",
+                rusqlite::params![e.to_string(), next],
+            )?;
+            Ok(Some(false))
+        }
+    }
 }
 
 fn book_slug_title(conn: &Connection, book_id: i64) -> Result<(String, String)> {
@@ -193,16 +272,16 @@ pub fn run_pending(conn: &Connection, memory: &MemoryStore) -> Result<usize> {
             "run_pending must not be called inside a transaction".into(),
         ));
     }
-    let rows: Vec<(i64, String, String)> = {
+    let rows: Vec<(i64, String, String, String)> = {
         let mut st = conn.prepare(
-            "SELECT id,kind,payload FROM projection_outbox \
-             WHERE status IN ('pending','failed') ORDER BY id",
+            "SELECT id,kind,payload,op_id FROM projection_outbox \
+             WHERE status IN ('pending','failed') AND lane='main' ORDER BY id",
         )?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
     let mut done = 0usize;
-    for (id, kind, payload) in rows {
+    for (id, kind, payload, op_id) in rows {
         conn.execute(
             "UPDATE projection_outbox SET attempts=attempts+1 WHERE id=?1",
             [id],
@@ -214,6 +293,10 @@ pub fn run_pending(conn: &Connection, memory: &MemoryStore) -> Result<usize> {
                     rusqlite::params![id, now()],
                 )?;
                 done += 1;
+                // 提交成功且配置了远程 → push 通道补一条(失败不影响本轮 main 通道)
+                if kind == "git_commit" {
+                    enqueue_push_after_commit(conn, memory, &op_id)?;
+                }
             }
             Err(e) => {
                 conn.execute(
@@ -229,6 +312,148 @@ pub fn run_pending(conn: &Connection, memory: &MemoryStore) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn push_lane_is_enqueued_after_commit_and_backs_off_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open_in_memory().unwrap();
+        let memory = MemoryStore::init(&dir.path().join("memory")).unwrap();
+        // 无远程:git_commit 后不产生 push 行
+        enqueue(
+            &conn,
+            "c1",
+            "git_commit",
+            &serde_json::json!({"message": "one"}),
+        )
+        .unwrap();
+        assert_eq!(run_pending(&conn, &memory).unwrap(), 1);
+        let lanes: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE lane='push'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(lanes, 0);
+        assert_eq!(
+            run_push_lane(&conn, &memory, "2026-09-08T10:00:00+00:00").unwrap(),
+            None
+        );
+        // 本地 bare 仓库当远程:set_remote 校验可达 → commit 后自动排 push → 一轮推送成功
+        let bare = dir.path().join("remote.git");
+        let init = std::process::Command::new("git")
+            .args(["init", "--bare", "-q"])
+            .arg(&bare)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let url = bare.to_string_lossy().into_owned();
+        assert_eq!(
+            memory.set_remote(&url).unwrap().as_deref(),
+            Some(url.as_str())
+        );
+        assert_eq!(memory.remote_url().unwrap().as_deref(), Some(url.as_str()));
+        std::fs::write(dir.path().join("memory/profile.md"), "# 画像\n改动\n").unwrap();
+        enqueue(
+            &conn,
+            "c2",
+            "git_commit",
+            &serde_json::json!({"message": "two"}),
+        )
+        .unwrap();
+        assert_eq!(run_pending(&conn, &memory).unwrap(), 1);
+        let (lane, kind, status): (String, String, String) = conn
+            .query_row(
+                "SELECT lane,kind,status FROM projection_outbox WHERE op_id='push:c2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (lane.as_str(), kind.as_str(), status.as_str()),
+            ("push", "git_push", "pending")
+        );
+        assert_eq!(
+            run_push_lane(&conn, &memory, "2026-09-08T10:00:00+00:00").unwrap(),
+            Some(true)
+        );
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM projection_outbox WHERE op_id='push:c2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "done");
+        let remote_log = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&bare)
+            .args(["log", "--oneline", "--all"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&remote_log.stdout).contains("two"),
+            "{}",
+            String::from_utf8_lossy(&remote_log.stderr)
+        );
+        // 远程失效 → 一轮只尝试一次,全部 failed 并退避;到期前不再尝试
+        std::fs::remove_dir_all(&bare).unwrap();
+        enqueue_in(&conn, "push:x1", "git_push", &serde_json::json!({}), "push").unwrap();
+        enqueue_in(&conn, "push:x2", "git_push", &serde_json::json!({}), "push").unwrap();
+        assert_eq!(
+            run_push_lane(&conn, &memory, "2026-09-08T11:00:00+00:00").unwrap(),
+            Some(false)
+        );
+        let rows: Vec<(String, i64, String)> = {
+            let mut st = conn.prepare("SELECT status,attempts,next_retry_at FROM projection_outbox WHERE lane='push' AND op_id LIKE 'push:x%'").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(rows.len(), 2);
+        for (status, attempts, next) in &rows {
+            assert_eq!((status.as_str(), *attempts), ("failed", 1));
+            assert!(next.starts_with("2026-09-08T11:01:00"), "{next}");
+        }
+        assert_eq!(
+            run_push_lane(&conn, &memory, "2026-09-08T11:00:30+00:00").unwrap(),
+            None,
+            "退避期内不尝试"
+        );
+        assert_eq!(
+            run_push_lane(&conn, &memory, "2026-09-08T11:02:00+00:00").unwrap(),
+            Some(false)
+        );
+        let (attempts, next): (i64, String) = conn
+            .query_row(
+                "SELECT attempts,next_retry_at FROM projection_outbox WHERE op_id='push:x1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(attempts, 2);
+        assert!(
+            next.starts_with("2026-09-08T11:04:00"),
+            "指数退避 2 分钟:{next}"
+        );
+        // main 通道不受 push 失败影响
+        enqueue(
+            &conn,
+            "c3",
+            "git_commit",
+            &serde_json::json!({"message": "three"}),
+        )
+        .unwrap();
+        assert_eq!(run_pending(&conn, &memory).unwrap(), 1);
+        // 清除远程后 push 为 no-op
+        assert_eq!(memory.set_remote("").unwrap(), None);
+        assert!(!memory.push().unwrap());
+        assert!(matches!(
+            memory.set_remote("-bad"),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
     use super::*;
     use crate::ai::{AiProvider, CompletionRequest};
     use crate::eval::{DraftBlock, DraftMap, DraftModule};

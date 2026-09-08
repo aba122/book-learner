@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -404,6 +404,36 @@ function decodeExportReport(value: unknown): ExportReport {
     dir: stringAt(wire.dir, 'exportReport.dir'),
     written: safeIntegerAt(wire.written, 'exportReport.written'),
     unchanged: safeIntegerAt(wire.unchanged, 'exportReport.unchanged'),
+  }
+}
+
+function decodeSnapshot(value: unknown, path = 'snapshot'): SnapshotInfo {
+  const wire = objectAt(value, path)
+  return {
+    name: stringAt(wire.name, `${path}.name`),
+    date: stringAt(wire.date, `${path}.date`),
+    bytes: safeIntegerAt(wire.bytes, `${path}.bytes`),
+  }
+}
+
+function decodeBackupList(value: unknown): BackupList {
+  const wire = objectAt(value, 'backupList')
+  return {
+    snapshots: arrayAt(wire.snapshots, 'backupList.snapshots', (item, path) => decodeSnapshot(item, path)),
+    pendingRestore: nullableAt(wire.pendingRestore, 'backupList.pendingRestore', stringAt),
+  }
+}
+
+function decodeGitRemote(value: unknown): GitRemote {
+  const wire = objectAt(value, 'gitRemote')
+  return { url: nullableAt(wire.url, 'gitRemote.url', stringAt) }
+}
+
+function decodePushResult(value: unknown): PushResult {
+  const wire = objectAt(value, 'pushResult')
+  return {
+    pushed: booleanAt(wire.pushed, 'pushResult.pushed'),
+    error: nullableAt(wire.error, 'pushResult.error', stringAt),
   }
 }
 
@@ -882,6 +912,37 @@ export class TauriBackend implements Backend {
       outboundInteger(bookId, 'bookId')
       await this.decode('export_reveal', { bookId }, value => unitAt(value, 'export_reveal'))
     })
+  }
+
+  backupSnapshotNow(date: string): Promise<SnapshotInfo> {
+    return this.gated('backupSnapshotNow', () => {
+      outboundString(date, 'date')
+      return this.decode('backup_snapshot_now', { date }, value => decodeSnapshot(value))
+    })
+  }
+  backupList(): Promise<BackupList> {
+    return this.gated('backupList', () => this.decode('backup_list', {}, decodeBackupList))
+  }
+  backupRestore(name: string): Promise<BackupList> {
+    return this.gated('backupRestore', () => {
+      outboundString(name, 'name')
+      return this.decode('backup_restore', { name }, decodeBackupList)
+    })
+  }
+  backupCancelRestore(): Promise<BackupList> {
+    return this.gated('backupCancelRestore', () => this.decode('backup_cancel_restore', {}, decodeBackupList))
+  }
+  gitRemoteGet(): Promise<GitRemote> {
+    return this.gated('gitRemoteGet', () => this.decode('git_remote_get', {}, decodeGitRemote))
+  }
+  gitRemoteSet(url: string): Promise<GitRemote> {
+    return this.gated('gitRemoteSet', () => {
+      outboundString(url, 'url')
+      return this.decode('git_remote_set', { url }, decodeGitRemote)
+    })
+  }
+  gitPushNow(): Promise<PushResult> {
+    return this.gated('gitPushNow', () => this.decode('git_push_now', {}, decodePushResult))
   }
 
   async statsDetail(): Promise<StatsDetail> {

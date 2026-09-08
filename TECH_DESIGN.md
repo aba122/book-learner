@@ -135,6 +135,8 @@ app 校验 schema(serde 严格解析,失败则带错误信息重试一次)后:
 - `observation_note` 追加到块文件"AI 观察笔记"区(只追加,永不重写历史);
 - **已实现(2026-09-05,ADR-0001,core/src/projection.rs)**:三种存储不共享 ACID 事务;SQLite 是唯一事实源。`verdict::confirm_session_verdict` 在**一个** IMMEDIATE 事务里完成会话/块/薄弱点/复习/任务变更,并向 `projection_outbox` 入队 `block_eval`(载荷含用户判定 `passed` 与幂等 `entry_key`)/`sync_weakpoints`/`sync_map`/`git_commit`;`map::apply_draft_map` 入队 `init_book`,`confirm_map` 入队 `sync_map`。`projection::run_pending(conn, memory)` 按 id 顺序重放 pending/failed 行(失败即停、保持顺序,failed 行下次重试),处理器全部幂等;应用启动与每次确认后调用即可追平 md 与 git。
 
+> **实现说明(M3 T5,2026-09-08)**:SQLite 快照**不进 memory/ git**(二进制入 git 会膨胀),而是 `core::backup` 用 `VACUUM INTO` 写到 `<data_dir>/snapshots/app-YYYY-MM-DD.db`(每日首次启动与退出前各一次,同日覆盖;保留最近 7 份 + 近 3 个月各自最早一份);恢复只接受快照目录内合法文件名,`restore_plan` 校验 `integrity_check` 与 `user_version ≤ SCHEMA_VERSION`,登记标记后在下次启动**打开数据库之前**替换 `app.db`(连带移走 -journal/-wal/-shm,原库保留为 `.replaced-<ts>`),并对所有书入队 `sync_map`/`sync_weakpoints` 让镜像按库重生(`blocks/*.md` 追加区可能比库新,记为已知限制)。git 远程:`memory::{remote_url, set_remote(ls-remote 校验), push}` 带 30 s 超时、`GIT_TERMINAL_PROMPT=0`、`BatchMode`;推送经 outbox **push 通道**(`projection_outbox.lane`,v7)——`git_commit` 成功且有远程时自动补一条,`run_push_lane` 一轮只推一次、失败按 2^attempts 分钟指数退避(上限 6h),不阻塞 main 通道。
+
 ### 3.4 git 备份
 
 - 首次启动 `git init memory/`;每次学习会话结束(评估写入后)自动 `git add -A && git commit -m "study: <book>/<block> <date>"`(git2 crate 或子进程)。
