@@ -6,6 +6,7 @@ pub mod map;
 pub mod mapgen;
 pub mod memory;
 pub mod models;
+pub mod notify;
 pub mod orchestrate;
 pub mod planning;
 pub mod projection;

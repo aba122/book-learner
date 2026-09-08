@@ -34,7 +34,7 @@ export interface Replan {
 }
 export interface ChatMessage { role: 'user' | 'student'; text: string }
 export interface Stats { totalBlocks: number; passedBlocks: number; streakDays: number; openWeakPoints: number; fixedWeakPoints: number; minutesToday: number }
-export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string }
+export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string; eveningRemindTime: string }
 
 // ---- 契约 v2(Plan B,与 core 用例同名;camelCase 镜像 core 结构)----
 export interface SpineChapter { idx: number; href: string; title: string; text: string }

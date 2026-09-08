@@ -43,6 +43,7 @@ const settings = {
   pomodoroMinutes: 25,
   breakMinutes: 5,
   remindTime: '20:00',
+  eveningRemindTime: '22:00',
 }
 
 describe('TauriBackend supported transport', () => {
@@ -208,7 +209,7 @@ describe('TauriBackend supported transport', () => {
     })
 
     await backend.setPlan({ bookId: -1, deadline: '', dailyNewBlocks: 0, dailyCap: -5, remindTime: '' })
-    await backend.saveSettings({ obsidianVault: '', pomodoroMinutes: 0, breakMinutes: -1, remindTime: '' })
+    await backend.saveSettings({ obsidianVault: '', pomodoroMinutes: 0, breakMinutes: -1, remindTime: '', eveningRemindTime: '' })
 
     expect(calls).toHaveLength(2)
   })

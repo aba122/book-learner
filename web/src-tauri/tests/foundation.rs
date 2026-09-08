@@ -96,12 +96,13 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
         pomodoro_minutes: 30,
         break_minutes: 8,
         remind_time: "20:30".into(),
+        evening_remind_time: "22:30".into(),
     };
     assert_eq!(
         serde_json::to_value(settings).unwrap(),
         json!({
             "obsidianVault": "/Users/reader/Notes", "pomodoroMinutes": 30,
-            "breakMinutes": 8, "remindTime": "20:30"
+            "breakMinutes": 8, "remindTime": "20:30", "eveningRemindTime": "22:30"
         })
     );
 }
@@ -145,7 +146,7 @@ fn command_request_dtos_deserialize_camel_case_json() {
     assert_eq!(queue.date, "2026-09-01");
     let settings: SettingsPayload = serde_json::from_value(json!({"settings": {
         "obsidianVault": "/Notes", "pomodoroMinutes": 25,
-        "breakMinutes": 5, "remindTime": "21:00"
+        "breakMinutes": 5, "remindTime": "21:00", "eveningRemindTime": "22:00"
     }}))
     .unwrap();
     assert_eq!(settings.settings.obsidian_vault, "/Notes");
@@ -1107,6 +1108,7 @@ fn application_services_delegate_to_core_and_persist_across_reopen() {
         pomodoro_minutes: 40,
         break_minutes: 10,
         remind_time: "08:30".into(),
+        evening_remind_time: "21:45".into(),
     };
     application::save_settings(&state, expected_settings.clone()).unwrap();
     drop(state);
@@ -1615,7 +1617,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "planning_today_queue" => json!({"date": DAY}),
             "settings_save" => json!({"settings": {
                 "obsidianVault": "/Notes", "pomodoroMinutes": 25,
-                "breakMinutes": 5, "remindTime": "21:00"
+                "breakMinutes": 5, "remindTime": "21:00", "eveningRemindTime": "22:00"
             }}),
             "unsupported_capability" => json!({"capability": "importEpub"}),
             // 契约 v2:占位期 payload 只需满足参数名/类型;接线后改为可落库的真实值

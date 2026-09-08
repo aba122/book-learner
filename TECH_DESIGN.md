@@ -192,6 +192,8 @@ setting(key, value)
 
 **v5(2026-09-08,M2 T0,user_version=5,追加式)**:`feynman_session.extra_kind`(application|methodology|discussion,NULL = 普通会话;`kind` 仍为 learn、`task_id` 为 NULL;partial unique index `feynman_session_extra_once(block_id, extra_kind)` 保证每块每类一次)、`study_minutes(date, book_id?, task_id?→ON DELETE SET NULL, minutes≥0, source∈{pomodoro}, created_at)`(番茄钟专注分钟,`date` 由前端提供)。**约束**:M2 起 schema 只做加法——`session_turn.session_id` 对 `feynman_session` 有 `ON DELETE CASCADE`,在 `foreign_keys=ON` 下重建 `feynman_session` 会级联删光回合。
 
+**设置权威(2026-09-08,M2 T2)**:提醒时间以 `setting` 表的 `remindTime`/`eveningRemindTime` 为唯一权威(`AppSettings`,默认 21:00 / 22:00);`study_plan.remind_time/evening_remind_time` 列保留但**废弃**(仍由 `planning_set_plan` 写入以兼容旧行,不再被读取)。通知判定在 core `notify`(纯函数 + `setting` 表 `notified:<kind>:<date>` 幂等标记),壳层线程每 30s 用本地时间轮询并经 tauri-plugin-notification 发送。
+
 ## 5. Codex 集成
 
 ### 5.1 调用约定

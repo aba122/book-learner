@@ -168,6 +168,7 @@ pub struct AppSettingsDto {
     pub pomodoro_minutes: i64,
     pub break_minutes: i64,
     pub remind_time: String,
+    pub evening_remind_time: String,
 }
 
 impl From<AppSettings> for AppSettingsDto {
@@ -177,6 +178,7 @@ impl From<AppSettings> for AppSettingsDto {
             pomodoro_minutes: settings.pomodoro_minutes,
             break_minutes: settings.break_minutes,
             remind_time: settings.remind_time,
+            evening_remind_time: settings.evening_remind_time,
         }
     }
 }
@@ -188,6 +190,7 @@ impl From<AppSettingsDto> for AppSettings {
             pomodoro_minutes: settings.pomodoro_minutes,
             break_minutes: settings.break_minutes,
             remind_time: settings.remind_time,
+            evening_remind_time: settings.evening_remind_time,
         }
     }
 }

@@ -224,6 +224,7 @@ function decodeSettings(value: unknown): AppSettings {
     pomodoroMinutes: safeIntegerAt(wire.pomodoroMinutes, 'settings.pomodoroMinutes'),
     breakMinutes: safeIntegerAt(wire.breakMinutes, 'settings.breakMinutes'),
     remindTime: stringAt(wire.remindTime, 'settings.remindTime'),
+    eveningRemindTime: stringAt(wire.eveningRemindTime, 'settings.eveningRemindTime'),
   }
 }
 
@@ -487,6 +488,7 @@ function validateSettings(settings: AppSettings): void {
   outboundInteger(value.pomodoroMinutes, 'settings.pomodoroMinutes')
   outboundInteger(value.breakMinutes, 'settings.breakMinutes')
   outboundString(value.remindTime, 'settings.remindTime')
+  outboundString(value.eveningRemindTime, 'settings.eveningRemindTime')
 }
 
 export class TauriBackend implements Backend {

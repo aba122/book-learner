@@ -440,3 +440,9 @@
 - **壳层/契约**:`library_finish_book[bookId]`,六处同步;foundation 用例:标记学完后无主攻、再激活 conflict、次日不产新块。
 - **web**:书架卡片改为"封面按钮 + 说明行"(已暂停:计划冻结 · 复习照常;已学完:复习照常 · 不再主攻),"标记为已学完"经确认调用 `finishBook`;已学完的书点击直接看地图不弹切换;切换确认文案含"计划冻结、复习照常";Mock 同语义。
 - 门禁:core/web 在 Linux 绿;src-tauri 由 CI macos 任务验证。
+
+## 2026-09-08 · M2 T2:提醒判定与系统通知
+- **core**:`AppSettings` 增 `evening_remind_time`(默认 22:00,`shared/app-defaults.json`;HH:mm 校验抽为 `validate_time`;`setting` 表第 5 个键 `eveningRemindTime`),`setting` 表为唯一权威,`study_plan` 的两列废弃(TECH_DESIGN §4 已注)。新模块 `notify`:`decide(now_hm, settings, pending_today, sent)`——到达 `remind_time`(容忍迟到 2 分钟)且当日未发 → Daily(无条件,PRODUCT_SPEC §6);到达 `evening_remind_time` 且 `pending_today > 0` 且未发 → Evening;`sent_marks/mark_sent` 以 `notified:<kind>:<date>` 键幂等、按日隔离。单测覆盖窗口边界、每日一次、晚间需 pending、跨日重置、非法时间。
+- **壳层**:`tauri-plugin-notification` + capability `notification:default`;`notify::spawn_reminder_thread`:持一条长连接,30s 轮询,`chrono::Local` 取日期/时刻(与前端本地日历日一致;DEV 受控日期不影响提醒),只在晚间窗口内触碰当日队列(幂等生成)取 pending 数,发通知后记标记;启动时请求通知权限并记日志。`AppSettingsDto` 增字段;foundation 夹具同步。**macOS 通知需以 bundle 运行**,目检项在 `docs/smoke/m2-gate.md` §1。
+- **web**:`AppSettings.eveningRemindTime`,解码/校验,设置页"晚间提醒(当日未完成时)"字段(不用 `hint`——它渲染为 `role=alert` 会撞现有断言);夹具补字段(tauri.test 的计划对象不含该字段)。
+- 门禁:core 136/27/1/1、web 265/2、lint 0、tsc;src-tauri 与通知插件编译由 CI 验证。

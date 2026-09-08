@@ -13,6 +13,9 @@ pub struct AppSettings {
     pub pomodoro_minutes: i64,
     pub break_minutes: i64,
     pub remind_time: String,
+    /// 晚间提醒(当日队列仍有未完成任务时才发,PRODUCT_SPEC §6);`setting` 表为唯一权威,
+    /// `study_plan.remind_time/evening_remind_time` 列自 M2 起视为废弃
+    pub evening_remind_time: String,
 }
 
 fn defaults() -> Result<AppSettings> {
@@ -43,17 +46,22 @@ fn validate(value: &AppSettings) -> Result<()> {
             "break minutes must be between 1 and 180".into(),
         ));
     }
-    let time_bytes = value.remind_time.as_bytes();
+    validate_time("remind time", &value.remind_time)?;
+    validate_time("evening remind time", &value.evening_remind_time)?;
+    Ok(())
+}
+
+fn validate_time(field: &str, value: &str) -> Result<()> {
+    let time_bytes = value.as_bytes();
     let time_has_exact_shape = time_bytes.len() == 5
         && time_bytes.get(2) == Some(&b':')
         && time_bytes
             .iter()
             .enumerate()
             .all(|(index, byte)| index == 2 || byte.is_ascii_digit());
-    if !time_has_exact_shape || NaiveTime::parse_from_str(&value.remind_time, "%H:%M").is_err() {
+    if !time_has_exact_shape || NaiveTime::parse_from_str(value, "%H:%M").is_err() {
         return Err(CoreError::InvalidInput(format!(
-            "remind time must use HH:mm: {}",
-            value.remind_time
+            "{field} must use HH:mm: {value}"
         )));
     }
     Ok(())
@@ -86,6 +94,9 @@ pub fn get_settings(conn: &Connection) -> Result<AppSettings> {
     if let Some(stored) = optional_value(conn, "remindTime")? {
         value.remind_time = stored;
     }
+    if let Some(stored) = optional_value(conn, "eveningRemindTime")? {
+        value.evening_remind_time = stored;
+    }
     validate(&value).map_err(|error| match error {
         CoreError::InvalidInput(message) => corrupt_data(message),
         other => other,
@@ -100,6 +111,7 @@ pub fn save_settings(conn: &Connection, value: &AppSettings) -> Result<()> {
         ("pomodoroMinutes", value.pomodoro_minutes.to_string()),
         ("breakMinutes", value.break_minutes.to_string()),
         ("remindTime", value.remind_time.clone()),
+        ("eveningRemindTime", value.evening_remind_time.clone()),
     ];
     let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     for (key, stored) in stored_values {
