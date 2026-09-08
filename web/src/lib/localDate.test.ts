@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
-import { localCalendarDate } from './localDate'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TEST_DATE_KEY, localCalendarDate } from './localDate'
 
 describe('localCalendarDate', () => {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -40,5 +40,29 @@ describe('calendar-day consumers', () => {
   ])('%s does not derive a day through UTC', sourcePath => {
     const source = readFileSync(fileURLToPath(new URL(sourcePath, import.meta.url)), 'utf8')
     expect(source).not.toContain('toISOString().slice(0, 10)')
+  })
+})
+
+describe('DEV-only controlled test date (M8.0)', () => {
+  afterEach(() => {
+    localStorage.removeItem(TEST_DATE_KEY)
+    vi.unstubAllEnvs()
+  })
+
+  it('overrides "today" in DEV when the key holds a calendar day, but never an explicit date', () => {
+    vi.stubEnv('DEV', true)
+    localStorage.setItem(TEST_DATE_KEY, '2026-09-10')
+    expect(localCalendarDate()).toBe('2026-09-10')
+    expect(localCalendarDate(new Date(2026, 0, 2, 12))).toBe('2026-01-02')
+  })
+
+  it('ignores malformed values and is inert in production builds', () => {
+    vi.stubEnv('DEV', true)
+    localStorage.setItem(TEST_DATE_KEY, 'tomorrow')
+    expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
+
+    vi.stubEnv('DEV', false)
+    localStorage.setItem(TEST_DATE_KEY, '2026-09-10')
+    expect(localCalendarDate()).toBe(localCalendarDate(new Date()))
   })
 })
