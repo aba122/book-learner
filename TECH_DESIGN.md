@@ -296,9 +296,9 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 
 ## 8. 语音链路
 
-- 采集:webview `MediaRecorder`(16kHz wav)→ Tauri command 传 Rust。
-- 转写:whisper-rs + `ggml-large-v3-turbo` 量化模型(约 600MB,中文效果好;设置页可选 small 型号);首次使用引导下载到 models/。
-- 交互:按住说话/点击起止 → 转写结果填入输入框可编辑后发送(不直接发送,防转写错误污染评估)。
+- 采集(M3 T3 实作):WKWebView `getUserMedia`(需 `Info.plist` `NSMicrophoneUsageDescription`;app 须经 LaunchServices/`open` 在 GUI 会话启动,TCC 才能弹授权框)→ `ScriptProcessorNode` 取原始 Float32 帧 → 单声道 → 线性重采样 16 kHz → i16(`web/src/audio/pcm.ts`;无 ScriptProcessor 时回退 `MediaRecorder` + `decodeAudioData`)→ `voice_transcribe` 原始请求体(头 `x-bl-lang` / `x-bl-hint`,提示词 `encodeURIComponent`),录音 ≤ 120 s 自动停止。
+- 转写:壳层 `voice.rs`(Cargo feature `voice`,默认开启,依赖 cmake 编译 whisper.cpp)—— whisper-rs 0.16,`FullParams` greedy、`language=zh`、`initial_prompt` = 当前块/书标题;模型实例按当前选择懒加载缓存、转写串行。模型目录 `<data_root>/models/`,只认 `ggml-*.bin`,**手动导入**(设置页填路径或原生选择器,复制进目录;临时文件 + rename),删除只限该目录白名单;当前选择写 `setting.voiceModel`(不进 `AppSettings`)。app 不带 HTTP 客户端,不做应用内下载(已知模型:`large-v3-turbo-q5_0` 推荐 / `small` / `base`)。
+- 交互:点击起止(电平 + 计时) → 转写中态 → 结果**追加进输入框可编辑后发送**(不直接发送,防转写错误污染评估);权限拒绝 / 无麦克风 / 无模型给可行动文案。
 - TTS 预留:`trait TtsProvider { fn speak(&self, text) }`,V1 不实现;将来可接 macOS `say`/AVSpeechSynthesizer 或本地模型。
 
 ## 9. Obsidian 导出

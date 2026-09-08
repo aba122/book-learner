@@ -214,7 +214,7 @@ pub fn set_selected(state: &AppState, name: &str) -> Result<Vec<VoiceModelDto>, 
 
 /// 把 16 kHz 单声道 i16 小端 PCM 转成 whisper 需要的 f32(-1..1)
 pub fn pcm_i16_to_f32(bytes: &[u8]) -> Result<Vec<f32>, IpcError> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(IpcError::invalid_request(
             "音频数据长度不是 16 位样本的整数倍",
             format!("odd pcm length {}", bytes.len()),
@@ -230,9 +230,10 @@ pub fn pcm_i16_to_f32(bytes: &[u8]) -> Result<Vec<f32>, IpcError> {
             format!("{samples} samples"),
         ));
     }
-    Ok(bytes
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+    let (pairs, _) = bytes.as_chunks::<2>();
+    Ok(pairs
+        .iter()
+        .map(|pair| i16::from_le_bytes(*pair) as f32 / 32768.0)
         .collect())
 }
 
