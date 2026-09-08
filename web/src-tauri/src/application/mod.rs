@@ -6,12 +6,12 @@ use book_learner_core::CoreError;
 use rusqlite::OptionalExtension;
 
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
-    EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
-    GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, NewReaderMarkDto, ProfileDto, PushResultDto, ReaderMarkDto, ReplanDto,
-    SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
-    TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, CodexBinDto,
+    DailyTaskDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto,
+    FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, MapRevisionDto, NewReaderMarkDto, ProfileDto, PushResultDto, ReaderMarkDto,
+    ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -662,6 +662,62 @@ pub fn backup_restore(state: &AppState, name: &str) -> Result<BackupListDto, Ipc
 pub fn backup_cancel_restore(state: &AppState) -> Result<BackupListDto, IpcError> {
     book_learner_core::backup::cancel_restore(state.data_root()).map_err(IpcError::from)?;
     backup_list(state)
+}
+
+// ---- codex 可执行路径(M3 T6):`setting.codexBin` 直读表,不进 AppSettings ----
+
+fn describe_codex(configured: Option<String>) -> CodexBinDto {
+    let resolved = crate::state::resolve_codex_bin(
+        configured.as_deref(),
+        std::env::var_os("PATH"),
+        std::env::var_os("HOME").map(std::path::PathBuf::from),
+        crate::state::CODEX_FALLBACK_DIRS,
+    );
+    let (resolved, error) = match resolved {
+        Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
+        Err(error) => (None, Some(error.message)),
+    };
+    CodexBinDto {
+        path: configured,
+        resolved,
+        error,
+    }
+}
+
+pub fn codex_bin_get(state: &AppState) -> Result<CodexBinDto, IpcError> {
+    let configured: Option<String> = state.with_connection(|connection| {
+        Ok(connection
+            .query_row(
+                "SELECT value FROM setting WHERE key='codexBin'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
+    })?;
+    Ok(describe_codex(
+        configured
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty()),
+    ))
+}
+
+/// 空/None 清除设置;否则必须是绝对路径且可执行(校验即解析,失败原样返回错误,不落库)。
+pub fn codex_bin_set(state: &AppState, path: Option<String>) -> Result<CodexBinDto, IpcError> {
+    let trimmed = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    if let Some(candidate) = &trimmed {
+        crate::state::resolve_codex_bin(Some(candidate), None, None, &[])?;
+    }
+    state.with_connection(|connection| {
+        match &trimmed {
+            Some(value) => connection.execute(
+                "INSERT OR REPLACE INTO setting(key,value) VALUES('codexBin',?1)",
+                [value],
+            )?,
+            None => connection.execute("DELETE FROM setting WHERE key='codexBin'", [])?,
+        };
+        Ok(())
+    })?;
+    Ok(describe_codex(trimmed))
 }
 
 pub fn git_remote_get(state: &AppState) -> Result<GitRemoteDto, IpcError> {

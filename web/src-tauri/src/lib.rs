@@ -85,6 +85,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::voice_select_model,
         commands::voice_delete_model,
         commands::voice_transcribe,
+        commands::settings_codex_get,
+        commands::settings_codex_set,
         commands::automation_report,
     ])
 }

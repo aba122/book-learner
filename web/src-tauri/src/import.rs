@@ -214,6 +214,59 @@ impl ImportStore {
         Ok(())
     }
 
+    /// 从 OPF 读 `dc:title` / `dc:creator`(容错:任一步失败都返回 None,不影响导入)。
+    /// 只做最小化的字符串解析(不引入 XML 依赖):container.xml 的 `full-path` → OPF 文本 → 首个 `<dc:title>` / `<dc:creator>`。
+    pub fn epub_metadata(path: &Path) -> (Option<String>, Option<String>) {
+        fn read_entry(archive: &mut zip::ZipArchive<File>, name: &str) -> Option<String> {
+            let entry = archive.by_name(name).ok()?;
+            let mut text = String::new();
+            entry.take(2 * 1024 * 1024).read_to_string(&mut text).ok()?;
+            Some(text)
+        }
+        fn attr(text: &str, name: &str) -> Option<String> {
+            let start = text.find(&format!("{name}=\""))? + name.len() + 2;
+            let end = text[start..].find('"')? + start;
+            Some(text[start..end].to_string())
+        }
+        fn element_text(text: &str, tag: &str) -> Option<String> {
+            let open = text.find(&format!("<{tag}"))?;
+            let body_start = text[open..].find('>')? + open + 1;
+            let close = text[body_start..].find(&format!("</{tag}"))? + body_start;
+            let raw = text[body_start..close].trim();
+            if raw.is_empty() {
+                return None;
+            }
+            let decoded = raw
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&#39;", "'");
+            let collapsed = decoded.split_whitespace().collect::<Vec<_>>().join(" ");
+            Some(collapsed.chars().take(200).collect())
+        }
+        let Ok(file) = File::open(path) else {
+            return (None, None);
+        };
+        let Ok(mut archive) = zip::ZipArchive::new(file) else {
+            return (None, None);
+        };
+        let Some(container) = read_entry(&mut archive, "META-INF/container.xml") else {
+            return (None, None);
+        };
+        let Some(rootfile) = attr(&container, "full-path") else {
+            return (None, None);
+        };
+        let Some(opf) = read_entry(&mut archive, &rootfile) else {
+            return (None, None);
+        };
+        (
+            element_text(&opf, "dc:title"),
+            element_text(&opf, "dc:creator"),
+        )
+    }
+
     /// 完成导入:同 op_id 重复调用返回同一 book_id;校验失败 → 无书行且暂存清理;
     /// 落盘失败 → 回滚书行。书行 `import_state='staged'`(已落盘、待抽取)。
     pub fn finalize(
@@ -251,16 +304,22 @@ impl ImportStore {
                 return Err(error);
             }
         };
-        let title = title.trim();
-        let title = if title.is_empty() {
-            "未命名书籍"
-        } else {
-            title
-        };
+        // 书名优先取 OPF 的 dc:title(m2 门禁发现:书架显示的是文件名);作者取 dc:creator
+        let (opf_title, opf_author) = Self::epub_metadata(&assembled);
+        let fallback = title.trim();
+        let title = opf_title
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or(if fallback.is_empty() {
+                "未命名书籍"
+            } else {
+                fallback
+            });
+        let author = opf_author.as_deref().unwrap_or("待识别");
         let book_id = {
             let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
                 .map_err(db_error)?;
-            let book_id = models::insert_book(&transaction, title, "待识别", book_type, &slug)?;
+            let book_id = models::insert_book(&transaction, title, author, book_type, &slug)?;
             transaction
                 .execute(
                     "UPDATE book SET import_state='staged' WHERE id=?1",
@@ -312,9 +371,18 @@ mod tests {
 
     /// 造一个 zip:条目按给定顺序、全部 stored。
     fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        zip_bytes_with(entries, CompressionMethod::Stored)
+    }
+
+    /// `mimetype` 始终 Stored(规范要求),其余条目按 `method`(真实 EPUB 通常 Deflated)
+    fn zip_bytes_with(entries: &[(&str, &[u8])], method: CompressionMethod) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
         for (name, body) in entries {
+            let options = SimpleFileOptions::default().compression_method(if *name == "mimetype" {
+                CompressionMethod::Stored
+            } else {
+                method
+            });
             writer.start_file(*name, options).unwrap();
             writer.write_all(body).unwrap();
         }
@@ -327,6 +395,86 @@ mod tests {
             ("META-INF/container.xml", b"<container/>"),
             ("OEBPS/ch0.xhtml", b"<html>ch0</html>"),
         ])
+    }
+
+    fn epub_with_metadata(title: &str, creator: Option<&str>) -> Vec<u8> {
+        let creator = creator
+            .map(|c| format!("<dc:creator opf:role=\"aut\">{c}</dc:creator>"))
+            .unwrap_or_default();
+        let opf = format!(
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\">\
+             <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title id=\"t\">{title}</dc:title>{creator}\
+             </metadata><manifest/><spine/></package>"
+        );
+        // 真实 EPUB(古登堡等)的 container.xml/OPF 是 Deflated:m3 门禁曾因 zip 未开 deflate 特性读不到书名
+        zip_bytes_with(
+            &[
+                ("mimetype", EPUB_MIMETYPE.as_bytes()),
+                (
+                    "META-INF/container.xml",
+                    b"<?xml version=\"1.0\"?><container version=\"1.0\"><rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>",
+                ),
+                ("OEBPS/content.opf", opf.as_bytes()),
+                ("OEBPS/ch0.xhtml", b"<html>ch0</html>"),
+            ],
+            CompressionMethod::Deflated,
+        )
+    }
+
+    /// 本机诊断:`BL_TEST_EPUB=<path> cargo test --lib -- --ignored --nocapture opf_metadata_of_env_epub`
+    #[test]
+    #[ignore]
+    fn opf_metadata_of_env_epub() {
+        let path = std::env::var("BL_TEST_EPUB").expect("BL_TEST_EPUB");
+        let meta = ImportStore::epub_metadata(Path::new(&path));
+        eprintln!("metadata of {path}: {meta:?}");
+        assert!(meta.0.is_some(), "no title parsed");
+    }
+
+    #[test]
+    fn finalize_prefers_opf_title_and_creator_over_the_file_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, conn) = store(dir.path());
+        store
+            .stage_chunk(
+                "op-meta",
+                0,
+                &epub_with_metadata("道德經 &amp; 注", Some("  老子 ")),
+            )
+            .unwrap();
+        let book_id = store
+            .finalize(&conn, "op-meta", BookType::Humanities, "book-24039")
+            .unwrap();
+        let (title, author): (String, String) = conn
+            .query_row(
+                "SELECT title,author FROM book WHERE id=?1",
+                [book_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((title.as_str(), author.as_str()), ("道德經 & 注", "老子"));
+
+        // 无 OPF 元数据 / 空标题 → 沿用文件名派生的标题与"待识别"
+        store.stage_chunk("op-plain", 0, &valid_epub()).unwrap();
+        let plain = store
+            .finalize(&conn, "op-plain", BookType::Textbook, "book-7337")
+            .unwrap();
+        let (title, author): (String, String) = conn
+            .query_row("SELECT title,author FROM book WHERE id=?1", [plain], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((title.as_str(), author.as_str()), ("book-7337", "待识别"));
+        store
+            .stage_chunk("op-empty", 0, &epub_with_metadata("  ", None))
+            .unwrap();
+        let empty = store
+            .finalize(&conn, "op-empty", BookType::Textbook, "")
+            .unwrap();
+        let title: String = conn
+            .query_row("SELECT title FROM book WHERE id=?1", [empty], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "未命名书籍");
     }
 
     fn store(dir: &Path) -> (ImportStore, Connection) {

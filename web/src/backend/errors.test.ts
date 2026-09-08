@@ -44,7 +44,7 @@ describe('BackendError', () => {
 
     expect(normalizeBackendError(rejection)).toMatchObject({
       code: 'unknown',
-      message: '未知后端错误',
+      message: '未知错误',
       retryable: false,
       details: rejection,
     })

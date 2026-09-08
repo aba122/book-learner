@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
@@ -32,7 +33,7 @@ export default function FinalExamPage() {
     const books = await backend.listBooks()
     if (!isCurrent()) throw new StaleResult()
     const book = books.find(b => b.id === bookId)
-    if (!book) throw Object.assign(new Error('书不存在'), { code: 'not_found', retryable: false })
+    if (!book) throw new BackendError({ code: 'not_found', message: '这本书已不在书架上', retryable: false })
     const view = await backend.finalExamStart(bookId, clientRequestId)
     if (!isCurrent()) throw new StaleResult()
     return { book, view }

@@ -76,6 +76,9 @@ function EffortSection({ detail }: { detail: StatsDetail }) {
           近 {detail.days.length} 天 <span data-testid="effort-minutes">{totalMinutes}</span> 分钟 · <span data-testid="effort-pomodoros">{totalPomodoros}</span> 个番茄
         </span>
       </div>
+      {totalMinutes === 0 && totalPomodoros === 0 && (
+        <p className="mt-2 text-xs text-ink-3">近 {detail.days.length} 天还没有学习投入;开一个番茄钟或完成一次讲授后这里会有柱状图。</p>
+      )}
       <div className="mt-3 flex h-24 items-end gap-1" role="img" aria-label="近 14 天每日投入分钟">
         {detail.days.map(d => (
           <div

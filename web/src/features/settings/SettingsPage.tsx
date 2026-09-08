@@ -8,7 +8,7 @@ import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import Confirm from '../../components/Confirm'
 import { localCalendarDate } from '../../lib/localDate'
-import type { AppSettings, BackupList, Profile } from '../../types'
+import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import VoiceSection from './VoiceSection'
 
 function Field({
@@ -137,6 +137,53 @@ function DataSection() {
         onCancel={() => setRestoreTarget(null)}
       />
     </Card>
+  )
+}
+
+/** codex 可执行路径(M3 T6):留空按 PATH / Homebrew / nvm 自动寻找;填绝对路径时保存即校验可执行 */
+function CodexField() {
+  const info = useAsyncResource(useCallback(() => backend.codexBinGet(), []))
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saved, setSaved] = useState<CodexBin | null>(null)
+  const saveOp = useBackendOperation(async (path: string | null) => {
+    const next = await backend.codexBinSet(path)
+    setSaved(next)
+    setDraft(null)
+  })
+  const current = saved ?? info.data
+  const value = draft ?? current?.path ?? ''
+  const error = saveOp.errors.get('save')
+  const hint = current === null
+    ? (info.error ? undefined : '正在检测…')
+    : current.error
+      ? `当前找不到 codex:${current.error}`
+      : `当前使用 ${current.resolved ?? '未知'}`
+  return (
+    <Field label="codex 可执行路径">
+      {id => (
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              id={id}
+              type="text"
+              value={value}
+              placeholder="留空自动寻找,或填 /opt/homebrew/bin/codex"
+              onChange={e => setDraft(e.target.value)}
+              className={`${inputCls} w-72`}
+            />
+            <Button
+              disabled={saveOp.pending.has('save') || draft === null}
+              onClick={() => { saveOp.clearError('save'); void saveOp.run('save', value.trim() || null) }}
+            >
+              {saveOp.pending.has('save') ? '校验中…' : '保存路径'}
+            </Button>
+          </div>
+          {error && <AsyncError error={error} variant="compact" />}
+          {info.error && current === null && <AsyncError error={info.error} onRetry={info.reload} variant="compact" />}
+          {!error && hint && <span data-testid="codex-status" className={`text-xs ${current?.error ? 'text-weak' : 'text-ink-4'}`}>{hint}</span>}
+        </div>
+      )}
+    </Field>
   )
 }
 
@@ -334,18 +381,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
               />
             )}
           </Field>
-          <Field label="codex CLI 路径">
-            {id => (
-              <input
-                id={id}
-                type="text"
-                disabled
-                placeholder="Mac 阶段配置"
-                title="AI 后端接入随 Tauri 壳在 Mac 阶段完成"
-                className={`${inputCls} w-72`}
-              />
-            )}
-          </Field>
+          <CodexField />
         </Card>
         <VoiceSection />
         <ProfileSection />

@@ -8,7 +8,7 @@
 //! 用途:经 SSH 在真实 bundle 上驱动门禁(无屏幕录制/辅助功能权限时的替代),不进契约、不给前端调用。
 //! release 构建里 `maybe_spawn` 恒为 no-op,`automation_report` 恒返回 invalid_request。
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -150,7 +150,7 @@ fn handle_request<R: tauri::Runtime>(
         .unwrap_or(60_000);
     let id = format!(
         "a{}-{}",
-        SEQ.fetch_add(1, Ordering::Relaxed),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         chrono::Utc::now().timestamp_millis()
     );
     let wrapped = format!(

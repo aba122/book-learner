@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -99,9 +99,9 @@ const EXTRA_SUMMARY: Record<ExtraKind, string> = {
 const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const
 
 // 错误码与 tauri.ts IPC_ERRORS 一致(文案相同),页面对两种后端的失败态无差别
-const conflict = () => new BackendError({ code: 'conflict', message: '数据状态冲突，请刷新后重试', retryable: false })
+const conflict = () => new BackendError({ code: 'conflict', message: '数据已被更新,请刷新后重试', retryable: false })
 const notFound = () => new BackendError({ code: 'not_found', message: '未找到请求的数据', retryable: false })
-const invalidRequest = () => new BackendError({ code: 'invalid_request', message: '请求参数无效', retryable: false })
+const invalidRequest = () => new BackendError({ code: 'invalid_request', message: '请求内容无效', retryable: false })
 
 function requireClientId(id: string): void {
   if (!CLIENT_ID_RE.test(id)) throw invalidRequest()
@@ -648,6 +648,19 @@ export class MockBackend implements Backend {
       this.marks.push(m)
     }
     return { ...m }
+  }
+
+  // ---- codex 路径(M3 T6):内存设置;相对路径拒绝 ----
+  private codexPath: string | null = null
+  async codexBinGet(): Promise<CodexBin> {
+    return { path: this.codexPath, resolved: this.codexPath ?? '/opt/homebrew/bin/codex', error: null }
+  }
+  async codexBinSet(path: string | null): Promise<CodexBin> {
+    const trimmed = path?.trim() ?? ''
+    if (trimmed && !trimmed.startsWith('/')) throw new BackendError({ code: 'invalid_request', message: '设置中的 codex 路径必须是绝对路径', retryable: false })
+    if (trimmed.endsWith('/missing')) throw new BackendError({ code: 'not_found', message: '未找到 codex 可执行文件,请在设置中填写其绝对路径', retryable: false })
+    this.codexPath = trimmed || null
+    return this.codexBinGet()
   }
 
   // ---- 语音(M3 T3):内存模型清单;转写返回固定文本(按时长稍等) ----

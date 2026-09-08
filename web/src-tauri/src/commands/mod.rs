@@ -2,12 +2,12 @@ use tauri::{Emitter, Manager, State};
 
 use crate::application;
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
-    EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
-    GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, NewReaderMarkDto, PomodoroSnapshotDto, ProfileDto, PushResultDto,
-    ReaderMarkDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto, StatsDetailDto,
-    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, CodexBinDto,
+    DailyTaskDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto,
+    FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, MapRevisionDto, NewReaderMarkDto, PomodoroSnapshotDto, ProfileDto,
+    PushResultDto, ReaderMarkDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto,
+    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -115,6 +115,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("voice_select_model", &["name"]),
     ("voice_delete_model", &["name"]),
     ("voice_transcribe", &[]),
+    // M3 T6:codex 可执行路径(设置项直读表)
+    ("settings_codex_get", &[]),
+    ("settings_codex_set", &["path"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -630,6 +633,21 @@ pub fn reader_position_set_inner(
 ) -> Result<ReaderMarkDto, IpcError> {
     run_command(state, "reader_position_set", || {
         application::reader_position_set(state, book_id, spine_href, cfi)
+    })
+}
+
+pub fn settings_codex_get_inner(state: &AppState) -> Result<CodexBinDto, IpcError> {
+    run_command(state, "settings_codex_get", || {
+        application::codex_bin_get(state)
+    })
+}
+
+pub fn settings_codex_set_inner(
+    state: &AppState,
+    path: Option<String>,
+) -> Result<CodexBinDto, IpcError> {
+    run_command(state, "settings_codex_set", || {
+        application::codex_bin_set(state, path)
     })
 }
 
@@ -1168,6 +1186,21 @@ pub async fn reader_position_set(
     cfi: String,
 ) -> Result<ReaderMarkDto, IpcError> {
     reader_position_set_inner(&state, book_id, &spine_href, &cfi)
+}
+
+// ---- codex 路径(M3 T6)----
+
+#[tauri::command(async)]
+pub async fn settings_codex_get(state: State<'_, AppState>) -> Result<CodexBinDto, IpcError> {
+    settings_codex_get_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn settings_codex_set(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<CodexBinDto, IpcError> {
+    settings_codex_set_inner(&state, path)
 }
 
 // ---- 语音(M3 T3)----

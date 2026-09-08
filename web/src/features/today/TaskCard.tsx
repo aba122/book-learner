@@ -68,9 +68,10 @@ export default function TaskCard({
                 <>
                   <Button
                     disabled={completing || completionUnavailable}
+                    title={completionUnavailable ? '这项任务在讲授并确认判定后自动完成' : undefined}
                     onClick={() => onComplete(task)}
                   >
-                    {completionUnavailable ? '完成暂不可用' : completing ? '处理中…' : '完成'}
+                    {completionUnavailable ? '讲完自动完成' : completing ? '处理中…' : '完成'}
                   </Button>
                   <Button variant="primary" onClick={() => onStart(task)}>
                     开始重考
@@ -81,9 +82,10 @@ export default function TaskCard({
                 <>
                   <Button
                     disabled={completing || completionUnavailable}
+                    title={completionUnavailable ? '这项任务在讲授并确认判定后自动完成' : undefined}
                     onClick={() => onComplete(task)}
                   >
-                    {completionUnavailable ? '完成暂不可用' : completing ? '处理中…' : '完成'}
+                    {completionUnavailable ? '讲完自动完成' : completing ? '处理中…' : '完成'}
                   </Button>
                   <Button onClick={() => (onRead ?? onStart)(task)}>回读原文</Button>
                   <Button variant="primary" onClick={() => onStart(task)}>

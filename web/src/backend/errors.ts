@@ -43,7 +43,7 @@ export function normalizeBackendError(value: unknown): BackendError {
   }
   return new BackendError({
     code: 'unknown',
-    message: '未知后端错误',
+    message: '未知错误',
     retryable: false,
     details: value,
   })

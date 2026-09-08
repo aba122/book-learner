@@ -238,6 +238,8 @@ function MapPageContent({ bookId }: { bookId: number }) {
         <AsyncError error={blocksRes.error} onRetry={blocksRes.reload} />
       ) : blocks === null ? (
         <p className="text-sm text-ink-3">正在展开地图…</p>
+      ) : blocks.length === 0 ? (
+        <p className="text-sm text-ink-3">这本书还没有知识块——地图生成可能被中断,请回到书架重新导入一次。</p>
       ) : (
         <div className="flex flex-col gap-8">
           {groups.map(group => (
@@ -295,7 +297,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
                         <Button
                           className="px-2.5 py-1 text-xs"
                           disabled
-                          title="合并/拆分需读原文选区,Mac 阶段实现"
+                          title="合并/拆分暂未提供;可用删除、跳过与排序整理地图"
                         >
                           合并/拆分
                         </Button>

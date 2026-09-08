@@ -30,6 +30,27 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe('设置页 · codex 路径(M3 T6)', () => {
+  it('显示当前解析到的路径;保存绝对路径后生效,相对路径报错,清空恢复自动寻找', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    const input = await screen.findByLabelText('codex 可执行路径')
+    expect(await screen.findByText('当前使用 /opt/homebrew/bin/codex')).toHaveAttribute('data-testid', 'codex-status')
+    expect(screen.getByRole('button', { name: '保存路径' })).toBeDisabled()
+    await user.type(input, 'codex')
+    await user.click(screen.getByRole('button', { name: '保存路径' }))
+    expect((await screen.findByText('设置中的 codex 路径必须是绝对路径')).closest('[role=alert]')).toBeTruthy()
+    await user.clear(input)
+    await user.type(input, '/usr/local/bin/codex')
+    await user.click(screen.getByRole('button', { name: '保存路径' }))
+    expect(await screen.findByText('当前使用 /usr/local/bin/codex')).toBeInTheDocument()
+    expect(input).toHaveValue('/usr/local/bin/codex')
+    await user.clear(input)
+    await user.click(screen.getByRole('button', { name: '保存路径' }))
+    expect(await screen.findByText('当前使用 /opt/homebrew/bin/codex')).toBeInTheDocument()
+  })
+})
+
 describe('设置页 · 语音(M3 T3)', () => {
   it('列出 whisper 模型(已导入者可选/可删),按路径导入后出现并可切换,删除经确认', async () => {
     const user = userEvent.setup()
@@ -378,7 +399,7 @@ describe('设置页 · 数据(M3 T5)', () => {
     const input = await screen.findByLabelText('记忆库 git 远程')
     fireEvent.change(input, { target: { value: '-bad url' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并校验' }))
-    expect(await screen.findByText('请求参数无效')).toBeInTheDocument()
+    expect(await screen.findByText('请求内容无效')).toBeInTheDocument()
     fireEvent.change(input, { target: { value: 'git@example.com:me/memory.git' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并校验' }))
     await waitFor(() => expect(setRemote).toHaveBeenLastCalledWith('git@example.com:me/memory.git'))

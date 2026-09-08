@@ -72,7 +72,7 @@ export default function FeynmanPage() {
         <Card className="w-full max-w-xl p-8">
           <h1 className="font-serif text-xl font-semibold text-ink-1">准备费曼讲授</h1>
           <p className="mt-2 text-sm leading-relaxed text-ink-3">
-            正在读取今日任务、原文和讲授上下文。会话就绪后才会开放输入。
+            正在读取今日任务、原文和讲授上下文,准备好后即可开始讲授。
           </p>
           <div className="mt-6">
             {init.error ? (

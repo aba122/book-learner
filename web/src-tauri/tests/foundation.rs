@@ -168,7 +168,7 @@ fn error_codes_are_snake_case_and_core_errors_map_to_safe_stable_payloads() {
         (
             CoreError::InvalidInput("private request".into()),
             ErrorCode::InvalidRequest,
-            "请求参数无效",
+            "请求内容无效",
             false,
         ),
         (
@@ -180,7 +180,7 @@ fn error_codes_are_snake_case_and_core_errors_map_to_safe_stable_payloads() {
         (
             CoreError::Conflict("private constraint".into()),
             ErrorCode::Conflict,
-            "数据状态冲突，请刷新后重试",
+            "数据已被更新,请刷新后重试",
             false,
         ),
         (
@@ -2069,7 +2069,7 @@ fn unsupported_capability_is_always_safe_and_not_implemented() {
     let error = commands::unsupported_capability_inner(&state, "importEpub".into()).unwrap_err();
     assert_eq!(error.code, ErrorCode::NotImplemented);
     assert_eq!(error.details, Some(json!({"capability": "importEpub"})));
-    assert_eq!(error.message, "此功能尚未在 Mac 版中实现");
+    assert_eq!(error.message, "此功能暂未提供");
 }
 
 fn invoke_json(
@@ -2397,6 +2397,8 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "profile_save" => json!({"profile": {
                 "background": "经济学本科", "mastered": "", "pitfalls": "", "context": "研究者"
             }}),
+            "settings_codex_get" => json!({}),
+            "settings_codex_set" => json!({"path": null}),
             "voice_models" => json!({}),
             "voice_import_model" => {
                 // 无模型文件:校验失败 invalid_request(不会弹原生选择器,因为 path 非空)
@@ -2642,4 +2644,65 @@ fn voice_transcribe_validates_pcm_and_requires_a_model() {
     );
     assert_eq!(voice::percent_decode("plain"), "plain");
     assert_eq!(voice::percent_decode("%zz%"), "%zz%");
+}
+
+// ---- codex 路径(M3 T6):设置项校验即解析;清除;get 报告当前解析结果 ----
+
+#[test]
+fn codex_bin_setting_validates_absolute_executable_and_can_be_cleared() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("codex.db")).unwrap();
+    assert_eq!(
+        commands::settings_codex_set_inner(&state, Some("codex".into()))
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let missing = directory.path().join("nope");
+    assert_eq!(
+        commands::settings_codex_set_inner(&state, Some(missing.to_string_lossy().into_owned()))
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let fake = directory.path().join("codex");
+    std::fs::write(&fake, "#!/bin/sh\nexit 0\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let set = commands::settings_codex_set_inner(&state, Some(format!("  {}  ", fake.display())))
+        .unwrap();
+    assert_eq!(set.path.as_deref(), Some(fake.to_string_lossy().as_ref()));
+    assert_eq!(
+        set.resolved.as_deref(),
+        Some(fake.to_string_lossy().as_ref())
+    );
+    assert!(set.error.is_none());
+    let got = commands::settings_codex_get_inner(&state).unwrap();
+    assert_eq!(got, set);
+    let stored: String = state
+        .with_connection(|c| {
+            Ok(
+                c.query_row("SELECT value FROM setting WHERE key='codexBin'", [], |r| {
+                    r.get(0)
+                })?,
+            )
+        })
+        .unwrap();
+    assert_eq!(stored, fake.to_string_lossy());
+    // 清除后 path 为空;resolved 取环境解析结果(有无 codex 都不报错,只给 error 文案)
+    let cleared = commands::settings_codex_set_inner(&state, Some("   ".into())).unwrap();
+    assert!(cleared.path.is_none());
+    assert!(cleared.resolved.is_some() || cleared.error.is_some());
+    let rows: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM setting WHERE key='codexBin'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
 }

@@ -92,12 +92,34 @@ function findTocTitle(toc: NavItem[], href: string): string | null {
  * 有序 spine 抽取:每章 { idx, href, title, text }。title = TOC label(href 匹配)?? 首个 h1..h3 ?? href;
  * text 带标题层级标记;同一 href 重复出现只保留首个;idx 为去重后序号;每章抽取后 unload。
  */
-export async function extractSpine(book: Book): Promise<SpineChapter[]> {
+/** 每抽取这么多章让出一次主线程(抽取依赖 epub.js 的 section.document DOM,进不了 Worker) */
+export const EXTRACT_YIELD_EVERY = 6
+
+/** 让出主线程:优先 scheduler.yield(),否则 setTimeout(0);让进度条与取消按钮有机会绘制 */
+export async function yieldToMain(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
+  if (scheduler?.yield) {
+    await scheduler.yield()
+    return
+  }
+  await new Promise<void>(resolve => setTimeout(resolve, 0))
+}
+
+export interface ExtractProgress {
+  /** 已完成的章数(1 起) */
+  done: number
+  total: number
+  title: string
+}
+
+export async function extractSpine(book: Book, onProgress?: (p: ExtractProgress) => void): Promise<SpineChapter[]> {
   const nav = await book.loaded.navigation
   const toc = nav.toc ?? []
   const chapters: SpineChapter[] = []
   const seen = new Set<string>()
-  for (const section of spineSections(book)) {
+  const sections = spineSections(book)
+  let processed = 0
+  for (const section of sections) {
     const href = stripFragment(section.href)
     if (seen.has(href)) continue
     seen.add(href)
@@ -107,6 +129,9 @@ export async function extractSpine(book: Book): Promise<SpineChapter[]> {
     const title = findTocTitle(toc, href) ?? (heading || href)
     chapters.push({ idx: chapters.length, href, title, text: chapterMarkdownText(doc) })
     section.unload()
+    processed += 1
+    onProgress?.({ done: processed, total: sections.length, title })
+    if (processed % EXTRACT_YIELD_EVERY === 0) await yieldToMain()
   }
   return chapters
 }

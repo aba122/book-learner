@@ -280,7 +280,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     expect(error).toBeInstanceOf(BackendError)
     expect(error).toMatchObject({
       code: 'transport_error',
-      message: '与本地后端通信失败',
+      message: '与应用内核通信失败,请重试',
       retryable: false,
       details: expectedDetails,
     })
@@ -329,7 +329,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
     const backend = new TauriBackend(async () => {
       throw {
         code: 'not_implemented',
-        message: '此功能尚未在 Mac 版中实现',
+        message: '此功能暂未提供',
         retryable: false,
         details: { capability: 'completeTask', path: '/Users/alice/private/app.db' },
       }
@@ -343,7 +343,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 
   it('routes every unsupported method through the shared capability contract without fake progress', async () => {
     const calls: { command: string; payload: Record<string, unknown> }[] = []
-    const rejection = { code: 'not_implemented', message: '此功能尚未在 Mac 版中实现', retryable: false }
+    const rejection = { code: 'not_implemented', message: '此功能暂未提供', retryable: false }
     const backend = new TauriBackend(async <_T>(command, payload = {}) => {
       calls.push({ command, payload })
       throw rejection
@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -511,6 +511,20 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(calls[2].payload).toEqual({ id: 3, note: 'n', color: null })
     const bad = new TauriBackend(async <T>() => ([{ ...mark, kind: 'note' }]) as T)
     await expect(bad.readerMarkList(1)).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('codex path: get/set decode and payload (M3 T6)', async () => {
+    const info = { path: null, resolved: '/opt/homebrew/bin/codex', error: null }
+    const { calls, invoke } = recorder({ settings_codex_get: info, settings_codex_set: { path: '/usr/local/bin/codex', resolved: '/usr/local/bin/codex', error: null } })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.codexBinGet()).toEqual(info)
+    expect((await backend.codexBinSet('/usr/local/bin/codex')).path).toBe('/usr/local/bin/codex')
+    await backend.codexBinSet(null)
+    expect(calls.map(c => c.command)).toEqual(['settings_codex_get', 'settings_codex_set', 'settings_codex_set'])
+    expect(calls[1].payload).toEqual({ path: '/usr/local/bin/codex' })
+    expect(calls[2].payload).toEqual({ path: null })
+    const bad = new TauriBackend(async <T>() => ({ path: 1 }) as T)
+    await expect(bad.codexBinGet()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('voice: model list/import/select/delete decode; transcribe sends raw PCM with lang and encoded hint headers (M3 T3)', async () => {
@@ -798,7 +812,7 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
 
   it('routes v2 methods to real commands under the shipped contract, and gates them only when listed', async () => {
     const calls: string[] = []
-    const rejection = { code: 'not_implemented', message: '此功能尚未在 Mac 版中实现', retryable: false }
+    const rejection = { code: 'not_implemented', message: '此功能暂未提供', retryable: false }
     const invoke = async <_T>(command: string) => {
       calls.push(command)
       throw rejection
