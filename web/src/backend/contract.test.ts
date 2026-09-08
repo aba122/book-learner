@@ -117,6 +117,12 @@ describe('Tauri wire contract fixture', () => {
       { method: 'gitRemoteGet', command: 'git_remote_get', payloadKeys: [] },
       { method: 'gitRemoteSet', command: 'git_remote_set', payloadKeys: ['url'] },
       { method: 'gitPushNow', command: 'git_push_now', payloadKeys: [] },
+      // M3 T4:阅读器标记
+      { method: 'readerMarkList', command: 'reader_mark_list', payloadKeys: ['bookId'] },
+      { method: 'readerMarkAdd', command: 'reader_mark_add', payloadKeys: ['bookId', 'mark'] },
+      { method: 'readerMarkUpdate', command: 'reader_mark_update', payloadKeys: ['id', 'note', 'color'] },
+      { method: 'readerMarkRemove', command: 'reader_mark_remove', payloadKeys: ['id'] },
+      { method: 'readerPositionSet', command: 'reader_position_set', payloadKeys: ['bookId', 'spineHref', 'cfi'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

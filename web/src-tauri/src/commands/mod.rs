@@ -5,9 +5,9 @@ use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
     EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
     GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, PomodoroSnapshotDto, ProfileDto, PushResultDto, ReplanDto, SessionViewDto,
-    SnapshotDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
-    TurnResultDto, VerdictOutcomeDto,
+    MapRevisionDto, NewReaderMarkDto, PomodoroSnapshotDto, ProfileDto, PushResultDto,
+    ReaderMarkDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto, StatsDetailDto,
+    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -99,6 +99,12 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("git_remote_get", &[]),
     ("git_remote_set", &["url"]),
     ("git_push_now", &[]),
+    // M3 T4:阅读器标记
+    ("reader_mark_list", &["bookId"]),
+    ("reader_mark_add", &["bookId", "mark"]),
+    ("reader_mark_update", &["id", "note", "color"]),
+    ("reader_mark_remove", &["id"]),
+    ("reader_position_set", &["bookId", "spineHref", "cfi"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -570,6 +576,53 @@ pub fn git_push_now_inner(state: &AppState) -> Result<PushResultDto, IpcError> {
     run_command(state, "git_push_now", || application::git_push_now(state))
 }
 
+pub fn reader_mark_list_inner(
+    state: &AppState,
+    book_id: i64,
+) -> Result<Vec<ReaderMarkDto>, IpcError> {
+    run_command(state, "reader_mark_list", || {
+        application::reader_mark_list(state, book_id)
+    })
+}
+
+pub fn reader_mark_add_inner(
+    state: &AppState,
+    book_id: i64,
+    mark: NewReaderMarkDto,
+) -> Result<ReaderMarkDto, IpcError> {
+    run_command(state, "reader_mark_add", || {
+        application::reader_mark_add(state, book_id, mark)
+    })
+}
+
+pub fn reader_mark_update_inner(
+    state: &AppState,
+    id: i64,
+    note: Option<String>,
+    color: Option<String>,
+) -> Result<ReaderMarkDto, IpcError> {
+    run_command(state, "reader_mark_update", || {
+        application::reader_mark_update(state, id, note, color)
+    })
+}
+
+pub fn reader_mark_remove_inner(state: &AppState, id: i64) -> Result<(), IpcError> {
+    run_command(state, "reader_mark_remove", || {
+        application::reader_mark_remove(state, id)
+    })
+}
+
+pub fn reader_position_set_inner(
+    state: &AppState,
+    book_id: i64,
+    spine_href: &str,
+    cfi: &str,
+) -> Result<ReaderMarkDto, IpcError> {
+    run_command(state, "reader_position_set", || {
+        application::reader_position_set(state, book_id, spine_href, cfi)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -1016,4 +1069,48 @@ pub async fn git_remote_set(
 #[tauri::command(async)]
 pub async fn git_push_now(state: State<'_, AppState>) -> Result<PushResultDto, IpcError> {
     git_push_now_inner(&state)
+}
+
+// ---- 阅读器标记命令(M3 T4)----
+
+#[tauri::command(async)]
+pub async fn reader_mark_list(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<Vec<ReaderMarkDto>, IpcError> {
+    reader_mark_list_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn reader_mark_add(
+    state: State<'_, AppState>,
+    book_id: i64,
+    mark: NewReaderMarkDto,
+) -> Result<ReaderMarkDto, IpcError> {
+    reader_mark_add_inner(&state, book_id, mark)
+}
+
+#[tauri::command(async)]
+pub async fn reader_mark_update(
+    state: State<'_, AppState>,
+    id: i64,
+    note: Option<String>,
+    color: Option<String>,
+) -> Result<ReaderMarkDto, IpcError> {
+    reader_mark_update_inner(&state, id, note, color)
+}
+
+#[tauri::command(async)]
+pub async fn reader_mark_remove(state: State<'_, AppState>, id: i64) -> Result<(), IpcError> {
+    reader_mark_remove_inner(&state, id)
+}
+
+#[tauri::command(async)]
+pub async fn reader_position_set(
+    state: State<'_, AppState>,
+    book_id: i64,
+    spine_href: String,
+    cfi: String,
+) -> Result<ReaderMarkDto, IpcError> {
+    reader_position_set_inner(&state, book_id, &spine_href, &cfi)
 }

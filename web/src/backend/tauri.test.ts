@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -495,6 +495,22 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(seen).toEqual([{ ...snap, phase: 'break' }])
     const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('reader marks: list/add/update/remove/position decode and send payloads (M3 T4)', async () => {
+    const mark = { id: 3, bookId: 1, kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/4!/4/2/1:0)', cfiEnd: 'epubcfi(/6/4!/4/2/1:8)', text: '弹性', color: 'yellow', note: '', createdAt: 'x', updatedAt: 'x' }
+    const { calls, invoke } = recorder({ reader_mark_list: [mark], reader_mark_add: mark, reader_mark_update: { ...mark, note: 'n' }, reader_mark_remove: null, reader_position_set: { ...mark, kind: 'position', cfiEnd: null } })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.readerMarkList(1)).toEqual([mark])
+    expect(await backend.readerMarkAdd(1, { kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd, text: '弹性' })).toEqual(mark)
+    expect((await backend.readerMarkUpdate(3, 'n', null)).note).toBe('n')
+    await backend.readerMarkRemove(3)
+    expect((await backend.readerPositionSet(1, 'chap1.xhtml', mark.cfiStart)).kind).toBe('position')
+    expect(calls.map(c => c.command)).toEqual(['reader_mark_list', 'reader_mark_add', 'reader_mark_update', 'reader_mark_remove', 'reader_position_set'])
+    expect(calls[1].payload).toEqual({ bookId: 1, mark: { kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd, text: '弹性', color: '', note: '' } })
+    expect(calls[2].payload).toEqual({ id: 3, note: 'n', color: null })
+    const bad = new TauriBackend(async <T>() => ([{ ...mark, kind: 'note' }]) as T)
+    await expect(bad.readerMarkList(1)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('backup/git: snapshot list, restore marker, remote and push decode (M3 T5)', async () => {

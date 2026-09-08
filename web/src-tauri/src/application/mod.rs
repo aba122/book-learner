@@ -9,8 +9,9 @@ use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, DailyTaskDto,
     EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto,
     GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, ProfileDto, PushResultDto, ReplanDto, SessionViewDto, SpineChapterDto,
-    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    MapRevisionDto, NewReaderMarkDto, ProfileDto, PushResultDto, ReaderMarkDto, ReplanDto,
+    SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
+    TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -729,4 +730,60 @@ pub fn git_push_now(state: &AppState) -> Result<PushResultDto, IpcError> {
             })
         }
     }
+}
+
+// ---- 阅读器标记(M3 T4):高亮/书签/阅读位置 ----
+
+pub fn reader_mark_list(state: &AppState, book_id: i64) -> Result<Vec<ReaderMarkDto>, IpcError> {
+    state
+        .with_connection(|connection| book_learner_core::reader_marks::list(connection, book_id))
+        .map(|marks| marks.into_iter().map(Into::into).collect())
+}
+
+pub fn reader_mark_add(
+    state: &AppState,
+    book_id: i64,
+    mark: NewReaderMarkDto,
+) -> Result<ReaderMarkDto, IpcError> {
+    let mark: book_learner_core::reader_marks::NewMark = mark.into();
+    state
+        .with_connection(|connection| {
+            book_learner_core::reader_marks::add(connection, book_id, &mark)
+        })
+        .map(Into::into)
+}
+
+pub fn reader_mark_update(
+    state: &AppState,
+    id: i64,
+    note: Option<String>,
+    color: Option<String>,
+) -> Result<ReaderMarkDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::reader_marks::update(
+                connection,
+                id,
+                note.as_deref(),
+                color.as_deref(),
+            )
+        })
+        .map(Into::into)
+}
+
+pub fn reader_mark_remove(state: &AppState, id: i64) -> Result<(), IpcError> {
+    state.with_connection(|connection| book_learner_core::reader_marks::remove(connection, id))
+}
+
+pub fn reader_position_set(
+    state: &AppState,
+    book_id: i64,
+    spine_href: &str,
+    cfi: &str,
+) -> Result<ReaderMarkDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::reader_marks::set_position(connection, book_id, spine_href, cfi)
+        })
+        .map(Into::into)
 }

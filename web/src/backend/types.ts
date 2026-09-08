@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, PushResult, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -56,6 +56,12 @@ export interface Backend {
   gitRemoteGet(): Promise<GitRemote>
   gitRemoteSet(url: string): Promise<GitRemote>
   gitPushNow(): Promise<PushResult>
+  /** 阅读器标记(M3 T4):书签同点幂等;position 每书一行 upsert */
+  readerMarkList(bookId: number): Promise<ReaderMark[]>
+  readerMarkAdd(bookId: number, mark: NewReaderMark): Promise<ReaderMark>
+  readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
+  readerMarkRemove(id: number): Promise<void>
+  readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

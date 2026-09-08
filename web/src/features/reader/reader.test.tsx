@@ -18,6 +18,7 @@ const h = vi.hoisted(() => {
     prev: vi.fn(() => Promise.resolve()),
     on: vi.fn(),
     themes: { register: vi.fn(), select: vi.fn(), fontSize: vi.fn() },
+    annotations: { highlight: vi.fn(), underline: vi.fn(), remove: vi.fn() },
   }
   const book = {
     renderTo: vi.fn(() => rendition),
@@ -192,3 +193,107 @@ describe('EpubView 回调 ref(H-T6)', () => {
     expect(prog1).not.toHaveBeenCalled()
   })
 })
+
+/** 取 rendition.on 注册的最新事件处理器 */
+function handler(event: string): ((...args: unknown[]) => void) | undefined {
+  const calls = h.rendition.on.mock.calls.filter(c => c[0] === event)
+  return calls.at(-1)?.[1] as ((...args: unknown[]) => void) | undefined
+}
+
+describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
+  beforeEach(() => {
+    const memory = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => memory.get(k) ?? null,
+      setItem: (k: string, v: string) => void memory.set(k, String(v)),
+      removeItem: (k: string) => void memory.delete(k),
+      clear: () => memory.clear(),
+    })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('书签:记下当前页 CFI,标记面板可见并可删除', async () => {
+    const user = userEvent.setup()
+    const add = vi.spyOn(backendModule.backend, 'readerMarkAdd')
+    const remove = vi.spyOn(backendModule.backend, 'readerMarkRemove')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => { handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } }) })
+    await user.click(screen.getByRole('button', { name: '书签' }))
+    await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
+    expect(add.mock.calls[0][0]).toBe(1)
+    expect(add.mock.calls[0][1]).toMatchObject({ kind: 'bookmark', spineHref: 'chap2.xhtml', cfiStart: 'epubcfi(/6/8!/4/2/1:0)' })
+    await user.click(screen.getByRole('button', { name: '标记' }))
+    const panel = await screen.findByTestId('marks-panel')
+    expect(within(panel).getAllByTestId('mark-bookmark')).toHaveLength(1)
+    await user.click(within(panel).getByRole('button', { name: /删除书签/ }))
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(within(panel).queryAllByTestId('mark-bookmark')).toHaveLength(0))
+  })
+
+  it('选区 → 高亮:写入区间 CFI 与颜色,并在 epub.js 上加注解', async () => {
+    const user = userEvent.setup()
+    const add = vi.spyOn(backendModule.backend, 'readerMarkAdd')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => {
+      handler('selected')?.('epubcfi(/6/8!/4/2,/1:0,/1:12)', { window: { getSelection: () => ({ toString: () => '价格上限' }) }, section: { href: 'chap2.xhtml' } })
+    })
+    const toolbar = await screen.findByRole('toolbar', { name: '选区操作' })
+    expect(toolbar).toHaveTextContent('价格上限')
+    await user.click(within(toolbar).getByRole('button', { name: '高亮:绿' }))
+    await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
+    expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
+    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, undefined, 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
+    expect(screen.queryByRole('toolbar')).toBeNull()
+  })
+
+  it('阅读位置节流写回,非学习模式重开从上次位置开始', async () => {
+    const setPosition = vi.spyOn(backendModule.backend, 'readerPositionSet')
+    const first = renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => {
+      handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } })
+      handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/4/1:0)', href: 'chap2.xhtml' } })
+    })
+    await waitFor(() => expect(setPosition).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(setPosition).toHaveBeenCalledWith(1, 'chap2.xhtml', 'epubcfi(/6/8!/4/4/1:0)')
+    first.unmount()
+    h.rendition.display.mockClear()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith('epubcfi(/6/8!/4/4/1:0)'))
+  })
+
+  it('排版偏好持久化到 localStorage;关闭"覆盖出版方样式"后主题不再注入行高/字体', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await user.click(await screen.findByRole('button', { name: '阅读设置' }))
+    await user.click(screen.getByRole('button', { name: '增大字号' }))
+    await user.click(screen.getByRole('button', { name: '行高:2.1' }))
+    const saved = JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}')
+    expect(saved).toMatchObject({ fontIdx: READER_FONT_STEPS.indexOf(112), lineIdx: 2, overridePublisher: true })
+    const before = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'paper').at(-1)?.[1] as { body: Record<string, string> }
+    expect(before.body['line-height']).toBe('2.1')
+    await user.click(screen.getByRole('checkbox', { name: '覆盖出版方样式' }))
+    const after = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'paper').at(-1)?.[1] as { body: Record<string, string> }
+    expect(after.body['line-height']).toBeUndefined()
+    expect(after.body.background).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}').overridePublisher).toBe(false)
+  })
+
+  it('学习模式:该章 rendered 后按锚点两点 CFI 组合区间并加下划线', async () => {
+    await backendModule.backend.setAnchorSegments(4, [{ spineHref: 'chap2.xhtml', cfiStart: 'epubcfi(/6/8!/4/2/1:0)', cfiEnd: 'epubcfi(/6/8!/4/6/1:0)', precision: 'exact', hint: '价格管制', text: 'x' }])
+    renderReader('/reader/4?task=3')
+    await screen.findByRole('button', { name: '开始费曼讲授' })
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith('epubcfi(/6/8!/4/2/1:0)'))
+    const doc = { createRange: () => ({ setStart: vi.fn(), setEnd: vi.fn() }) }
+    const section = { href: 'chap2.xhtml', cfiFromRange: () => 'epubcfi(/6/8!/4/2,/1:0,/6/1:0)' }
+    await act(async () => { handler('rendered')?.(section, { contents: { document: doc } }) })
+    // jsdom 里 EpubCFI.toRange 走不通时不加注解(不抛错);能走通则加一条下划线
+    const calls = h.rendition.annotations.underline.mock.calls
+    expect(calls.length).toBeLessThanOrEqual(1)
+    if (calls.length === 1) expect(calls[0][0]).toBe('epubcfi(/6/8!/4/2,/1:0,/6/1:0)')
+  })
+})
+

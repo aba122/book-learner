@@ -110,4 +110,14 @@ export interface SnapshotInfo { name: string; date: string; bytes: number }
 export interface BackupList { snapshots: SnapshotInfo[]; pendingRestore: string | null }
 export interface GitRemote { url: string | null }
 export interface PushResult { pushed: boolean; error: string | null }
+/** 阅读器标记(M3 T4):高亮(区间 CFI)/ 书签(点 CFI)/ 阅读位置(每书一行) */
+export type ReaderMarkKind = 'highlight' | 'bookmark' | 'position'
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
+export interface ReaderMark {
+  id: number; bookId: number; kind: ReaderMarkKind; spineHref: string; cfiStart: string; cfiEnd: string | null
+  text: string; color: string; note: string; createdAt: string; updatedAt: string
+}
+export interface NewReaderMark {
+  kind: ReaderMarkKind; spineHref: string; cfiStart: string; cfiEnd?: string | null; text?: string; color?: string; note?: string
+}
 

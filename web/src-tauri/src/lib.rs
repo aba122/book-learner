@@ -74,6 +74,11 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::git_remote_get,
         commands::git_remote_set,
         commands::git_push_now,
+        commands::reader_mark_list,
+        commands::reader_mark_add,
+        commands::reader_mark_update,
+        commands::reader_mark_remove,
+        commands::reader_position_set,
         commands::automation_report,
     ])
 }

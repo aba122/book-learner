@@ -281,6 +281,8 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 - epub.js `rendition` 分页/滚动双模式;主题注入自定义 CSS(覆盖出版方样式的可选开关)。
 - 中文排版:字体栈 `Songti SC / PingFang SC / 霞鹜文楷(内置可选)`,版心 max-width 38em,行高 1.8,两端对齐 + `text-autospace`,亮/暗/纸质三主题。
 
+> **实现说明(M3 T4,2026-09-08)**:排版规则由"覆盖出版方样式"开关控制(`ReaderTypography`):开启时向 iframe 注入字体栈 `--font-reading`(Songti SC / Noto Serif CJK SC / PingFang SC)、行高档位 1.5/1.8/2.1、两端对齐、`text-autospace`、段首缩进开关;关闭时只注入主题配色。版心 38em 约束的是容器 div 而非 iframe body(分页模式由 epub.js 控制 body 宽度)。霞鹜文楷 woff2(约 10 MB)**未内置**,留待 dmg 体积评估。偏好(字号/主题/行高/缩进/覆盖)存 `localStorage['bookLearner.readerPrefs']`。标记:schema v8 `reader_mark`(highlight 区间 CFI + 颜色 + 批注;bookmark 点 CFI 同点幂等;position 每书一行 upsert,relocated 节流 800 ms 写回,非学习模式重开从上次位置起);高亮经 `annotations.highlight`,重建 rendition 后按清单重加;学习模式块范围下划线:`block_anchor` 两点 CFI 在该章 `rendered` 后用 `EpubCFI.toRange` 组合成 Range → `section.cfiFromRange` 得区间 → `annotations.underline`(chapter_fallback 段跳过)。手动锚点校正 UI 未做(留 M3 T6 或 M4)。
+
 ### 7.2 知识块锚定
 - 地图生成时 AI 给 `source_sections`(格式 `"{href}#{小节标题}"`);core 落库为 `block_anchor` 有序段(`chapter_fallback` + `hint`=小节标题);阅读器(Plan B,JS 侧)在该章 DOM 中按 `hint` 查找标题节点,生成起止 CFI(块首=该小节标题,块尾=下一小节标题前)并连同段文本经 `setAnchorSegments` 回填为 `exact`;跨章块即多段。
 - 标题匹配失败时回退为整章范围,并在地图页标记"锚点粗略"供手动校正(阅读器内选区→"设为块起点/终点")。

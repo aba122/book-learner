@@ -514,3 +514,11 @@
 - **web**:类型与 `backupSnapshotNow/backupList/backupRestore/backupCancelRestore/gitRemoteGet/gitRemoteSet/gitPushNow`,解码器与用例;Mock 内存实现;设置页"数据"分区替代原禁用占位:快照清单/立即快照/恢复登记(确认对话框)与取消/远程 URL 保存并校验/立即推送结果。用例 2 条。
 - 门禁:core 163/27/1/1、clippy 0、fmt;web 300/2、lint 0、build;src-tauri 由 Mac 原生 `cargo test` + CI 验证(首跑因用例数据目录布局与 `initialize_state` 不一致失败,已改用 `<dir>/book-learner/app.db`)。
 
+## 2026-09-08 · M3 T4:阅读器打磨(标记/排版/位置)
+- **core**:schema v8 `reader_mark`(随书级联);`reader_marks::{add, update, remove, list, set_position, get}`——highlight 需区间 CFI 与四色之一(默认 yellow)、bookmark 同书同点幂等、position 每书一行 upsert,CFI 必须以 `epubcfi(` 开头,文本/批注限长。单测 2 条。
+- **壳层/契约**:`ReaderMarkDto`/`NewReaderMarkDto`(deny_unknown_fields);`reader_mark_list[bookId]/reader_mark_add[bookId, mark]/reader_mark_update[id, note, color]/reader_mark_remove[id]/reader_position_set[bookId, spineHref, cfi]`;六处同步;foundation 用例。
+- **web**:`EpubView` 扩展——`typography` 属性(行高/缩进/覆盖出版方样式,三套主题按开关注入规则并在变化时重注册)、`highlights` 同步(增删注解)、`blockSegments`(该章 `rendered` 后两点 CFI 组合区间加下划线)、`onSelected`(区间 CFI + 选中文本 + 章节)、`onRelocated`、`currentLocation()`;非组件导出移到 `readerThemes.ts`(oxlint only-export-components)。`ReaderPage`:偏好持久化(`bookLearner.readerPrefs`)、顶栏"书签/标记"、选区工具条四色高亮、`MarksPanel`(书签/高亮跳转与删除)、阅读位置节流写回并作为非学习模式起始位置、学习模式起始位置为首段锚点、设置浮层新增行高/缩进/覆盖开关、版心 38em 容器。Mock/解码器/用例;reader 用例 +5。
+- **范围决定**:霞鹜文楷 woff2 不内置(10 MB,待 dmg 体积评估);手动锚点校正 UI(选区设为块起点/终点)未做,记入 M3 T6 或 M4。
+- **过程失误(再次)**:`open(p,'w').write(open(p).read())` 又把 `ReaderPage.tsx` 截空一次,从 git 恢复重做;**改文件的脚本里禁止这种写法**,已在记忆文件记规则。
+- 门禁:core 165/27/1/1、clippy 0、fmt;web 307/2、lint 0、build;src-tauri 由 Mac 原生 `cargo test` + CI 验证。
+
