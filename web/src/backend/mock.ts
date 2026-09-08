@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -26,6 +26,9 @@ interface MockSession {
   /** 通过后附加环节(M2 T5);普通会话为 null */
   extraKind: ExtraKind | null
   extraOutcome: ExtraOutcome | null
+  /** 整书终评所属的书(M3 T1);普通会话为 null */
+  bookId: number | null
+  finalReport: FinalReport | null
 }
 
 const STUDENT_SCRIPT: { text: string; readyToEnd: boolean }[] = [
@@ -63,6 +66,14 @@ const QUIZ_OPENER: Partial<Record<SessionKind, string>> = {
   retest: '请讲清你之前混淆的那个点:它和相邻概念的区别到底在哪里?',
 }
 const UNCONFIRMED: readonly SessionState[] = ['open', 'evaluating', 'evaluated']
+/** 整书终评学生回合脚本(镜像 core final_exam_system 两阶段)与报告样例 */
+const FINAL_SCRIPT: { text: string; readyToEnd: boolean }[] = [
+  { text: '先说说这本书分几个模块、各讲什么,主线是什么?', readyToEnd: false },
+  { text: '供给与需求和消费者选择这两块是怎么衔接的?为什么先讲前者?', readyToEnd: false },
+  { text: '综合题 1:一家平台想同时调价和改产品线,请用弹性和成本曲线两块知识给出决策框架。', readyToEnd: false },
+  { text: '综合题 2:如果政府设置价格上限,消费者剩余和长期供给会怎样变化?', readyToEnd: true },
+]
+const FINAL_REPORT_MD = '<!-- overall:4 strongest:供给与需求 weakest:生产与成本 -->\n## 总体掌握度\n对主线把握扎实。\n\n## 最强模块\n供给与需求\n\n## 最弱模块\n生产与成本\n\n## 薄弱点修复历程\n- 弹性 vs 斜率:第 1 天暴露,第 3 天修复\n\n## 建议重读章节\n- 短期成本曲线\n\n## 终评对话要点\n- 能用弹性解释定价决策'
 /** 附加环节学生回合脚本(按已发生的学生回合数取;镜像 core extra_system 的轮次上限) */
 const EXTRA_SCRIPT: Record<ExtraKind, { text: string; readyToEnd: boolean }[]> = {
   application: [
@@ -497,7 +508,7 @@ export class MockBackend implements Backend {
   private toView(s: MockSession): SessionView {
     return {
       sessionId: s.sessionId, taskId: s.taskId, version: s.version, state: s.state, blockId: s.blockId,
-      kind: s.kind, extraKind: s.extraKind, transcript: s.transcript.map(t => ({ ...t })), eval: s.eval,
+      kind: s.kind, extraKind: s.extraKind, bookId: s.bookId, transcript: s.transcript.map(t => ({ ...t })), eval: s.eval,
     }
   }
 
@@ -523,10 +534,61 @@ export class MockBackend implements Backend {
       sessionId: this.nextSessionId++, taskId, blockId: task.blockId, kind: SESSION_KIND[task.kind],
       state: 'open', version: 0, transcript: [], scriptIdx: 0, eval: null, clientRequestId,
       turnResults: new Map(), evalRequestId: null, verdictRequestId: null, verdictOutcome: null,
-      extraKind: null, extraOutcome: null,
+      extraKind: null, extraOutcome: null, bookId: null, finalReport: null,
     }
     this.v2Sessions.set(session.sessionId, session)
     return this.toView(session)
+  }
+
+  async finalExamEligible(bookId: number): Promise<boolean> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    const blocks = this.blocks.filter(b => b.bookId === bookId && !b.skipped)
+    return blocks.length > 0 && blocks.every(b => b.status === 'passed' || b.status === 'consolidated')
+  }
+
+  async finalExamStart(bookId: number, clientRequestId: string): Promise<SessionView> {
+    requireClientId(clientRequestId)
+    for (const s of this.v2Sessions.values()) {
+      if (s.clientRequestId === clientRequestId) return this.toView(s)
+    }
+    for (const s of this.v2Sessions.values()) {
+      if (s.kind === 'final_exam' && s.bookId === bookId && s.state !== 'abandoned') return this.toView(s)
+    }
+    if (!(await this.finalExamEligible(bookId))) throw conflict()
+    const placeholder = this.blocks.filter(b => b.bookId === bookId && !b.skipped).sort((a, z) => a.seq - z.seq)[0]
+    const session: MockSession = {
+      sessionId: this.nextSessionId++, taskId: 0, blockId: placeholder.id, kind: 'final_exam',
+      state: 'open', version: 0, transcript: [], scriptIdx: 0, eval: null, clientRequestId,
+      turnResults: new Map(), evalRequestId: null, verdictRequestId: null, verdictOutcome: null,
+      extraKind: null, extraOutcome: null, bookId, finalReport: null,
+    }
+    this.v2Sessions.set(session.sessionId, session)
+    return this.toView(session)
+  }
+
+  async finalExamFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<FinalReport> {
+    requireClientId(requestId)
+    const s = this.requireSession(sessionId)
+    if (s.kind !== 'final_exam' || s.bookId === null) throw invalidRequest()
+    if (s.finalReport) {
+      if (s.verdictRequestId === requestId) return { ...s.finalReport }
+      throw conflict()
+    }
+    if (s.state !== 'open') throw conflict()
+    if (s.version !== expectedVersion) throw conflict()
+    const answers = s.transcript.filter(t => t.role === 'user' && t.status === 'done' && t.clientTurnId !== OPENER_TURN_ID)
+    if (answers.length < 2) throw conflict()
+    const book = this.books.find(b => b.id === s.bookId)
+    if (book) { book.status = 'finished' }
+    this.plans = this.plans.map(p => (p.bookId === s.bookId ? { ...p } : p))
+    s.state = 'confirmed'
+    s.version += 1
+    s.verdictRequestId = requestId
+    s.finalReport = {
+      artifactId: this.nextArtifactId++, version: s.version,
+      contentMd: FINAL_REPORT_MD, overall: 4, strongestModule: '供给与需求', weakestModule: '生产与成本',
+    }
+    return { ...s.finalReport }
   }
 
   async extraStart(blockId: number, kind: ExtraKind, clientRequestId: string): Promise<SessionView> {
@@ -544,7 +606,7 @@ export class MockBackend implements Backend {
       sessionId: this.nextSessionId++, taskId: 0, blockId, kind: 'learn',
       state: 'open', version: 0, transcript: [], scriptIdx: 0, eval: null, clientRequestId,
       turnResults: new Map(), evalRequestId: null, verdictRequestId: null, verdictOutcome: null,
-      extraKind: kind, extraOutcome: null,
+      extraKind: kind, extraOutcome: null, bookId: null, finalReport: null,
     }
     this.v2Sessions.set(session.sessionId, session)
     return this.toView(session)
@@ -579,7 +641,7 @@ export class MockBackend implements Backend {
     if (s.state !== 'open') throw conflict()
     if (s.version !== expectedVersion) throw conflict()
     const opener = clientTurnId === OPENER_TURN_ID ? QUIZ_OPENER[s.kind] : undefined
-    const extraScript = s.extraKind ? EXTRA_SCRIPT[s.extraKind] : null
+    const extraScript = s.extraKind ? EXTRA_SCRIPT[s.extraKind] : s.kind === 'final_exam' ? FINAL_SCRIPT : null
     const studentTurns = s.transcript.filter(t => t.role === 'student').length
     const reply = extraScript
       ? extraScript[Math.min(studentTurns, extraScript.length - 1)]

@@ -80,7 +80,14 @@ export interface TurnView {
 export type ExtraKind = 'application' | 'methodology' | 'discussion'
 export interface SessionView {
   sessionId: number; taskId: number; version: number; state: SessionState; blockId: number
-  kind: SessionKind; extraKind: ExtraKind | null; transcript: TurnView[]; eval: EvalResult | null
+  kind: SessionKind; extraKind: ExtraKind | null
+  /** 整书终评所属的书(M3 T1);普通会话为 null(终评会话的 blockId 为占位块) */
+  bookId: number | null
+  transcript: TurnView[]; eval: EvalResult | null
+}
+/** 整书终评报告(core final_exam::FinalReport):contentMd 首行为元注释,已写 artifact 并归档 _report.md */
+export interface FinalReport {
+  artifactId: number; version: number; contentMd: string; overall: number; strongestModule: string; weakestModule: string
 }
 /** 附加环节结束产出:整理稿已写 artifact 并经投影归档到记忆库 */
 export interface ExtraOutcome { kind: ExtraKind; artifactId: number; version: number; contentMd: string }

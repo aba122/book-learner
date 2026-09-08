@@ -75,7 +75,7 @@ memory/
    └─ blocks/<block_id 四位>-<块slug>.md   ← 2026-09-05 起以 block_id 命名(ADR-0003;Reorder 改 seq 不再孤立历史)
 ```
 
-`profile.md` 分节:`## 知识背景` `## 已掌握概念`(按领域列表)`## 误区模式`(AI 观察积累)`## 个人情境`(工作/研究/生活现状,用户可手改,AI 从对话提取后追加候选,用户确认)。设置页"学习者画像"分区可编辑"知识背景/个人情境"(`profile_get`/`profile_save`),app 原子重写四个固定小节并保留未知小节;写后**不直接 git commit**,而是入队 outbox `git_commit` 投影由后台重放提交,避免与判定后的重放争抢 index.lock(M2 T6)。
+`_report.md`(M3 T1):整书终评的学习报告归档,每次终评追加一节。`profile.md` 分节:`## 知识背景` `## 已掌握概念`(按领域列表)`## 误区模式`(AI 观察积累)`## 个人情境`(工作/研究/生活现状,用户可手改,AI 从对话提取后追加候选,用户确认)。设置页"学习者画像"分区可编辑"知识背景/个人情境"(`profile_get`/`profile_save`),app 原子重写四个固定小节并保留未知小节;写后**不直接 git commit**,而是入队 outbox `git_commit` 投影由后台重放提交,避免与判定后的重放争抢 index.lock(M2 T6)。
 
 `blocks/<n>-<slug>.md` 模板(固定区块由程序写入,格式不漂移):
 
@@ -268,6 +268,8 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 「针对该块与其历史薄弱点,出 1–2 个快问(3 分钟内可答),优先考曾经的薄弱点。用户作答后输出 JSON:{passed: bool, comment, new_weak_point?}。」
 
 ### 6.8 整书终评
+
+> **实现说明(M3 T1,2026-09-08)**:拆为阶段化对话 system prompt `prompts::final_exam_system(ty, profile, map_summary, phase)`(学生回合 <3 为第一阶段追问全书框架,其后为第二阶段跨章综合题;无 JSON 子句;前端固定 opener「请开始终评」先开口;学生回合上限 8)与报告 prompt `prompts::final_report_prompt(map_summary, weak_history, transcript)`(只输出 markdown,首行元注释 `<!-- overall:N strongest:… weakest:… -->`,解析失败经 `run_ai_parsed` 纠错重试)。会话 `kind='final_exam'`、`book_id`(v6 加列)为所属书、`block_id` 为该书 seq 最小未跳过块占位,每书同时只有一个未放弃终评会话;`final_exam::finish` 写 `artifact(kind='report', block_id NULL)`、会话 confirmed 且**不写 eval_json**、`finish_book_in` 把书标为已学完,并经 outbox `report_archive`(追加到 `books/<slug>/_report.md`)+ `sync_map` + `git_commit`。旧单段 `final_exam_prompt` 仅保留供参考。
 
 「基于 _map.md 全图与各块状态:①请用户先讲出全书框架(学生扮演式追问 2–3 轮);②出 2–3 道跨章节综合题(按书籍类型:综合应用/整合方法论/贯通脉络论述);③输出学习报告 markdown:总体掌握度、最强/最弱模块、薄弱点修复历程、建议重读章节。」
 

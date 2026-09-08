@@ -89,6 +89,8 @@ function MapPageContent({ bookId }: { bookId: number }) {
 
   // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整(须先于 planOp 声明,其闭包引用它)
   const remaining = blocks?.filter(b => !b.skipped).length ?? 0
+  // 整书终评入口(M3 T1):未跳过块全部通过/巩固
+  const allPassed = remaining > 0 && (blocks?.filter(b => !b.skipped).every(b => b.status === 'passed' || b.status === 'consolidated') ?? false)
   const dailyBlocks = (() => {
     if (!deadline) return null
     const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
@@ -200,7 +202,12 @@ function MapPageContent({ bookId }: { bookId: number }) {
               </Button>
             </>
           ) : (
-            <Button onClick={startEdit}>编辑地图</Button>
+            <>
+              {allPassed && (
+                <Button variant="primary" onClick={() => navigate(`/final/${bookId}`)}>整书终评</Button>
+              )}
+              <Button onClick={startEdit}>编辑地图</Button>
+            </>
           )
         }
       />
