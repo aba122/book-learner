@@ -80,9 +80,11 @@ describe('Tauri wire contract fixture', () => {
       { method: 'importEpubFinalize', command: 'library_import_epub_finalize', payloadKeys: ['opId', 'bookType', 'title'] },
       { method: 'epubUrl', command: 'library_epub_url', payloadKeys: ['bookId'] },
       { method: 'blockSource', command: 'map_block_source', payloadKeys: ['blockId'] },
+      // Mac M7:统计(date 由前端本地日历日提供)
+      { method: 'stats', command: 'stats_get', payloadKeys: ['date'] },
     ])
-    // Mac M4–M6 已接线地图组/会话组/导入与阅读器;stats 待 M7,completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
-    expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask', 'stats'])
+    // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
+    expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
   })
 })
 

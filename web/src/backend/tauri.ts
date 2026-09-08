@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
+import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
   DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Scores, SessionKind, SessionState,
@@ -404,6 +405,19 @@ function decodeBlockSource(value: unknown): { href: string; text: string } {
   }
 }
 
+function decodeStats(value: unknown): Stats {
+  const wire = objectAt(value, 'stats')
+  const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
+  return {
+    totalBlocks: field('totalBlocks'),
+    passedBlocks: field('passedBlocks'),
+    streakDays: field('streakDays'),
+    openWeakPoints: field('openWeakPoints'),
+    fixedWeakPoints: field('fixedWeakPoints'),
+    minutesToday: field('minutesToday'),
+  }
+}
+
 function decodeMapProgress(value: unknown, path: string): MapProgress {
   const wire = objectAt(value, path)
   switch (wire.stage) {
@@ -574,7 +588,10 @@ export class TauriBackend implements Backend {
       return this.toAssetUrl(path)
     })
   }
-  stats(): Promise<Stats> { return this.unsupported('stats') }
+  /** 统计以本地日历日为"今天"(core 不读系统时间) */
+  async stats(): Promise<Stats> {
+    return this.gated('stats', () => this.decode('stats_get', { date: localCalendarDate() }, decodeStats))
+  }
 
   // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----
 

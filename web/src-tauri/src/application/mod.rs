@@ -8,7 +8,7 @@ use rusqlite::OptionalExtension;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, SessionViewDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    MapRevisionDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanRequest, TurnResultDto,
     VerdictOutcomeDto,
 };
 use crate::error::IpcError;
@@ -362,4 +362,11 @@ pub fn block_source(state: &AppState, block_id: i64) -> Result<BlockSourceDto, I
             text: chapter.text,
         })
     })
+}
+
+/// 统计(M7):范围为主攻书;`date` 由前端本地日历日提供。
+pub fn stats(state: &AppState, date: &str) -> Result<StatsDto, IpcError> {
+    state
+        .with_connection(|connection| book_learner_core::stats::compute(connection, date))
+        .map(Into::into)
 }

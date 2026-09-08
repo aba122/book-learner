@@ -4,7 +4,7 @@ use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, SessionViewDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    MapRevisionDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanRequest, TurnResultDto,
     VerdictOutcomeDto,
 };
 use crate::error::IpcError;
@@ -54,9 +54,11 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ),
     ("library_epub_url", &["bookId"]),
     ("map_block_source", &["blockId"]),
+    // M7:统计(date 由前端本地日历日提供,core 不读系统时间)
+    ("stats_get", &["date"]),
 ];
 
-pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask", "stats"];
+pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
 
 fn run_command<T>(
     state: &AppState,
@@ -349,6 +351,10 @@ pub fn map_block_source_inner(state: &AppState, block_id: i64) -> Result<BlockSo
     })
 }
 
+pub fn stats_get_inner(state: &AppState, date: &str) -> Result<StatsDto, IpcError> {
+    run_command(state, "stats_get", || application::stats(state, date))
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -538,4 +544,9 @@ pub async fn map_block_source(
     block_id: i64,
 ) -> Result<BlockSourceDto, IpcError> {
     map_block_source_inner(&state, block_id)
+}
+
+#[tauri::command(async)]
+pub async fn stats_get(state: State<'_, AppState>, date: String) -> Result<StatsDto, IpcError> {
+    stats_get_inner(&state, &date)
 }

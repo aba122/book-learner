@@ -22,10 +22,10 @@
     { "method": "importEpubChunk", "command": "library_import_epub_chunk", "payloadKeys": [] },
     { "method": "importEpubFinalize", "command": "library_import_epub_finalize", "payloadKeys": ["opId", "bookType", "title"] },
     { "method": "epubUrl", "command": "library_epub_url", "payloadKeys": ["bookId"] },
-    { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] }
+    { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] },
+    { "method": "stats", "command": "stats_get", "payloadKeys": ["date"] }
   ],
   "unsupportedCapabilities": [
-    "completeTask",
-    "stats"
+    "completeTask"
   ]
 }

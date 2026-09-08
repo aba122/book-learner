@@ -325,13 +325,13 @@ describe('TauriBackend failures and unsupported capabilities', () => {
         code: 'not_implemented',
         message: '此功能尚未在 Mac 版中实现',
         retryable: false,
-        details: { capability: 'stats', path: '/Users/alice/private/app.db' },
+        details: { capability: 'completeTask', path: '/Users/alice/private/app.db' },
       }
     })
 
-    const error = await backend.stats().catch(reason => reason as BackendError)
+    const error = await backend.completeTask(1).catch(reason => reason as BackendError)
 
-    expect(error.details).toEqual({ capability: 'stats' })
+    expect(error.details).toEqual({ capability: 'completeTask' })
     expect(JSON.stringify(error.details)).not.toContain('alice')
   })
 
@@ -395,7 +395,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -438,6 +438,16 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     await expect(backend.importEpub(new File([], 'empty.epub'), 'textbook')).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(backend.importEpub(new File([new Uint8Array([1])], 'x.epub'), 'novel' as never)).rejects.toMatchObject({ code: 'invalid_request' })
     expect(calls).toHaveLength(0)
+  })
+
+  it('requests stats for the local calendar day and decodes all six counters', async () => {
+    const stats = { totalBlocks: 12, passedBlocks: 5, streakDays: 3, openWeakPoints: 2, fixedWeakPoints: 4, minutesToday: 50 }
+    const { calls, invoke } = recorder({ stats_get: stats })
+    expect(await new TauriBackend(invoke).stats()).toEqual(stats)
+    expect(calls[0].command).toBe('stats_get')
+    expect((calls[0].payload as { date: string }).date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    const bad = new TauriBackend(async <T>() => ({ ...stats, streakDays: 'three' }) as T)
+    await expect(bad.stats()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('turns the managed epub path into an asset url and decodes block source', async () => {

@@ -13,6 +13,7 @@ pub mod prompts;
 pub mod sched;
 pub mod session;
 pub mod settings;
+pub mod stats;
 pub mod verdict;
 
 #[derive(thiserror::Error, Debug)]

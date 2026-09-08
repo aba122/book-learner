@@ -458,6 +458,49 @@ fn native_import_over_ipc_stages_raw_chunks_finalizes_and_serves_managed_paths()
     assert_eq!(error["code"], "not_found");
 }
 
+#[test]
+fn stats_get_scopes_to_the_active_book_and_reflects_confirmed_verdicts() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _mock) = state_with_mock(&directory.path().join("app.db"));
+    let (first, _, block) = seed_books(&state);
+    let (task_a, _) = seed_two_tasks(&state, first, block, DAY);
+    let before = commands::stats_get_inner(&state, DAY).unwrap();
+    assert_eq!(
+        (
+            before.total_blocks,
+            before.passed_blocks,
+            before.streak_days,
+            before.minutes_today
+        ),
+        (2, 0, 0, 0)
+    );
+    // 走一遍闭环:通过后块 passed、任务 done、薄弱点入库
+    let sid = commands::session_start_or_resume_inner(&state, task_a, "req-a", DAY)
+        .unwrap()
+        .session_id;
+    commands::session_submit_turn_inner(&state, sid, 0, "turn-1", "弹性是相对变化率").unwrap();
+    let evaluation = commands::session_request_evaluation_inner(&state, sid, "eval").unwrap();
+    commands::session_confirm_verdict_inner(&state, sid, evaluation.version, "verdict", true, DAY)
+        .unwrap();
+    let after = commands::stats_get_inner(&state, DAY).unwrap();
+    assert_eq!(
+        (after.total_blocks, after.passed_blocks, after.streak_days),
+        (2, 1, 1)
+    );
+    assert!(after.minutes_today > 0, "{after:?}");
+    assert_eq!(after.open_weak_points, 1, "{after:?}");
+    assert_eq!(
+        serde_json::to_value(&after).unwrap()["openWeakPoints"],
+        json!(1)
+    );
+    assert_eq!(
+        commands::stats_get_inner(&state, "07/09/2026")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+}
+
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
     let state = AppState::open(path).unwrap();
     let (first, second, block) = seed_books(&state);
@@ -1449,6 +1492,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             }),
             "library_epub_url" => json!({"bookId": second}),
             "map_block_source" => json!({"blockId": second_block}),
+            "stats_get" => json!({"date": DAY}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对

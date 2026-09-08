@@ -121,7 +121,7 @@ DTO 形状以 `web/src/backend/tauri.ts` 的 `decode*` 与 `web/src/types.ts` �
 
 ### Task M7: `stats_get` 与基础 tray/生命周期(半天)
 
-- [ ] **M7.1** `stats_get` → core 新增 `stats::compute(conn, date) -> Stats{totalBlocks,passedBlocks,streakDays,openWeakPoints,fixedWeakPoints,minutesToday}`(在 **core** 加用例;streak 按连续有 done 任务的日期计算;minutesToday 按当日 done 任务 est_minutes 求和,番茄钟精确统计属 M2)→ command → 三处契约移除 `stats`。
+- [x] **M7.1**(core `stats::compute(conn, date)`:范围=主攻书;连击=连续有完成任务的天数,当天无完成则从昨天起算;TS `stats()` 内部取本地日历日)`stats_get` → core 新增 `stats::compute(conn, date) -> Stats{totalBlocks,passedBlocks,streakDays,openWeakPoints,fixedWeakPoints,minutesToday}`(在 **core** 加用例;streak 按连续有 done 任务的日期计算;minutesToday 按当日 done 任务 est_minutes 求和,番茄钟精确统计属 M2)→ command → 三处契约移除 `stats`。
 - [ ] **M7.2** tray:菜单"显示主窗口 / 退出";关窗 = 隐藏到 tray(`on_window_event CloseRequested → hide + prevent_close`);Cmd+Q / 菜单退出 = 有序退出:等待进行中的导入/作业收尾(超时 10s 后强制)、无 codex 子进程残留(core 已按进程组终止)。用例:foundation 层验证 `shutdown_hook` 会 join 进行中的任务句柄;手工:Cmd+Q 后 `pgrep codex` 为空。
 - [ ] **M7.3** commit `feat(mac): stats 命令、tray 生命周期与有序退出 (M7)` + push。
 

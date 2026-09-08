@@ -395,3 +395,8 @@
 - **前端**:`TauriBackend.importEpub` 按 4 MiB 分块 `invoke(cmd, Uint8Array, { headers })` 再 finalize(title 取文件名去 `.epub`);`epubUrl` 经可注入的 `convertFileSrc` 转 asset URL;`blockSource` 解码;`chunkBytes`/`convertFileSrc` 为构造选项供测试注入。契约四处同步:JSON 增 4 条命令(分块命令 `payloadKeys: []`),`unsupportedCapabilities` 仅剩 `completeTask`(有意保留)与 `stats`(M7);`contract.test.ts`/`tauri.test.ts`(v1 传输用例排除原生方法;新增分块上传/空文件/类型校验/asset URL/blockSource 用例)。
 - **用例**:`import.rs` 单测(暂存→拼装→校验→落盘、幂等;损坏/缺 container/错 mimetype/mimetype 非首条目/遍历/绝对路径 → 无书行;条目超限/分块不连续/超大小/非法 op_id/空块;过期清理)。IPC 用例 `native_import_over_ipc_*`(两块分片、缺头/JSON 体拒绝、finalize 幂等、非法 bookType、受管路径/not_found、块原文 fallback→exact)。契约循环:分块命令走原始体特殊分支后 finalize 同一 op;`library_epub_url` 用预置文件的 second。
 - **门禁**:src-tauri 全绿、clippy 0(两轮修正:`let mut first` 多余、测试闭包生命周期)、web 251/1 + lint + tsc + build。
+
+## 2026-09-07 · M7.1:`stats_get` 接线
+- **core `stats::compute(conn, date)`**(新模块):范围 = 主攻书(active)的块/薄弱点/任务,无主攻书时全库;`total/passed` 不含 `skipped` 块;`streak_days` = 连续有"已完成任务"的天数(今天已有完成含今天,否则从昨天起算,当天未结束不算断);`minutes_today` = 当日 done 任务 `est_minutes` 之和(番茄钟精确计时属 M2);`date` 由调用方提供,core 不读系统时间;非法日期 → InvalidInput。单测覆盖范围切换、连击断点、无主攻书全库。
+- **壳层**:`StatsDto` + `application::stats` + `stats_get[date]`;契约四处同步,`unsupportedCapabilities` 仅剩 `completeTask`(有意保留)。TS `TauriBackend.stats()` 在内部取 `localCalendarDate()` 作 `date`(契约 `Backend.stats()` 无参签名不变);`decodeStats` 六项整数校验。用例:foundation 走一遍费曼闭环后 passed/streak/minutes/openWeakPoints 变化;契约循环 `stats_get {date}`;TS 用例改用 `completeTask` 作 unsupported 样例。
+- **门禁**:core 129/27/1/1、src-tauri 4+19+1+2、web 252/1、clippy 0。

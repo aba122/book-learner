@@ -6,6 +6,7 @@ use book_learner_core::planning::StudyPlan;
 use book_learner_core::sched::DailyTask;
 use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
+use book_learner_core::stats::Stats;
 use book_learner_core::verdict::{EvaluationView, VerdictOutcome};
 use serde::{Deserialize, Serialize};
 
@@ -494,4 +495,28 @@ pub struct ImportResultDto {
 pub struct BlockSourceDto {
     pub href: String,
     pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsDto {
+    pub total_blocks: i64,
+    pub passed_blocks: i64,
+    pub streak_days: i64,
+    pub open_weak_points: i64,
+    pub fixed_weak_points: i64,
+    pub minutes_today: i64,
+}
+
+impl From<Stats> for StatsDto {
+    fn from(stats: Stats) -> Self {
+        Self {
+            total_blocks: stats.total_blocks,
+            passed_blocks: stats.passed_blocks,
+            streak_days: stats.streak_days,
+            open_weak_points: stats.open_weak_points,
+            fixed_weak_points: stats.fixed_weak_points,
+            minutes_today: stats.minutes_today,
+        }
+    }
 }
