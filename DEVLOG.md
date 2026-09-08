@@ -407,3 +407,9 @@
 - **M8.0**:`localCalendarDate()` 不传参时在 DEV 构建读 `localStorage['bookLearner.testDate']`(`YYYY-MM-DD`,非法值忽略),显式传参不受影响,生产构建(`import.meta.env.DEV=false`)忽略;用法:DevTools 里 `localStorage.setItem('bookLearner.testDate','2026-09-10')` 后刷新,今日页/地图页/费曼页与 `stats_get` 的"今天"随之推进。
 - **M8.0 修正**:Mac 上 Node 26 的实验性全局 `localStorage` 未开 `--localstorage-file` 时为 `undefined`,且 vitest 的 jsdom 环境不覆盖已存在的全局 → 两条用例在 Mac 红、在 CI(Node 22)绿。模块与用例改读 `window.localStorage`(真实 WebView 中与全局相同)。**教训**:b978ce2 是在门禁链 `( vitest | grep; echo )` 吞掉退出码的情况下提交的——远程链一律 `set -o pipefail` 并显式检查 `pipestatus`;本机 Node(26)与 CI(22)不一致,建议 Mac 上装 node@22 或以 CI 为准。
 - **M8.0 再修正(827aeb3 仍红)**:vitest 的 jsdom 环境下 `window` 即 `globalThis`,`window.localStorage` 同样落到 Node 26 的 undefined。最终做法:模块读 `globalThis.localStorage`(WebView 中即真实存储),用例用 `vi.stubGlobal(localStorage, 内存 Storage)` 注入并在 `afterEach` 还原,彻底不依赖环境;另补"无 storage 时静默"分支。827aeb3 同样是在 `echo` 之后读 `pipestatus`(已被重置)造成的假绿提交——远程链改为管道后立刻 `rc=${pipestatus[1]}` 再判断。本提交前 Mac 全量 web 门禁真实通过。
+
+## 2026-09-07 · M8.2(无人值守部分)与 M8.3 文档回写
+- **CI**:推送的 feat/mac-m1-wiring(19ae10a)[run 34181949033](https://github.com/aba122/book-learner/actions/runs/34181949033) core/web/mac-foundation 三任务首次全绿(mac-foundation 含 src-tauri 全量测试、clippy、`tauri build --debug`)。
+- **M8.2 无人值守段(Mac 实测)**:真实 codex 冒烟(core `codex_real_smoke`,本机 codex-cli 0.153.0)10.25s 通过;`tauri build --no-bundle` release 1m02s 通过(14.3 MB);干净数据目录启动冒烟:release 二进制首启存活、无 ERROR(写入正式位置 `~/Library/Application Support/book-learner/`,因 `BOOK_LEARNER_DATA_DIR` 覆盖仅 debug 生效)与 debug 二进制隔离目录首启均生成 `app.db`/`books/`/`memory/`(git init 一次提交)、启动投影恢复 processed=0、按 pid 干净结束;核心/壳层/前端全量测试、clippy、fmt、lint、tsc、web build 均绿。Playwright、`tauri dev` 目检、真实 WebView 导入吞吐与 M8.1 七步端到端需桌面会话。
+- **M8.3**:CLAUDE.md 状态区、IMPLEMENTATION_PLAN M1 验收注记、基线 Node 0/2/3/7/11/12 状态行已回写;PR 合并与 main 上 tag `m1` 待用户按 #3→#4→#5→#6 合并后执行。
+- **本机未推送提交**(M7.2 起):需用户再提供 token 或在 Mac 上配置 GitHub 凭证后推送到 feat/mac-m1-wiring(PR #6 自动更新)。

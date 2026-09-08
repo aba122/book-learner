@@ -86,6 +86,8 @@ Each behavioral node uses RED → minimal GREEN → focused/full regression → 
 
 **Gate:** every unchecked Foundation smoke item is green; remote branch/tag points are recorded.
 
+> 2026-09-07 状态:Foundation 提交已推送(PR #3),CI 三任务绿;原生冒烟签字与 `mac-m1` tag 待桌面会话与 PR 合并。
+
 ### Node 1 — ADRs, contract v2, and schema v3
 
 > **2026-09-05 状态**:Linux 加固切片已完成其中不依赖 ADR 的部分:v2 迁移收敛、v3 子表外键重建(孤儿回滚)、`book_single_active`、并发策略(busy_timeout + 读后写 IMMEDIATE)与两连接并发用例(H-T9a)。
@@ -112,6 +114,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 **Tests:** valid EPUB, malformed ZIP/container/package, traversal entry, oversized archive/entry count, duplicate retry, crash after staging and after DB commit, cleanup/recovery, non-UTF metadata.
 
+> 2026-09-07 状态:完成(Mac M6,ADR-0004 选项 B,`web/src-tauri/src/import.rs`)。未覆盖:package(OPF)元数据解析与 non-UTF 元数据(标题取文件名)、DB 提交后崩溃的定向注入用例;真实 WebView 大文件吞吐待桌面会话。
+
 ### Node 3 — EPUB spine extraction and source APIs
 
 - Follow the approved epub.js extraction direction unless Node 1 ADR explicitly changes `TECH_DESIGN.md` first.
@@ -120,6 +124,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 - Never let a caller request an arbitrary local path.
 
 **Tests:** three-book isolation, href normalization, chapter order, missing/corrupt resource, long chapter batching, reopen, URL scope escape attempts.
+
+> 2026-09-07 状态:完成(Plan B 抽取 + Mac M6 `library_epub_url`/`map_block_source`;asset protocol 运行时只放行 `books/`)。
 
 ### Node 4 — harden Codex and add orchestration
 
@@ -168,6 +174,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 **Tests:** real managed EPUB, exact/fallback/multi-chapter anchors, duplicate/nested headings, corrupt URL/resource, rapid route switch, unmount during load, theme/size retention, back-to-session restoration.
 
+> 2026-09-07 状态:原生侧 `epubUrl`/`blockSource` 完成(M6);阅读器在真实 asset URL 下的渲染/锚点/生命周期用例待桌面会话(Playwright + `tauri dev`)。
+
 ### Node 8 — durable session and turn application services
 
 - `startOrResumeSession(taskId, clientRequestId)` validates the daily task and returns the one open session plus canonical transcript/version.
@@ -213,6 +221,8 @@ Then add migrations/models for spine cache, ordered block anchor segments, map r
 
 **Tests/smoke:** hide/show, Cmd+Q, restart recovery, no orphan child, no duplicate daily queue/session/projection.
 
+> 2026-09-07 状态:实现完成(M7.2:关窗隐藏、托盘、`ExitRequested` 等待在飞任务 ≤10s、启动恢复含导入清理与投影重放);hide/show、Cmd+Q、无残留子进程的目检待桌面会话。已知限制:强制退出路径不等待 codex 子进程。
+
 ### Node 12 — product-M1 end-to-end gate
 
 Use a real textbook EPUB and the real logged-in Codex CLI on Apple Silicon:
@@ -226,6 +236,8 @@ Use a real textbook EPUB and the real logged-in Codex CLI on Apple Silicon:
 7. advance the controlled test date and complete the weak-point retest at the head of the queue.
 
 Run all core/Tauri/Web/Playwright tests, fmt, clippy, lint, production Web build, Tauri debug/release build, and a clean-user data-directory smoke. Inspect SQLite, Markdown, and git history against the same operation IDs. Review logs for content/path leakage.
+
+> 2026-09-07 状态:无人值守部分完成——真实 codex 冒烟(core `codex_real_smoke`,本机 codex-cli 0.153.0)10.25s 通过;`tauri build --no-bundle` release 1m02s 通过(14.3 MB);干净数据目录启动冒烟:release 二进制首启存活、无 ERROR(写入正式位置 `~/Library/Application Support/book-learner/`,因 `BOOK_LEARNER_DATA_DIR` 覆盖仅 debug 生效)与 debug 二进制隔离目录首启均生成 `app.db`/`books/`/`memory/`(git init 一次提交)、启动投影恢复 processed=0、按 pid 干净结束;核心/壳层/前端全量测试、clippy、fmt、lint、tsc、web build 均绿;七步 GUI 端到端与 Playwright 待桌面会话;`m1` tag 待 PR #3→#4→#5→#6 合并。
 
 **Release:** only after local smoke and remote CI are green, merge reviewed history and create annotated tag `m1`. Do not pull M2 notification/templates/stats or M3 voice/export/signing scope into this gate.
 

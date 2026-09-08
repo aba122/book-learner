@@ -128,9 +128,9 @@ DTO 形状以 `web/src/backend/tauri.ts` 的 `decode*` 与 `web/src/types.ts` �
 ### Task M8: 产品 M1 端到端门禁 → tag `m1`(半天)
 
 - [x] **M8.0 受控测试日期**(`localDate.ts` DEV-only `bookLearner.testDate` 覆盖,显式传参不受影响;vitest 覆盖生产构建忽略)(Node 12 第 7 步的前提):所有 command 的 `date` 均由前端 `localCalendarDate()` 提供,core 不读系统时间;在 `web/src/lib/localDate.ts` 增加**仅 `import.meta.env.DEV` 生效**的覆盖——`localStorage.getItem('bookLearner.testDate')`(`YYYY-MM-DD`)存在则返回它;vitest 用例覆盖"生产构建忽略该键"与"DEV 下生效";DEVLOG 记录用法(`localStorage.setItem('bookLearner.testDate','2026-09-10')` 后刷新)。
-- [ ] **M8.1** 按基线 Node 12 七步,用一本真实教材 EPUB + 真 codex:导入并重启 → 生成地图/进度/编辑/定稿/设目标 → 开始今日新块、阅读精确原文、讲授并故意暴露一个薄弱点 → 制造一次 codex 超时并重试(transcript 不丢)→ 评估、确认通过、等待记忆库投影与 git commit → Cmd+Q 重启,核对 SQLite/Markdown/git 一致 → 经 M8.0 机制把日期推进一天,完成队首薄弱点重考。每步观察值写入 `docs/smoke/m1-e2e-gate.md`(新建,格式同 mac-m1 smoke)。
-- [ ] **M8.2** 全量门禁:三套测试、clippy、fmt、lint、tsc、web build、`pnpm -C web tauri build --debug` 与 release build、干净用户目录冒烟;日志抽查无 EPUB 文本/transcript/私有路径泄漏。
-- [ ] **M8.3** 回写 `IMPLEMENTATION_PLAN.md` M1 验收状态、`CLAUDE.md` 状态区、基线文档 Node 0/2/3/7/11/12;DEVLOG 收尾;PR 合并 → main 上 annotated tag `m1` 并推送。
+- [ ] **M8.1**(**待用户 GUI 会话**:需真书 + 真 codex 在桌面走七步;SSH 隧道无桌面)按基线 Node 12 七步,用一本真实教材 EPUB + 真 codex:导入并重启 → 生成地图/进度/编辑/定稿/设目标 → 开始今日新块、阅读精确原文、讲授并故意暴露一个薄弱点 → 制造一次 codex 超时并重试(transcript 不丢)→ 评估、确认通过、等待记忆库投影与 git commit → Cmd+Q 重启,核对 SQLite/Markdown/git 一致 → 经 M8.0 机制把日期推进一天,完成队首薄弱点重考。每步观察值写入 `docs/smoke/m1-e2e-gate.md`(新建,格式同 mac-m1 smoke)。
+- [x] **M8.2**(无人值守部分完成,见 DEVLOG;Playwright 与 GUI 目检待桌面会话)全量门禁:三套测试、clippy、fmt、lint、tsc、web build、`pnpm -C web tauri build --debug` 与 release build、干净用户目录冒烟;日志抽查无 EPUB 文本/transcript/私有路径泄漏。
+- [ ] **M8.3**(文档已回写;PR 合并与 main 上 tag `m1` 待用户合并 #3→#4→#5→#6 后执行)回写 `IMPLEMENTATION_PLAN.md` M1 验收状态、`CLAUDE.md` 状态区、基线文档 Node 0/2/3/7/11/12;DEVLOG 收尾;PR 合并 → main 上 annotated tag `m1` 并推送。
 
 ## 完成定义(DoD)
 
