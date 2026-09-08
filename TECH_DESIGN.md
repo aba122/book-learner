@@ -54,11 +54,15 @@ Mac Foundation 是原生合同与 SQLite 竖片,不是产品 M1。EPUB、Codex�
 
 ```
 ~/Library/Application Support/book-learner/
-├─ app.db               ← SQLite
-├─ books/<book_id>.epub ← 导入的书源文件
-├─ models/              ← whisper 模型
-└─ memory/              ← 记忆库(git 仓库,详见 §3)
+├─ app.db               ← SQLite(唯一权威,ADR-0001)
+├─ books/<slug>.epub    ← 导入的书源文件(原生分块导入落盘,ADR-0004)
+├─ models/              ← whisper 模型(手动导入的 ggml-*.bin,M3 T3)
+├─ snapshots/           ← SQLite 快照 app-YYYY-MM-DD.db(每日首次启动与退出前;保留最近 7 份 + 近 3 个月各一份,M3 T5)
+├─ restore-pending.json ← 恢复登记标记(下次启动前替换 app.db,原库留 .replaced-<ts>)
+└─ memory/              ← 记忆库(git 仓库,详见 §3;不含快照)
 ```
+
+debug 构建可用 `BOOK_LEARNER_DATA_DIR` 覆盖根目录(门禁脚本用);release 构建固定为系统 Application Support。
 
 ## 3. 记忆库(核心)
 
@@ -143,6 +147,8 @@ app 校验 schema(serde 严格解析,失败则带错误信息重试一次)后:
 - 设置页可配置私有远程,commit 后异步 push,失败静默重试不阻塞学习。
 - SQLite 每日首次启动时快照一份 `app.db.bak` 进 memory/(纳入 git)。
 
+> **实现说明(M3 T5,2026-09-08)**:提交经 outbox `git_commit` 投影(git 子进程,`GIT_TERMINAL_PROMPT=0`、30 s 超时、进程组兜底);远程 URL 用 `memory::set_remote` 设置时即以 `ls-remote` 校验(凭据/known_hosts 需先在终端完成一次);推送走 outbox **独立通道** `lane='git_push'`(`git_commit` 成功且有远程时自动入队;每轮只推一次,失败按 `60s << attempts` 指数退避、最长 6 h,不阻塞 main 通道;设置页"立即推送"清退避)。SQLite 快照**不进记忆库**:`VACUUM INTO` 到 `snapshots/`(见 §2),恢复只登记标记、下次启动前替换。
+
 ### 3.5 写入安全(2026-09-05 加固,core/src/memory.rs)
 
 - 所有拼入路径的 slug 经白名单校验:非空、≤128 字符、仅 Unicode 字母数字与 `._-`、不得全为 `.`;不合法返回 `InvalidInput`,永不触盘。
@@ -193,6 +199,8 @@ setting(key, value)
 - 用例层:`next_new_blocks` 同时选 `unlearned` 与 `learning`(纯按 seq;重学后的块仍会再入队),`check_behind` 剩余块同样计 learning。
 
 **v5(2026-09-08,M2 T0,user_version=5,追加式)**:`feynman_session.extra_kind`(application|methodology|discussion,NULL = 普通会话;`kind` 仍为 learn、`task_id` 为 NULL;partial unique index `feynman_session_extra_once(block_id, extra_kind)` 保证每块每类一次)、`study_minutes(date, book_id?, task_id?→ON DELETE SET NULL, minutes≥0, source∈{pomodoro}, created_at)`(番茄钟专注分钟,`date` 由前端提供)。**约束**:M2 起 schema 只做加法——`session_turn.session_id` 对 `feynman_session` 有 `ON DELETE CASCADE`,在 `foreign_keys=ON` 下重建 `feynman_session` 会级联删光回合。
+
+**v6–v8(2026-09-08,M3,追加式)**:v6 `feynman_session.book_id`(NULL;终评会话所属书)+ partial unique `feynman_session_final_once(book_id) WHERE kind='final_exam' AND state<>'abandoned'`;v7 `projection_outbox.lane`(main|git_push)与 `next_retry_at`(push 通道退避);v8 `reader_mark(id, book_id→CASCADE, kind highlight|bookmark|position, spine_href, cfi_start, cfi_end, text, color, note, created_at, updated_at)`(书签同书同点幂等;position 每书一行)。`artifact.kind` 增 `report`(整书终评学习报告,`block_id` NULL)。`setting` 表直读键(不进 `AppSettings`):`codexBin`(codex 可执行绝对路径,M3 T6 设置页可填)、`voiceModel`(whisper 模型名)、`notified:<kind>:<date>`。
 
 **设置权威(2026-09-08,M2 T2)**:提醒时间以 `setting` 表的 `remindTime`/`eveningRemindTime` 为唯一权威(`AppSettings`,默认 21:00 / 22:00);`study_plan.remind_time/evening_remind_time` 列保留但**废弃**(仍由 `planning_set_plan` 写入以兼容旧行,不再被读取)。通知判定在 core `notify`(纯函数 + `setting` 表 `notified:<kind>:<date>` 幂等标记),壳层线程每 30s 用本地时间轮询并经 tauri-plugin-notification 发送。
 

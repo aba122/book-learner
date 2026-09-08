@@ -21,8 +21,13 @@ L1 的 `lifecycle.rs` 把"SQLite 评估落库 → 块 md 写入 → `_weakpoints
 - 顺序停止意味着一条持续失败的行会阻塞其后的投影;这是有意的(保持因果顺序),需要用户可见的错误而不是静默跳过。
 - md 内容不再是任何读取用例的输入;`transcript_json` 保留仅供回看。
 
+## Amendment(2026-09-08,M3 T5:推送通道例外)
+
+- outbox 增 `lane` 列:`main`(默认,严格顺序、失败即停)与 `git_push`(每轮只处理一行、失败按 `next_retry_at` 指数退避、**不阻塞 main**)。远程推送依赖网络与凭据,长期失败若停住 main 会让 md/git 落后 SQLite 更久,违背本 ADR 的初衷;push 只是把已提交的 git 历史送到远端,不改变"SQLite → md/git"的因果顺序,因此允许独立重试。`run_pending` 只处理 main;`run_push_lane` 单独调度(启动恢复与每次学习提交后)。
+
 ## Tests that enforce it
 
 - `core/src/projection.rs`:重放后 md/git 与 SQLite 一致;二次 `run_pending` 为 0;"文件已写、done 未落库"重放不重复历史行;git 失败停止、恢复后仅重试失败行;同 op_id 二次入队仍一行。
 - `core/src/verdict.rs`:`confirm_session_verdict` 单事务内 outbox 行数(new 4 / weak_retest·review 3);双确认不产生重复行。
 - `core/tests/m1_engine.rs`:重开连接后 `run_pending` 为 0,判定重放返回同 outcome。
+- `core/src/backup.rs` / `projection.rs`(M3 T5):push 通道对本地 bare 仓库推送成功;失败行退避且 main 通道不受影响。

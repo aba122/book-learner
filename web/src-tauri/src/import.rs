@@ -218,7 +218,7 @@ impl ImportStore {
     /// 只做最小化的字符串解析(不引入 XML 依赖):container.xml 的 `full-path` → OPF 文本 → 首个 `<dc:title>` / `<dc:creator>`。
     pub fn epub_metadata(path: &Path) -> (Option<String>, Option<String>) {
         fn read_entry(archive: &mut zip::ZipArchive<File>, name: &str) -> Option<String> {
-            let mut entry = archive.by_name(name).ok()?;
+            let entry = archive.by_name(name).ok()?;
             let mut text = String::new();
             entry.take(2 * 1024 * 1024).read_to_string(&mut text).ok()?;
             Some(text)
