@@ -1,6 +1,6 @@
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import tauriWireContract from '../../../shared/tauri-wire-contract.json'
-import { CLIENT_ID_RE } from '../lib/ids'
+import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import type {
   AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
   DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, Scores, SessionKind, SessionState,
@@ -21,9 +21,17 @@ export interface TauriBackendOptions {
   /** 门控契约:列在 unsupportedCapabilities 的方法一律走 unsupported_capability(Mac 接线后移除条目即生效) */
   contract?: WireContract
   listen?: ListenFn
+  /** 受管 EPUB 路径 → asset 协议 URL(默认 @tauri-apps/api 的 convertFileSrc;测试注入) */
+  convertFileSrc?: (path: string) => string
+  /** 导入分块大小(默认 4 MiB;原生单块上限 8 MiB) */
+  chunkBytes?: number
 }
 /** runMapJob 进度事件名与 payload:{ jobId, progress: MapProgress } */
 export const MAP_JOB_PROGRESS_EVENT = 'map_job_progress'
+/** 原生导入(ADR-0004 选项 B):分块为原始请求体,元数据走头部;与 src-tauri commands 常量一致 */
+export const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024
+export const IMPORT_OP_ID_HEADER = 'x-op-id'
+export const IMPORT_CHUNK_INDEX_HEADER = 'x-chunk-index'
 
 const defaultListen: ListenFn = async (event, handler) => {
   const { listen } = await import('@tauri-apps/api/event')
@@ -383,6 +391,19 @@ function decodeVerdictOutcome(value: unknown): VerdictOutcome {
   }
 }
 
+function decodeImportResult(value: unknown): { bookId: number } {
+  const wire = objectAt(value, 'library_import_epub_finalize')
+  return { bookId: safeIntegerAt(wire.bookId, 'library_import_epub_finalize.bookId') }
+}
+
+function decodeBlockSource(value: unknown): { href: string; text: string } {
+  const wire = objectAt(value, 'map_block_source')
+  return {
+    href: stringAt(wire.href, 'map_block_source.href'),
+    text: stringAt(wire.text, 'map_block_source.text'),
+  }
+}
+
 function decodeMapProgress(value: unknown, path: string): MapProgress {
   const wire = objectAt(value, path)
   switch (wire.stage) {
@@ -429,11 +450,15 @@ export class TauriBackend implements Backend {
   private readonly invokeFn: InvokeFn
   private readonly contract: WireContract
   private readonly listen: ListenFn
+  private readonly toAssetUrl: (path: string) => string
+  private readonly chunkBytes: number
 
   constructor(invokeFn: InvokeFn = invoke, options: TauriBackendOptions = {}) {
     this.invokeFn = invokeFn
     this.contract = options.contract ?? tauriWireContract
     this.listen = options.listen ?? defaultListen
+    this.toAssetUrl = options.convertFileSrc ?? (path => convertFileSrc(path))
+    this.chunkBytes = options.chunkBytes ?? IMPORT_CHUNK_BYTES
   }
 
   /** 契约门控:未接线的 v2 能力显式 not_implemented,而不是调用不存在的 command 得到 transport_error */
@@ -452,6 +477,15 @@ export class TauriBackend implements Backend {
 
   private async decode<T>(command: string, payload: WireObject, decoder: (value: unknown) => T): Promise<T> {
     return decoder(await this.call(command, payload))
+  }
+
+  /** 原始请求体调用(Tauri 2:Uint8Array 作为 body,元数据走 headers) */
+  private async callRaw(command: string, bytes: Uint8Array, headers: Record<string, string>): Promise<unknown> {
+    try {
+      return await this.invokeFn<unknown>(command, bytes, { headers })
+    } catch (error) {
+      throw normalizeInvokeError(error)
+    }
   }
 
   private async unsupported<T>(capability: string): Promise<T> {
@@ -497,7 +531,26 @@ export class TauriBackend implements Backend {
     await this.decode('settings_save', { settings }, value => unitAt(value, 'settings_save'))
   }
 
-  importEpub(_file: File, _type: BookType): Promise<{ bookId: number }> { return this.unsupported('importEpub') }
+  /** 分块上传 → finalize(同 opId 幂等);EPUB 抽取仍在 JS 侧(ADR-0004 选项 B) */
+  async importEpub(file: File, type: BookType): Promise<{ bookId: number }> {
+    return this.gated('importEpub', async () => {
+      if (!BOOK_TYPES.includes(type)) invalidShape('type', BOOK_TYPES.join(' | '), type, 'invalid_request')
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      if (bytes.byteLength === 0) {
+        throw new BackendError({ code: 'invalid_request', message: '所选文件为空', retryable: false })
+      }
+      const opId = newClientId()
+      for (let index = 0, offset = 0; offset < bytes.byteLength; index += 1, offset += this.chunkBytes) {
+        const chunk = bytes.slice(offset, Math.min(offset + this.chunkBytes, bytes.byteLength))
+        await this.callRaw('library_import_epub_chunk', chunk, {
+          [IMPORT_OP_ID_HEADER]: opId,
+          [IMPORT_CHUNK_INDEX_HEADER]: String(index),
+        })
+      }
+      const title = file.name.replace(/\.epub$/i, '')
+      return this.decode('library_import_epub_finalize', { opId, bookType: type, title }, decodeImportResult)
+    })
+  }
   confirmMap(bookId: number, expectedRevision: number, ops: MapEditOp[]): Promise<{ revision: number }> {
     return this.gated('confirmMap', () => {
       outboundInteger(bookId, 'bookId')
@@ -507,8 +560,20 @@ export class TauriBackend implements Backend {
     })
   }
   completeTask(_taskId: number): Promise<void> { return this.unsupported('completeTask') }
-  blockSource(_blockId: number): Promise<{ href: string; text: string }> { return this.unsupported('blockSource') }
-  epubUrl(_bookId: number): Promise<string> { return this.unsupported('epubUrl') }
+  async blockSource(blockId: number): Promise<{ href: string; text: string }> {
+    return this.gated('blockSource', async () => {
+      outboundInteger(blockId, 'blockId')
+      return this.decode('map_block_source', { blockId }, decodeBlockSource)
+    })
+  }
+  /** 原生只返回受管路径 books/<id>.epub;此处转为 asset 协议 URL 供 epub.js 加载 */
+  async epubUrl(bookId: number): Promise<string> {
+    return this.gated('epubUrl', async () => {
+      outboundInteger(bookId, 'bookId')
+      const path = await this.decode('library_epub_url', { bookId }, value => stringAt(value, 'library_epub_url'))
+      return this.toAssetUrl(path)
+    })
+  }
   stats(): Promise<Stats> { return this.unsupported('stats') }
 
   // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----

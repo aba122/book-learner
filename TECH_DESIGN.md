@@ -180,7 +180,7 @@ setting(key, value)
 - **并发策略**:所有连接 `busy_timeout` 5s;**所有读后写事务一律 `BEGIN IMMEDIATE`**——SQLite 对已持 SHARED 的连接做 RESERVED 升级时不调用 busy handler,DEFERRED 会立刻 `database is locked`。**AI 调用期间不持有事务**(`orchestrate::run_ai_request` 在非 autocommit 连接上直接报错;集成测试在 provider 回调里用第二连接写入验证)。
 
 **v4(2026-09-05,Plan A,user_version=4,ADR-0001/0002/0003,追加式不重建旧表)**
-- `book` 增 `map_revision`(地图乐观并发修订号,草图落库置 1,每次 `confirm_map` +1)与 `import_state`(ready|extracted|mapped)。
+- `book` 增 `map_revision`(地图乐观并发修订号,草图落库置 1,每次 `confirm_map` +1)与 `import_state`(staged|ready|extracted|mapped;`staged` = 原生导入已落盘、尚未抽取 spine,Mac M6 新增)。
 - `spine_item(book_id, idx, href, title, text)`:已抽取的 spine 纯文本缓存(EPUB 抽取在 JS 侧,ADR-0004),`UNIQUE(book_id, idx)`,同 href 可重复。
 - `block_anchor(block_id, seq, spine_href, cfi_start, cfi_end, precision exact|chapter_fallback, hint, text)`:知识块**有序多段**锚点;草图落库时每个 `source_section("{href}#{小节标题}")` 生成一段 `chapter_fallback`(`hint` 存小节标题),Plan B/Mac 解析 CFI 与段文本后经 `map::set_anchor_segments` 回填为 `exact`。取代 `knowledge_block.spine_href/cfi_*`(保留列不再使用)。
 - `map_job(job_id UNIQUE, stage chapters|merge|done|failed, next_chapter, candidates_json, draft_json, error)`:两阶段地图作业断点。

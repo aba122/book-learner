@@ -2,6 +2,7 @@ pub mod application;
 pub mod commands;
 pub mod dto;
 pub mod error;
+pub mod import;
 pub mod state;
 
 use std::path::Path;
@@ -36,6 +37,10 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::session_request_evaluation,
         commands::session_confirm_verdict,
         commands::session_abandon,
+        commands::library_import_epub_chunk,
+        commands::library_import_epub_finalize,
+        commands::library_epub_url,
+        commands::map_block_source,
     ])
 }
 
@@ -53,7 +58,19 @@ pub fn initialize_state(platform_data_dir: &Path) -> Result<state::AppState, Ipc
         .ok_or_else(|| IpcError::internal("resolved database path has no parent directory"))?;
     std::fs::create_dir_all(database_directory)
         .map_err(|error| IpcError::from(CoreError::Io(error)))?;
-    state::AppState::open(&database_path)
+    let state = state::AppState::open(&database_path)?;
+    // 崩溃恢复:清理 24h 前未完成的导入暂存
+    match state
+        .import_store()
+        .cleanup_stale(std::time::SystemTime::now())
+    {
+        Ok(0) => {}
+        Ok(removed) => tracing::info!(removed, "已清理过期的导入暂存目录"),
+        Err(error) => {
+            tracing::warn!(internal_cause = error.internal_cause(), "清理导入暂存失败")
+        }
+    }
+    Ok(state)
 }
 
 /// 启动恢复:用独立连接重放投影 outbox(SQLite 为事实源,md/git 为投影),返回处理条数。
@@ -91,6 +108,14 @@ pub fn run() {
         };
         match initialize_state(&platform_data_dir) {
             Ok(state) => {
+                // asset protocol 只放行受管 books 目录;静态 glob 无法覆盖 BOOK_LEARNER_DATA_DIR 调试覆盖,故运行时授予
+                let books_dir = state.books_dir();
+                if let Err(error) = app.asset_protocol_scope().allow_directory(&books_dir, true) {
+                    fail_startup(&IpcError::internal(format!(
+                        "asset protocol scope for {} failed: {error}",
+                        books_dir.display()
+                    )));
+                }
                 app.manage(state);
                 // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
                 let handle = app.handle().clone();

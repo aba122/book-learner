@@ -6,9 +6,10 @@ use book_learner_core::CoreError;
 use rusqlite::OptionalExtension;
 
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, EvaluationViewDto, KnowledgeBlockDto,
-    MapEditOpDto, MapProgressDto, MapRevisionDto, SessionViewDto, SpineChapterDto,
-    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
+    ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
+    MapRevisionDto, SessionViewDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -276,5 +277,89 @@ pub fn abandon_session(
 ) -> Result<(), IpcError> {
     state.with_connection(|connection| {
         book_learner_core::session::abandon_session(connection, session_id, expected_version)
+    })
+}
+
+// ---- 导入与阅读器(M6):导入落盘走独立连接;路径与原文为快查询 ----
+
+pub fn stage_import_chunk(
+    state: &AppState,
+    op_id: &str,
+    index: u64,
+    bytes: &[u8],
+) -> Result<ImportChunkDto, IpcError> {
+    state
+        .import_store()
+        .stage_chunk(op_id, index, bytes)
+        .map(|staged_bytes| ImportChunkDto { staged_bytes })
+}
+
+pub fn finalize_import(
+    state: &AppState,
+    op_id: &str,
+    book_type: &str,
+    title: &str,
+) -> Result<ImportResultDto, IpcError> {
+    let book_type = BookType::from_db_str(book_type).map_err(|error| {
+        IpcError::invalid_request("书籍类型无效", format!("bookType {book_type:?}: {error}"))
+    })?;
+    let connection = state.open_connection()?;
+    state
+        .import_store()
+        .finalize(&connection, op_id, book_type, title)
+        .map(|book_id| ImportResultDto { book_id })
+}
+
+/// 受管 EPUB 的绝对路径(书行与文件都必须存在);前端经 convertFileSrc 转为 asset URL。
+pub fn epub_path(state: &AppState, book_id: i64) -> Result<String, IpcError> {
+    let exists: Option<i64> = state.with_connection(|connection| {
+        Ok(connection
+            .query_row("SELECT id FROM book WHERE id=?1", [book_id], |row| {
+                row.get(0)
+            })
+            .optional()?)
+    })?;
+    if exists.is_none() {
+        return Err(IpcError::from(CoreError::NotFound(format!(
+            "book {book_id}"
+        ))));
+    }
+    let path = state.import_store().book_path(book_id);
+    if !path.is_file() {
+        return Err(IpcError::from(CoreError::NotFound(format!(
+            "epub file for book {book_id}"
+        ))));
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 块原文:exact 锚点段文本优先;否则整章 spine 文本。href 取首个锚点段。
+pub fn block_source(state: &AppState, block_id: i64) -> Result<BlockSourceDto, IpcError> {
+    state.with_connection(|connection| {
+        let block = book_learner_core::models::get_block(connection, block_id)?;
+        let anchors = book_learner_core::map::list_anchors(connection, block_id)?;
+        let Some(first) = anchors.first() else {
+            return Err(CoreError::NotFound(format!("anchors for block {block_id}")));
+        };
+        let href = first.spine_href.clone();
+        let exact: Vec<&str> = anchors
+            .iter()
+            .filter(|segment| segment.precision == "exact" && !segment.text.trim().is_empty())
+            .map(|segment| segment.text.trim())
+            .collect();
+        if !exact.is_empty() {
+            return Ok(BlockSourceDto {
+                href,
+                text: exact.join("\n\n"),
+            });
+        }
+        let chapter = book_learner_core::mapgen::list_spine(connection, block.book_id)?
+            .into_iter()
+            .find(|chapter| chapter.href == href)
+            .ok_or_else(|| CoreError::NotFound(format!("spine chapter {href}")))?;
+        Ok(BlockSourceDto {
+            href,
+            text: chapter.text,
+        })
     })
 }

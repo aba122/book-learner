@@ -474,3 +474,24 @@ impl From<VerdictOutcome> for VerdictOutcomeDto {
         }
     }
 }
+
+// ---- 导入/阅读器 DTO(M6)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportChunkDto {
+    pub staged_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResultDto {
+    pub book_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockSourceDto {
+    pub href: String,
+    pub text: String,
+}

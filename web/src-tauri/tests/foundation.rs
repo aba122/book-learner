@@ -19,6 +19,7 @@ use book_learner_core::projection;
 use book_learner_core::sched::DailyTask;
 use book_learner_core::CoreError;
 use serde_json::{json, Value};
+use tauri::http::{HeaderMap, HeaderName, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
@@ -344,6 +345,117 @@ fn map_group_commands_round_trip_and_expose_revision_and_skipped() {
             .len(),
         0
     );
+}
+
+#[test]
+fn native_import_over_ipc_stages_raw_chunks_finalizes_and_serves_managed_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _mock) = state_with_mock(&directory.path().join("ipc.db"));
+    let (_, second, _) = seed_books(&state);
+    let second_block = seed_map(&state, second);
+    let books_dir = state.books_dir();
+    let app = book_learner_app::register_commands(mock_builder().manage(state))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+
+    let epub = fake_epub();
+    let (head, tail) = epub.split_at(epub.len() / 2);
+    let staged = invoke_raw(
+        &webview,
+        "library_import_epub_chunk",
+        head.to_vec(),
+        &[("x-op-id", "op-ipc"), ("x-chunk-index", "0")],
+    )
+    .unwrap();
+    assert_eq!(staged["stagedBytes"], json!(head.len()));
+    let staged = invoke_raw(
+        &webview,
+        "library_import_epub_chunk",
+        tail.to_vec(),
+        &[("x-op-id", "op-ipc"), ("x-chunk-index", "1")],
+    )
+    .unwrap();
+    assert_eq!(staged["stagedBytes"], json!(epub.len()));
+    // 缺头部 / JSON 体 → invalid_request
+    let error = invoke_raw(
+        &webview,
+        "library_import_epub_chunk",
+        epub.clone(),
+        &[("x-op-id", "op-ipc")],
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_request");
+    let error = invoke_json(
+        &webview,
+        "library_import_epub_chunk",
+        json!({"opId": "op-ipc"}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_request");
+
+    let result = invoke_json(
+        &webview,
+        "library_import_epub_finalize",
+        json!({"opId": "op-ipc", "bookType": "methodology", "title": "系统之美"}),
+    )
+    .unwrap();
+    let book_id = result["bookId"].as_i64().unwrap();
+    assert!(books_dir.join(format!("{book_id}.epub")).is_file());
+    // 同 op 再次 finalize → 同一 bookId;非法 bookType → invalid_request
+    let again = invoke_json(
+        &webview,
+        "library_import_epub_finalize",
+        json!({"opId": "op-ipc", "bookType": "methodology", "title": "x"}),
+    )
+    .unwrap();
+    assert_eq!(again["bookId"], json!(book_id));
+    let error = invoke_json(
+        &webview,
+        "library_import_epub_finalize",
+        json!({"opId": "op-none", "bookType": "novel", "title": "x"}),
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "invalid_request");
+
+    // 受管路径:只由 book_id 决定;无文件的书 → not_found
+    let path = invoke_json(&webview, "library_epub_url", json!({"bookId": book_id})).unwrap();
+    assert_eq!(
+        path,
+        json!(books_dir.join(format!("{book_id}.epub")).to_string_lossy())
+    );
+    let error = invoke_json(&webview, "library_epub_url", json!({"bookId": second})).unwrap_err();
+    assert_eq!(error["code"], "not_found");
+    let error = invoke_json(&webview, "library_epub_url", json!({"bookId": i64::MAX})).unwrap_err();
+    assert_eq!(error["code"], "not_found");
+
+    // 块原文:草图落库的 chapter_fallback → 整章 spine 文本;设 exact 段后 → 段文本
+    let source = invoke_json(
+        &webview,
+        "map_block_source",
+        json!({"blockId": second_block}),
+    )
+    .unwrap();
+    assert_eq!(source["href"], json!("ch0.xhtml"));
+    assert_eq!(source["text"], spine_chapter_json()["text"]);
+    invoke_json(
+        &webview,
+        "map_set_anchor_segments",
+        json!({"blockId": second_block, "segments": [anchor_segment_json()]}),
+    )
+    .unwrap();
+    let source = invoke_json(
+        &webview,
+        "map_block_source",
+        json!({"blockId": second_block}),
+    )
+    .unwrap();
+    assert_eq!(source["text"], anchor_segment_json()["text"]);
+    let error =
+        invoke_json(&webview, "map_block_source", json!({"blockId": i64::MAX})).unwrap_err();
+    assert_eq!(error["code"], "not_found");
 }
 
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
@@ -1158,6 +1270,53 @@ fn invoke_json(
     command: &str,
     payload: Value,
 ) -> Result<Value, Value> {
+    invoke_body(
+        webview,
+        command,
+        InvokeBody::Json(payload),
+        HeaderMap::new(),
+    )
+}
+
+/// 原始请求体 + 自定义头(分块导入的传输形态)。
+fn invoke_raw(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    command: &str,
+    bytes: Vec<u8>,
+    headers: &[(&str, &str)],
+) -> Result<Value, Value> {
+    let mut map = HeaderMap::new();
+    for (name, value) in headers {
+        map.insert(
+            HeaderName::from_bytes(name.as_bytes()).unwrap(),
+            HeaderValue::from_str(value).unwrap(),
+        );
+    }
+    invoke_body(webview, command, InvokeBody::Raw(bytes), map)
+}
+
+/// 最小合法 EPUB(mimetype 首条目 + container.xml + 一章),全部 stored。
+fn fake_epub() -> Vec<u8> {
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, body) in [
+        ("mimetype", "application/epub+zip"),
+        ("META-INF/container.xml", "<container/>"),
+        ("OEBPS/ch0.xhtml", "<html>ch0</html>"),
+    ] {
+        writer.start_file(name, options).unwrap();
+        writer.write_all(body.as_bytes()).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
+
+fn invoke_body(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<Value, Value> {
     get_ipc_response(
         webview,
         InvokeRequest {
@@ -1165,8 +1324,8 @@ fn invoke_json(
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: "tauri://localhost".parse().unwrap(),
-            body: InvokeBody::Json(payload),
-            headers: Default::default(),
+            body,
+            headers,
             invoke_key: INVOKE_KEY.into(),
         },
     )
@@ -1224,6 +1383,8 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     let session_b = commands::session_start_or_resume_inner(&state, task_b, "req-b", DAY)
         .unwrap()
         .session_id;
+    // 导入/阅读器命令:second 预置受管 EPUB 文件;契约循环里的分块命令走原始请求体分支
+    std::fs::write(state.import_store().book_path(second), fake_epub()).unwrap();
     let app = book_learner_app::register_commands(mock_builder().manage(state))
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -1270,6 +1431,24 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 "pass": true, "date": DAY
             }),
             "session_abandon" => json!({"sessionId": session_b, "expectedVersion": 0}),
+            "library_import_epub_chunk" => {
+                // 原始请求体:payloadKeys 必须为空,元数据经头部;随后 finalize 复用同一 op
+                assert_eq!(entry["payloadKeys"], json!([]), "{command}");
+                let response = invoke_raw(
+                    &webview,
+                    command,
+                    fake_epub(),
+                    &[("x-op-id", "op-wire"), ("x-chunk-index", "0")],
+                )
+                .unwrap_or_else(|error| panic!("{command} was not invokable: {error}"));
+                assert!(response["stagedBytes"].as_u64().unwrap() > 0, "{response}");
+                continue;
+            }
+            "library_import_epub_finalize" => json!({
+                "opId": "op-wire", "bookType": "textbook", "title": "契约导入"
+            }),
+            "library_epub_url" => json!({"bookId": second}),
+            "map_block_source" => json!({"blockId": second_block}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对

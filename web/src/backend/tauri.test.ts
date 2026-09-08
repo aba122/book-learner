@@ -74,9 +74,9 @@ describe('TauriBackend supported transport', () => {
     expect(await backend.getSettings()).toEqual(settings)
     await backend.saveSettings(settings)
 
-    // 本用例只走 v1 的 8 个方法;v2 方法的传输由下方"契约 v2 传输"用例覆盖
+    // 本用例只走 v1 的 8 个方法;v2 与原生导入/阅读器方法的传输由下方专门用例覆盖
     const expected = tauriWireContract.commands.filter(entry =>
-      entry.method !== 'unsupported' && !V2_METHODS.includes(entry.method))
+      entry.method !== 'unsupported' && !V2_METHODS.includes(entry.method) && !NATIVE_METHODS.includes(entry.method))
     expect(calls.map(({ command, payload }, index) => ({
       method: expected[index].method,
       command,
@@ -391,6 +391,69 @@ describe('TauriBackend failures and unsupported capabilities', () => {
       code: 'invalid_response',
       retryable: false,
     })
+  })
+})
+
+// ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource']
+
+describe('TauriBackend native import and reader (Mac M6)', () => {
+  type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
+  const recorder = (replies: Record<string, unknown>) => {
+    const calls: RawCall[] = []
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown, options?: { headers?: unknown }) => {
+      calls.push({ command, payload, headers: options?.headers as Record<string, string> | undefined })
+      return replies[command] as T
+    }
+    return { calls, invoke }
+  }
+
+  it('uploads the file as raw chunks with op/index headers, then finalizes with type and title', async () => {
+    const { calls, invoke } = recorder({
+      library_import_epub_chunk: { stagedBytes: 1 },
+      library_import_epub_finalize: { bookId: 7 },
+    })
+    const backend = new TauriBackend(invoke, { chunkBytes: 4 })
+    const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], 'my-book.epub')
+
+    expect(await backend.importEpub(file, 'textbook')).toEqual({ bookId: 7 })
+    const chunks = calls.slice(0, 3)
+    expect(chunks.map(c => c.command)).toEqual(Array(3).fill('library_import_epub_chunk'))
+    expect(chunks.map(c => (c.payload as Uint8Array).length)).toEqual([4, 4, 2])
+    expect(chunks.every(c => c.payload instanceof Uint8Array)).toBe(true)
+    expect(Array.from(chunks[2].payload as Uint8Array)).toEqual([9, 10])
+    const opIds = new Set(chunks.map(c => c.headers?.['x-op-id']))
+    expect(opIds.size).toBe(1)
+    expect(chunks.map(c => c.headers?.['x-chunk-index'])).toEqual(['0', '1', '2'])
+    expect(calls[3]).toMatchObject({
+      command: 'library_import_epub_finalize',
+      payload: { opId: [...opIds][0], bookType: 'textbook', title: 'my-book' },
+    })
+    expect(calls).toHaveLength(4)
+  })
+
+  it('rejects an empty file before any upload and validates the book type', async () => {
+    const { calls, invoke } = recorder({})
+    const backend = new TauriBackend(invoke)
+    await expect(backend.importEpub(new File([], 'empty.epub'), 'textbook')).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(backend.importEpub(new File([new Uint8Array([1])], 'x.epub'), 'novel' as never)).rejects.toMatchObject({ code: 'invalid_request' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('turns the managed epub path into an asset url and decodes block source', async () => {
+    const { calls, invoke } = recorder({
+      library_epub_url: '/data/book-learner/books/1.epub',
+      map_block_source: { href: 'ch0.xhtml', text: '原文' },
+    })
+    const backend = new TauriBackend(invoke, { convertFileSrc: path => `asset://localhost${path}` })
+    expect(await backend.epubUrl(1)).toBe('asset://localhost/data/book-learner/books/1.epub')
+    expect(await backend.blockSource(2)).toEqual({ href: 'ch0.xhtml', text: '原文' })
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['library_epub_url', { bookId: 1 }],
+      ['map_block_source', { blockId: 2 }],
+    ])
+    const bad = new TauriBackend(async <T>() => ({ href: 1 }) as T, { convertFileSrc: p => p })
+    await expect(bad.blockSource(2)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 })
 

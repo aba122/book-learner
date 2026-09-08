@@ -18,13 +18,14 @@
     { "method": "submitTurn", "command": "session_submit_turn", "payloadKeys": ["sessionId", "expectedVersion", "clientTurnId", "text"] },
     { "method": "requestEvaluation", "command": "session_request_evaluation", "payloadKeys": ["sessionId", "requestId"] },
     { "method": "confirmSessionVerdict", "command": "session_confirm_verdict", "payloadKeys": ["sessionId", "expectedVersion", "requestId", "pass", "date"] },
-    { "method": "abandonSession", "command": "session_abandon", "payloadKeys": ["sessionId", "expectedVersion"] }
+    { "method": "abandonSession", "command": "session_abandon", "payloadKeys": ["sessionId", "expectedVersion"] },
+    { "method": "importEpubChunk", "command": "library_import_epub_chunk", "payloadKeys": [] },
+    { "method": "importEpubFinalize", "command": "library_import_epub_finalize", "payloadKeys": ["opId", "bookType", "title"] },
+    { "method": "epubUrl", "command": "library_epub_url", "payloadKeys": ["bookId"] },
+    { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] }
   ],
   "unsupportedCapabilities": [
-    "importEpub",
     "completeTask",
-    "blockSource",
-    "epubUrl",
     "stats"
   ]
 }

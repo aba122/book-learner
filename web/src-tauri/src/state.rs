@@ -10,6 +10,7 @@ use book_learner_core::{CoreError, Result as CoreResult};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{ErrorCode, IpcError};
+use crate::import::ImportStore;
 
 /// 可跨线程共享的 AI provider(Tauri `manage` 要求 `Sync`;core 的 trait 无超 trait 约束)。
 pub type SharedProvider = Arc<dyn AiProvider + Send + Sync>;
@@ -23,6 +24,7 @@ pub struct AppState {
     database_path: PathBuf,
     data_root: PathBuf,
     memory: MemoryStore,
+    import: ImportStore,
     provider_override: Option<SharedProvider>,
 }
 
@@ -37,12 +39,16 @@ impl AppState {
             .ok_or_else(|| IpcError::internal("database path has no parent directory"))?
             .to_path_buf();
         let memory = MemoryStore::init(&data_root.join("memory")).map_err(IpcError::from)?;
+        let import = ImportStore::new(&data_root);
+        std::fs::create_dir_all(import.books_dir())
+            .map_err(|error| IpcError::from(CoreError::Io(error)))?;
         Ok(Self {
             connection: Mutex::new(connection),
             correlation_counter: AtomicU64::new(0),
             database_path: database_path.to_path_buf(),
             data_root,
             memory,
+            import,
             provider_override: None,
         })
     }
@@ -95,9 +101,13 @@ impl AppState {
         self.memory.root()
     }
 
-    /// 受管 EPUB 存放目录 `<data_root>/books`(M6 导入落盘处)。
+    /// 受管 EPUB 存放目录 `<data_root>/books`(导入 finalize 落盘处;asset protocol 只放行此目录)。
     pub fn books_dir(&self) -> PathBuf {
-        self.data_root.join("books")
+        self.import.books_dir().to_path_buf()
+    }
+
+    pub fn import_store(&self) -> &ImportStore {
+        &self.import
     }
 
     /// AI provider 与策略:注入优先;否则 codex CLI,`bin` 取 `setting.codexBin`(绝对路径)或按

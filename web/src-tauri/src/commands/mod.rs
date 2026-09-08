@@ -2,15 +2,19 @@ use tauri::{Emitter, Manager, State};
 
 use crate::application;
 use crate::dto::{
-    AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, EvaluationViewDto, KnowledgeBlockDto,
-    MapEditOpDto, MapProgressDto, MapRevisionDto, SessionViewDto, SpineChapterDto,
-    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
+    ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
+    MapRevisionDto, SessionViewDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    VerdictOutcomeDto,
 };
+use crate::error::IpcError;
+use crate::state::AppState;
 
 /// 地图作业进度事件名(与 web/src/backend/tauri.ts 的 MAP_JOB_PROGRESS_EVENT 一致)。
 pub const MAP_JOB_PROGRESS_EVENT: &str = "map_job_progress";
-use crate::error::IpcError;
-use crate::state::AppState;
+/// 分块导入请求头(与 web/src/backend/tauri.ts 一致)。
+pub const IMPORT_OP_ID_HEADER: &str = "x-op-id";
+pub const IMPORT_CHUNK_INDEX_HEADER: &str = "x-chunk-index";
 
 pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("library_list_books", &[]),
@@ -42,15 +46,17 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
         &["sessionId", "expectedVersion", "requestId", "pass", "date"],
     ),
     ("session_abandon", &["sessionId", "expectedVersion"]),
+    // M6:原生导入(分块为原始请求体,元数据走头 x-op-id / x-chunk-index)、受管路径与块原文
+    ("library_import_epub_chunk", &[]),
+    (
+        "library_import_epub_finalize",
+        &["opId", "bookType", "title"],
+    ),
+    ("library_epub_url", &["bookId"]),
+    ("map_block_source", &["blockId"]),
 ];
 
-pub const UNSUPPORTED_CAPABILITIES: &[&str] = &[
-    "importEpub",
-    "completeTask",
-    "blockSource",
-    "epubUrl",
-    "stats",
-];
+pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask", "stats"];
 
 fn run_command<T>(
     state: &AppState,
@@ -309,6 +315,51 @@ pub fn session_abandon_inner(
     })
 }
 
+pub fn library_import_epub_chunk_inner(
+    state: &AppState,
+    op_id: &str,
+    index: u64,
+    bytes: &[u8],
+) -> Result<ImportChunkDto, IpcError> {
+    run_command(state, "library_import_epub_chunk", || {
+        application::stage_import_chunk(state, op_id, index, bytes)
+    })
+}
+
+pub fn library_import_epub_finalize_inner(
+    state: &AppState,
+    op_id: &str,
+    book_type: &str,
+    title: &str,
+) -> Result<ImportResultDto, IpcError> {
+    run_command(state, "library_import_epub_finalize", || {
+        application::finalize_import(state, op_id, book_type, title)
+    })
+}
+
+pub fn library_epub_url_inner(state: &AppState, book_id: i64) -> Result<String, IpcError> {
+    run_command(state, "library_epub_url", || {
+        application::epub_path(state, book_id)
+    })
+}
+
+pub fn map_block_source_inner(state: &AppState, block_id: i64) -> Result<BlockSourceDto, IpcError> {
+    run_command(state, "map_block_source", || {
+        application::block_source(state, block_id)
+    })
+}
+
+fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            IpcError::invalid_request("导入请求缺少必要头部", format!("missing header {name}"))
+        })
+}
+
 // ---- 契约 v2 命令(M4/M5):参数名/类型对齐 web/src/backend/types.ts ----
 
 #[tauri::command(async)]
@@ -437,4 +488,54 @@ pub async fn session_abandon(
     expected_version: i64,
 ) -> Result<(), IpcError> {
     session_abandon_inner(&state, session_id, expected_version)
+}
+
+// ---- 导入与阅读器命令(M6)----
+
+/// 分块导入:请求体为原始字节(`invoke(cmd, Uint8Array, { headers })`),op/序号走头部。
+#[tauri::command(async)]
+pub async fn library_import_epub_chunk(
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<ImportChunkDto, IpcError> {
+    let op_id = required_header(&request, IMPORT_OP_ID_HEADER)?;
+    let index: u64 = required_header(&request, IMPORT_CHUNK_INDEX_HEADER)?
+        .parse()
+        .map_err(|_| IpcError::invalid_request("导入分块序号无效", "x-chunk-index not a u64"))?;
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err(IpcError::invalid_request(
+                "导入分块必须是原始字节体",
+                "chunk body was JSON, expected raw bytes",
+            ))
+        }
+    };
+    library_import_epub_chunk_inner(&state, &op_id, index, bytes)
+}
+
+#[tauri::command(async)]
+pub async fn library_import_epub_finalize(
+    state: State<'_, AppState>,
+    op_id: String,
+    book_type: String,
+    title: String,
+) -> Result<ImportResultDto, IpcError> {
+    library_import_epub_finalize_inner(&state, &op_id, &book_type, &title)
+}
+
+#[tauri::command(async)]
+pub async fn library_epub_url(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<String, IpcError> {
+    library_epub_url_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn map_block_source(
+    state: State<'_, AppState>,
+    block_id: i64,
+) -> Result<BlockSourceDto, IpcError> {
+    map_block_source_inner(&state, block_id)
 }
