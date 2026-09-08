@@ -10,6 +10,7 @@ import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
 import type { Book, BookStatus } from '../../types'
+import ExportDialog from './ExportDialog'
 import ImportWizard from './ImportWizard'
 
 const STATUS_LABEL: Record<BookStatus, string> = {
@@ -32,6 +33,7 @@ export default function LibraryPage() {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<Book | null>(null)
   const [finishTarget, setFinishTarget] = useState<Book | null>(null)
+  const [exportTarget, setExportTarget] = useState<Book | null>(null)
 
   const books = useAsyncResource(useCallback(async () => {
     const list = await backend.listBooks()
@@ -150,14 +152,22 @@ export default function LibraryPage() {
             </button>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-4">
               <span>{STATUS_NOTE[book.status] ?? ''}</span>
-              {book.status !== 'finished' && (
+              <span className="flex items-center gap-3">
                 <button
                   className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline"
-                  onClick={() => { finishOp.clearError('finish'); setFinishTarget(book) }}
+                  onClick={() => setExportTarget(book)}
                 >
-                  标记为已学完
+                  导出到 Obsidian
                 </button>
-              )}
+                {book.status !== 'finished' && (
+                  <button
+                    className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline"
+                    onClick={() => { finishOp.clearError('finish'); setFinishTarget(book) }}
+                  >
+                    标记为已学完
+                  </button>
+                )}
+              </span>
             </div>
             </div>
           ))}
@@ -181,6 +191,7 @@ export default function LibraryPage() {
           </div>
         )}
       </Confirm>
+      {exportTarget && <ExportDialog book={exportTarget} onClose={() => setExportTarget(null)} />}
       <Confirm
         open={finishTarget !== null}
         title="标记为已学完?"

@@ -502,3 +502,9 @@
 - **web**:`SessionView.bookId`、`FinalReport`、`finalExamEligible/Start/Finish`(解码校验 overall 1..5);Mock 两阶段脚本与报告样例;`config` 增 `OPENER_TEXT.final_exam`、`FINAL_EXAM_REQUEST_ID`;新页 `FinalExamPage`(`/final/:bookId`:opener 自动开场 → 作答 ≥2 次可"生成学习报告" → 报告页(星级/最强最弱/正文/归档路径)→ 返回书架;已结束会话重进以常量 id 重放报告);地图页在全部块通过时显示"整书终评"入口。用例 5 条 + tauri 解码 1 条。
 - 门禁:core 154/27/1/1、clippy 0、fmt;web 294/2、lint 0、`pnpm build`;src-tauri 在 Mac 原生 `cargo test`(foundation 27)通过。**过程失误**:一次 `open(p,'w').write(open(p).read())` 把 `MapPage.tsx` 截成空文件(先截断后读),从 git 恢复后重做——改文件一律先读后写。
 
+## 2026-09-08 · M3 T2:Obsidian 导出
+- **core**:新模块 `export`——`safe_name`、`plan(conn, book_id, target)`(只读 SQLite:块 + 评估历史 + 薄弱点演变 + artifact 分组;frontmatter;wikilink 以目标目录为根;跳过块不导出;`00-学习报告.md` 始终生成、`01-我的方法论.md` 仅方法论书/有产出时)、`write(plan)`(目标目录须已存在;临时文件 + fsync + rename;内容相同不写;不删其它文件)。单测 4 条,含"所有 wikilink 目标都在清单内"与增量写入。
+- **壳层/契约**:`ExportPreviewDto{target, targetExists, dir, files}`、`ExportReportDto{dir, written, unchanged}`;`application::expand_home` 是 `~` 的唯一展开点,目标须为绝对路径;`export_preview/export_obsidian/export_reveal[bookId]`(reveal 用 `open` 打开由设置 + 书名推导的目录,不接受任意路径);六处同步;foundation 用例覆盖默认目标、临时 vault 写入/增量、NotFound、`~` 展开;wire 用例现场把设置指到临时 vault 并先导出再 reveal。
+- **web**:`ExportPreview/ExportReport` 类型、`exportPreview/exportObsidian/exportReveal`、解码器与用例;Mock 按书/块推导清单并镜像"首次全写、再次全不变";书架卡新增"导出到 Obsidian"→ `ExportDialog`(清单预览 → 确认导出 → 写入/未变计数 → 在 Finder 中显示;目标目录不存在时提示去设置页并禁用导出;失败可重试)。用例 2 条。
+- 门禁:core 159/27/1/1、clippy 0、fmt;web 297/2、lint 0、build;src-tauri 由 Mac 原生 `cargo test` + CI 验证。
+

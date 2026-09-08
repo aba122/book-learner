@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -385,6 +385,25 @@ function decodeExtraOutcome(value: unknown): ExtraOutcome {
     artifactId: safeIntegerAt(wire.artifactId, 'extra.artifactId'),
     version: safeIntegerAt(wire.version, 'extra.version'),
     contentMd: stringAt(wire.contentMd, 'extra.contentMd'),
+  }
+}
+
+function decodeExportPreview(value: unknown): ExportPreview {
+  const wire = objectAt(value, 'exportPreview')
+  return {
+    target: stringAt(wire.target, 'exportPreview.target'),
+    targetExists: booleanAt(wire.targetExists, 'exportPreview.targetExists'),
+    dir: stringAt(wire.dir, 'exportPreview.dir'),
+    files: arrayAt(wire.files, 'exportPreview.files', (item, path) => stringAt(item, path)),
+  }
+}
+
+function decodeExportReport(value: unknown): ExportReport {
+  const wire = objectAt(value, 'exportReport')
+  return {
+    dir: stringAt(wire.dir, 'exportReport.dir'),
+    written: safeIntegerAt(wire.written, 'exportReport.written'),
+    unchanged: safeIntegerAt(wire.unchanged, 'exportReport.unchanged'),
   }
 }
 
@@ -841,6 +860,27 @@ export class TauriBackend implements Backend {
       outboundInteger(expectedVersion, 'expectedVersion')
       outboundClientId(requestId, 'requestId')
       return this.decode('final_exam_finish', { sessionId, expectedVersion, requestId }, decodeFinalReport)
+    })
+  }
+
+  exportPreview(bookId: number): Promise<ExportPreview> {
+    return this.gated('exportPreview', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('export_preview', { bookId }, decodeExportPreview)
+    })
+  }
+
+  exportObsidian(bookId: number): Promise<ExportReport> {
+    return this.gated('exportObsidian', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('export_obsidian', { bookId }, decodeExportReport)
+    })
+  }
+
+  async exportReveal(bookId: number): Promise<void> {
+    return this.gated('exportReveal', async () => {
+      outboundInteger(bookId, 'bookId')
+      await this.decode('export_reveal', { bookId }, value => unitAt(value, 'export_reveal'))
     })
   }
 

@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod db;
 pub mod eval;
+pub mod export;
 pub mod extra;
 pub mod final_exam;
 pub mod library;

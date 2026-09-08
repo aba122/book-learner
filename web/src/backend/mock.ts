@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -538,6 +538,31 @@ export class MockBackend implements Backend {
     }
     this.v2Sessions.set(session.sessionId, session)
     return this.toView(session)
+  }
+
+  /** Obsidian 导出(M3 T2):目标目录取设置项(Mock 不展开 ~),清单按书/块推导;写入计数镜像"首次全写、再次全不变" */
+  private exported = new Set<number>()
+  private exportFiles(book: Book): string[] {
+    const dir = book.title
+    const blocks = this.blocks.filter(b => b.bookId === book.id && !b.skipped).sort((a, z) => a.seq - z.seq)
+    const files = [`${dir}/00-学习报告.md`, ...blocks.map(b => `${dir}/blocks/${String(b.seq).padStart(2, '0')}-${b.title}.md`)]
+    if (book.type === 'methodology') files.push(`${dir}/01-我的方法论.md`)
+    return files.sort()
+  }
+  async exportPreview(bookId: number): Promise<ExportPreview> {
+    const book = this.books.find(b => b.id === bookId)
+    if (!book) throw notFound()
+    const target = this.settings.obsidianVault
+    return { target, targetExists: true, dir: `${target}/${book.title}`, files: this.exportFiles(book) }
+  }
+  async exportObsidian(bookId: number): Promise<ExportReport> {
+    const preview = await this.exportPreview(bookId)
+    const first = !this.exported.has(bookId)
+    this.exported.add(bookId)
+    return { dir: preview.dir, written: first ? preview.files.length : 0, unchanged: first ? 0 : preview.files.length }
+  }
+  async exportReveal(bookId: number): Promise<void> {
+    if (!this.exported.has(bookId)) throw invalidRequest()
   }
 
   async finalExamEligible(bookId: number): Promise<boolean> {

@@ -39,7 +39,10 @@
     { "method": "statsDetail", "command": "stats_detail", "payloadKeys": ["date"] },
     { "method": "finalExamEligible", "command": "final_exam_eligible", "payloadKeys": ["bookId"] },
     { "method": "finalExamStart", "command": "final_exam_start", "payloadKeys": ["bookId", "clientRequestId"] },
-    { "method": "finalExamFinish", "command": "final_exam_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] }
+    { "method": "finalExamFinish", "command": "final_exam_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] },
+    { "method": "exportPreview", "command": "export_preview", "payloadKeys": ["bookId"] },
+    { "method": "exportObsidian", "command": "export_obsidian", "payloadKeys": ["bookId"] },
+    { "method": "exportReveal", "command": "export_reveal", "payloadKeys": ["bookId"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

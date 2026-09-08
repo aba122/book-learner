@@ -102,3 +102,7 @@ export interface PomodoroSnapshot {
 }
 /** 学习者画像四小节(memory/profile.md,M2 T6);误区模式由 AI 观察积累,只读展示 */
 export interface Profile { background: string; mastered: string; pitfalls: string; context: string }
+/** Obsidian 导出(M3 T2):预览为目标目录(已展开 ~)与相对文件清单;写入结果为增量计数 */
+export interface ExportPreview { target: string; targetExists: boolean; dir: string; files: string[] }
+export interface ExportReport { dir: string; written: number; unchanged: number }
+
