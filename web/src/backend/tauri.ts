@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
+  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BlockStatus, Book, BookProgress, BookStatus, BookType, DailyTask, DayEffort, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -125,6 +125,15 @@ function stringAt(value: unknown, path: string): string {
 function safeIntegerAt(value: unknown, path: string): number {
   if (!Number.isSafeInteger(value)) return invalidShape(path, 'safe integer', value)
   return value as number
+}
+
+function finiteNumberAt(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return invalidShape(path, 'finite number', value)
+  return value
+}
+
+function nullableAt<T>(value: unknown, path: string, decode: (v: unknown, p: string) => T): T | null {
+  return value === null ? null : decode(value, path)
 }
 
 function booleanAt(value: unknown, path: string): boolean {
@@ -475,6 +484,57 @@ function validateProfile(profile: Profile): void {
   for (const key of PROFILE_KEYS) outboundString(value[key], `profile.${key}`)
 }
 
+const BOOK_STATUSES_FOR_STATS = ['active', 'paused', 'finished'] as const satisfies readonly BookStatus[]
+
+function decodeStatsDetail(value: unknown): StatsDetail {
+  const wire = objectAt(value, 'statsDetail')
+  return {
+    books: arrayAt(wire.books, 'statsDetail.books', (item, path): BookProgress => {
+      const b = objectAt(item, path)
+      return {
+        id: safeIntegerAt(b.id, `${path}.id`),
+        title: stringAt(b.title, `${path}.title`),
+        status: enumAt(b.status, `${path}.status`, BOOK_STATUSES_FOR_STATS),
+        total: safeIntegerAt(b.total, `${path}.total`),
+        passed: safeIntegerAt(b.passed, `${path}.passed`),
+        consolidated: safeIntegerAt(b.consolidated, `${path}.consolidated`),
+        deadline: nullableAt(b.deadline, `${path}.deadline`, stringAt),
+        projectedFinish: nullableAt(b.projectedFinish, `${path}.projectedFinish`, stringAt),
+      }
+    }),
+    days: arrayAt(wire.days, 'statsDetail.days', (item, path): DayEffort => {
+      const d = objectAt(item, path)
+      return {
+        date: stringAt(d.date, `${path}.date`),
+        minutes: safeIntegerAt(d.minutes, `${path}.minutes`),
+        pomodoros: safeIntegerAt(d.pomodoros, `${path}.pomodoros`),
+      }
+    }),
+    streakCalendar: arrayAt(wire.streakCalendar, 'statsDetail.streakCalendar', (item, path): StreakDay => {
+      const d = objectAt(item, path)
+      return { date: stringAt(d.date, `${path}.date`), active: booleanAt(d.active, `${path}.active`) }
+    }),
+    weakTrend: arrayAt(wire.weakTrend, 'statsDetail.weakTrend', (item, path): WeakTrendDay => {
+      const d = objectAt(item, path)
+      return {
+        date: stringAt(d.date, `${path}.date`),
+        opened: safeIntegerAt(d.opened, `${path}.opened`),
+        fixed: safeIntegerAt(d.fixed, `${path}.fixed`),
+      }
+    }),
+    avgScores: nullableAt(wire.avgScores, 'statsDetail.avgScores', (v, path): AvgScores => {
+      const a = objectAt(v, path)
+      return {
+        accuracy: finiteNumberAt(a.accuracy, `${path}.accuracy`),
+        completeness: finiteNumberAt(a.completeness, `${path}.completeness`),
+        clarity: finiteNumberAt(a.clarity, `${path}.clarity`),
+        samples: safeIntegerAt(a.samples, `${path}.samples`),
+      }
+    }),
+    reviewPassRate: nullableAt(wire.reviewPassRate, 'statsDetail.reviewPassRate', finiteNumberAt),
+  }
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -742,6 +802,10 @@ export class TauriBackend implements Backend {
   /** 统计以本地日历日为"今天"(core 不读系统时间) */
   async stats(): Promise<Stats> {
     return this.gated('stats', () => this.decode('stats_get', { date: localCalendarDate() }, decodeStats))
+  }
+
+  async statsDetail(): Promise<StatsDetail> {
+    return this.gated('statsDetail', () => this.decode('stats_detail', { date: localCalendarDate() }, decodeStatsDetail))
   }
 
   // ---- 契约 v2(按 unsupportedCapabilities 门控;Rust command/DTO 接线在 Mac)----

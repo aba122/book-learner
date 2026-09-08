@@ -34,6 +34,19 @@ export interface Replan {
 }
 export interface ChatMessage { role: 'user' | 'student'; text: string }
 export interface Stats { totalBlocks: number; passedBlocks: number; streakDays: number; openWeakPoints: number; fixedWeakPoints: number; minutesToday: number }
+/** 统计详情三区(core stats::detail,M2 T7);日期数组旧 → 新;可空字段为"暂无数据" */
+export interface BookProgress {
+  id: number; title: string; status: BookStatus; total: number; passed: number; consolidated: number
+  deadline: string | null; projectedFinish: string | null
+}
+export interface DayEffort { date: string; minutes: number; pomodoros: number }
+export interface StreakDay { date: string; active: boolean }
+export interface WeakTrendDay { date: string; opened: number; fixed: number }
+export interface AvgScores { accuracy: number; completeness: number; clarity: number; samples: number }
+export interface StatsDetail {
+  books: BookProgress[]; days: DayEffort[]; streakCalendar: StreakDay[]; weakTrend: WeakTrendDay[]
+  avgScores: AvgScores | null; reviewPassRate: number | null
+}
 export interface AppSettings { obsidianVault: string; pomodoroMinutes: number; breakMinutes: number; remindTime: string; eveningRemindTime: string }
 
 // ---- 契约 v2(Plan B,与 core 用例同名;camelCase 镜像 core 结构)----

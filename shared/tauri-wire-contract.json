@@ -35,7 +35,8 @@
     { "method": "profileGet", "command": "profile_get", "payloadKeys": [] },
     { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] },
     { "method": "extraStart", "command": "extra_start", "payloadKeys": ["blockId", "kind", "clientRequestId"] },
-    { "method": "extraFinish", "command": "extra_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] }
+    { "method": "extraFinish", "command": "extra_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] },
+    { "method": "statsDetail", "command": "stats_detail", "payloadKeys": ["date"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

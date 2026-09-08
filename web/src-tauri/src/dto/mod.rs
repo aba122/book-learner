@@ -550,6 +550,118 @@ impl From<Stats> for StatsDto {
     }
 }
 
+// ---- 统计详情(M2 T7)----
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookProgressDto {
+    pub id: i64,
+    pub title: String,
+    pub status: String,
+    pub total: i64,
+    pub passed: i64,
+    pub consolidated: i64,
+    pub deadline: Option<String>,
+    pub projected_finish: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayEffortDto {
+    pub date: String,
+    pub minutes: i64,
+    pub pomodoros: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreakDayDto {
+    pub date: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeakTrendDayDto {
+    pub date: String,
+    pub opened: i64,
+    pub fixed: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvgScoresDto {
+    pub accuracy: f64,
+    pub completeness: f64,
+    pub clarity: f64,
+    pub samples: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsDetailDto {
+    pub books: Vec<BookProgressDto>,
+    pub days: Vec<DayEffortDto>,
+    pub streak_calendar: Vec<StreakDayDto>,
+    pub weak_trend: Vec<WeakTrendDayDto>,
+    pub avg_scores: Option<AvgScoresDto>,
+    pub review_pass_rate: Option<f64>,
+}
+
+impl From<book_learner_core::stats::StatsDetail> for StatsDetailDto {
+    fn from(detail: book_learner_core::stats::StatsDetail) -> Self {
+        Self {
+            books: detail
+                .books
+                .into_iter()
+                .map(|b| BookProgressDto {
+                    id: b.id,
+                    title: b.title,
+                    status: b.status,
+                    total: b.total,
+                    passed: b.passed,
+                    consolidated: b.consolidated,
+                    deadline: b.deadline,
+                    projected_finish: b.projected_finish,
+                })
+                .collect(),
+            days: detail
+                .days
+                .into_iter()
+                .map(|d| DayEffortDto {
+                    date: d.date,
+                    minutes: d.minutes,
+                    pomodoros: d.pomodoros,
+                })
+                .collect(),
+            streak_calendar: detail
+                .streak_calendar
+                .into_iter()
+                .map(|d| StreakDayDto {
+                    date: d.date,
+                    active: d.active,
+                })
+                .collect(),
+            weak_trend: detail
+                .weak_trend
+                .into_iter()
+                .map(|d| WeakTrendDayDto {
+                    date: d.date,
+                    opened: d.opened,
+                    fixed: d.fixed,
+                })
+                .collect(),
+            avg_scores: detail.avg_scores.map(|a| AvgScoresDto {
+                accuracy: a.accuracy,
+                completeness: a.completeness,
+                clarity: a.clarity,
+                samples: a.samples,
+            }),
+            review_pass_rate: detail.review_pass_rate,
+        }
+    }
+}
+
 // ---- 落后重排(M2 T4)----
 
 /// `status`: on_track | auto_adjusted(附 newDaily)| needs_decision(附 requiredDaily)

@@ -1,7 +1,8 @@
 import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../config'
 import { CLIENT_ID_RE } from '../lib/ids'
+import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -397,6 +398,41 @@ export class MockBackend implements Backend {
   }
   async profileSave(profile: Profile): Promise<void> {
     this.profile = { ...profile }
+  }
+
+  /** 统计详情(M2 T7):进度按当前书/块推导,投入与质量为确定性样例(旧 → 新) */
+  async statsDetail(): Promise<StatsDetail> {
+    const today = localCalendarDate()
+    const back = (n: number, days: number) => addCalendarDays(today, -(n - 1 - days))
+    const minutes = [0, 25, 50, 0, 30, 45, 25, 0, 0, 50, 25, 30, 0, 40]
+    const pomodoros = [0, 1, 2, 0, 1, 2, 1, 0, 0, 2, 1, 1, 0, 2]
+    const opened = [0, 1, 0, 0, 2, 0, 0, 1, 0, 0, 1, 0, 0, 1]
+    const fixed = [0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0]
+    const scored = this.blocks.filter(b => b.scores)
+    const avg = (pick: (s: NonNullable<KnowledgeBlock['scores']>) => number) =>
+      scored.reduce((sum, b) => sum + pick(b.scores!), 0) / scored.length
+    return {
+      books: this.books.map(book => {
+        const blocks = this.blocks.filter(b => b.bookId === book.id && !b.skipped)
+        const passed = blocks.filter(b => b.status === 'passed' || b.status === 'consolidated').length
+        const remaining = blocks.length - passed
+        return {
+          id: book.id, title: book.title, status: book.status, total: blocks.length, passed,
+          consolidated: blocks.filter(b => b.status === 'consolidated').length,
+          deadline: this.plans.find(p => p.bookId === book.id)?.deadline ?? null,
+          projectedFinish: remaining > 0 && passed > 0 ? addCalendarDays(today, remaining * 2) : null,
+        }
+      }),
+      days: minutes.map((m, i) => ({ date: back(14, i), minutes: m, pomodoros: pomodoros[i] })),
+      streakCalendar: Array.from({ length: 56 }, (_, i) => ({
+        date: back(56, i), active: i >= 42 ? minutes[i - 42] > 0 : i % 3 !== 0,
+      })),
+      weakTrend: opened.map((o, i) => ({ date: back(14, i), opened: o, fixed: fixed[i] })),
+      avgScores: scored.length
+        ? { accuracy: avg(s => s.accuracy), completeness: avg(s => s.completeness), clarity: avg(s => s.clarity), samples: scored.length }
+        : null,
+      reviewPassRate: 0.75,
+    }
   }
 
   async getSettings(): Promise<AppSettings> {

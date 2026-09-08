@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -38,6 +38,8 @@ export interface Backend {
   /** 通过后附加环节(M2 T5):仅已通过的块;同块同类一次;回合复用 submitTurn;finish 产出整理稿并归档 */
   extraStart(blockId: number, kind: ExtraKind, clientRequestId: string): Promise<SessionView>
   extraFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<ExtraOutcome>
+  /** 统计详情三区(M2 T7);"今天"同 stats() 由前端本地日历日决定 */
+  statsDetail(): Promise<StatsDetail>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 
