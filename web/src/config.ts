@@ -1,5 +1,5 @@
 import appDefaults from '../../shared/app-defaults.json'
-import type { AppSettings, SessionKind, TaskKind } from './types'
+import type { AppSettings, BookType, ExtraKind, SessionKind, TaskKind } from './types'
 
 export const APP_DEFAULTS: Readonly<AppSettings> = Object.freeze({ ...appDefaults })
 export const REVIEW_STAGES = [1, 3, 7, 14] as const
@@ -29,3 +29,27 @@ export const SESSION_HINT: Partial<Record<SessionKind, string>> = {
 }
 /** 落后重排弹窗"本日不再提醒"的偏好键(值为日历日,M2 T4) */
 export const REPLAN_DISMISSED_KEY = 'bookLearner.replanDismissed'
+/** 通过后附加环节(M2 T5):按书类型选种类;opener 为前端固定开场回合文案(core 回合协议要求用户先开口) */
+export const EXTRA_KIND_FOR_BOOK: Record<BookType, ExtraKind> = {
+  textbook: 'application', methodology: 'methodology', humanities: 'discussion',
+}
+export const EXTRA_STAGE: Record<ExtraKind, { title: string; intro: string; opener: string; archiveFile: string }> = {
+  application: {
+    title: '迁移应用题',
+    intro: '把刚讲清的知识用到一个贴近你工作/研究的新情境里:AI 出 1 道题,你作答,它评阅并给出掌握判断。',
+    opener: '请出题',
+    archiveFile: '_applications.md',
+  },
+  methodology: {
+    title: '情境化方法论',
+    intro: '把这套框架套到你当下的一个具体问题上,三轮引导后写出「我的版本」,整理稿归档为个人方法论。',
+    opener: '请引导',
+    archiveFile: '_methodology.md',
+  },
+  discussion: {
+    title: '观点讨论',
+    intro: 'AI 提出一个与本块叙事相关的对立视角或争议,你写下自己的看法;整理稿归档为思考笔记。',
+    opener: '请提出对立视角',
+    archiveFile: '_notes.md',
+  },
+}

@@ -105,6 +105,50 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
                 .collect();
             memory.sync_map(&slug, &title, &rows)
         }
+        "extra_archive" => {
+            let artifact_id = field_i64(&p, "artifact_id")?;
+            let entry_key = field_str(&p, "entry_key")?;
+            let (book_id, kind, block_id, content, created_at): (
+                i64,
+                String,
+                Option<i64>,
+                String,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT book_id,kind,block_id,content_md,created_at FROM artifact WHERE id=?1",
+                    [artifact_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .optional()?
+                .ok_or_else(|| CoreError::NotFound(format!("artifact {artifact_id}")))?;
+            let extra = crate::extra::ExtraKind::from_artifact_kind(&kind).ok_or_else(|| {
+                CoreError::InvalidInput(format!(
+                    "artifact {artifact_id} kind {kind:?} is not archivable"
+                ))
+            })?;
+            let (slug, title) = book_slug_title(conn, book_id)?;
+            let block_title: String = match block_id {
+                Some(id) => conn
+                    .query_row("SELECT title FROM knowledge_block WHERE id=?1", [id], |r| {
+                        r.get(0)
+                    })
+                    .optional()?
+                    .unwrap_or_else(|| "(已删除的块)".into()),
+                None => "(已删除的块)".into(),
+            };
+            memory.ensure_book(&slug, &title)?;
+            let date = created_at.get(..10).unwrap_or(&created_at);
+            memory.append_archive(
+                &slug,
+                &title,
+                extra.archive_file(),
+                extra.archive_title(),
+                entry_key,
+                &format!("{date} · {block_title}"),
+                &content,
+            )
+        }
         "git_commit" => memory.commit(field_str(&p, "message")?),
         other => Err(CoreError::InvalidInput(format!(
             "unknown projection kind {other:?}"

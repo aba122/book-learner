@@ -309,6 +309,41 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// 附加环节产出归档(M2 T5):向 `books/<slug>/<file>` 追加一节;文件不存在则以 `title` 建头;
+    /// `entry_key`(outbox op_id)写成 HTML 注释标记,已存在则整次 no-op(跨崩溃重放幂等)。
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_archive(
+        &self,
+        book_slug: &str,
+        book_title: &str,
+        file: &str,
+        title: &str,
+        entry_key: &str,
+        heading: &str,
+        body: &str,
+    ) -> Result<()> {
+        let book_slug = validate_slug(book_slug)?;
+        if file.contains('/') || file.contains("..") || !file.ends_with(".md") {
+            return Err(CoreError::InvalidInput(format!(
+                "bad archive file {file:?}"
+            )));
+        }
+        let path = self.root.join("books").join(book_slug).join(file);
+        let existing = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                format!("# {title} — {book_title}\n")
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let marker = format!("<!-- entry:{entry_key} -->");
+        if existing.contains(&marker) {
+            return Ok(());
+        }
+        let content = format!("{existing}\n## {heading}\n{marker}\n\n{}\n", body.trim());
+        atomic_write(&path, &content)
+    }
+
     /// 学习会话结束后的自动提交;无变更时容忍空提交。
     pub fn commit(&self, msg: &str) -> Result<()> {
         self.git(&["add", "-A"])?;

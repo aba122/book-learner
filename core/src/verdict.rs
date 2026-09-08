@@ -43,7 +43,7 @@ fn parse_stored_eval(json: &str) -> Result<EvalResult> {
 }
 
 /// 渲染权威 transcript(仅 done 回合;学生文本剥离收尾标记)
-fn render_transcript(conn: &Connection, session_id: i64) -> Result<String> {
+pub(crate) fn render_transcript(conn: &Connection, session_id: i64) -> Result<String> {
     let mut st = conn.prepare(
         "SELECT role,text FROM session_turn WHERE session_id=?1 AND status='done' ORDER BY seq",
     )?;
@@ -80,14 +80,19 @@ pub fn request_evaluation(
     let full_id = eval_request_id(session_id, request_id);
     // 短事务 A:状态检查与 open→evaluating
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    let (state, version, eval_json): (String, i64, Option<String>) = tx
+    let (state, version, eval_json, extra_kind): (String, i64, Option<String>, Option<String>) = tx
         .query_row(
-            "SELECT state,version,eval_json FROM feynman_session WHERE id=?1",
+            "SELECT state,version,eval_json,extra_kind FROM feynman_session WHERE id=?1",
             [session_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?
         .ok_or_else(|| CoreError::NotFound(format!("session {session_id}")))?;
+    if extra_kind.is_some() {
+        return Err(CoreError::Conflict(format!(
+            "session {session_id} is an extra stage; close it with extra::finish"
+        )));
+    }
     let existing_ids: Vec<String> = {
         let mut st = tx.prepare("SELECT request_id FROM ai_request WHERE request_id LIKE ?1")?;
         let rows = st.query_map([format!("eval:{session_id}:%")], |r| r.get(0))?;

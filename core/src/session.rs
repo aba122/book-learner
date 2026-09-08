@@ -39,6 +39,8 @@ pub struct SessionView {
     pub state: String,
     pub block_id: i64,
     pub kind: String,
+    /// 通过后附加环节种类(application|methodology|discussion,M2 T5);普通会话为 None
+    pub extra_kind: Option<String>,
     pub transcript: Vec<TurnView>,
     pub eval: Option<EvalResult>,
 }
@@ -74,16 +76,18 @@ fn session_state(conn: &Connection, session_id: i64) -> Result<(String, i64)> {
 }
 
 pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
-    let (task_id, version, state, block_id, kind, eval_json): (
+    #[allow(clippy::type_complexity)]
+    let (task_id, version, state, block_id, kind, eval_json, extra_kind): (
         Option<i64>,
         i64,
         String,
         i64,
         String,
         Option<String>,
+        Option<String>,
     ) = conn
         .query_row(
-            "SELECT task_id,version,state,block_id,kind,eval_json FROM feynman_session WHERE id=?1",
+            "SELECT task_id,version,state,block_id,kind,eval_json,extra_kind FROM feynman_session WHERE id=?1",
             [session_id],
             |r| {
                 Ok((
@@ -93,6 +97,7 @@ pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
+                    r.get(6)?,
                 ))
             },
         )
@@ -133,6 +138,7 @@ pub fn get_session(conn: &Connection, session_id: i64) -> Result<SessionView> {
         state,
         block_id,
         kind,
+        extra_kind,
         transcript,
         eval,
     })
@@ -430,18 +436,31 @@ pub fn submit_turn(
         })?
         .collect::<rusqlite::Result<_>>()?;
     drop(st);
-    // 会话种类决定 system prompt:learn → 费曼学生;review/retest → 复习考官快问(§6.7)
-    let kind: String = conn.query_row(
-        "SELECT kind FROM feynman_session WHERE id=?1",
+    // 会话种类决定 system prompt:learn → 费曼学生;review/retest → 复习考官快问(§6.7);
+    // 附加环节(extra_kind,M2 T5)→ 出题/引导/讨论 prompt(§6.4–6.6)
+    let (kind, extra_kind): (String, Option<String>) = conn.query_row(
+        "SELECT kind,extra_kind FROM feynman_session WHERE id=?1",
         [session_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    let extra = extra_kind
+        .as_deref()
+        .map(crate::extra::ExtraKind::parse)
+        .transpose()?;
     let quiz = matches!(kind.as_str(), "review" | "retest");
-    let system = if quiz {
+    let system = if let Some(extra) = extra {
+        prompts::extra_system(extra, ctx)
+    } else if quiz {
         prompts::review_quiz_system(ty, ctx, &kind)
     } else {
         prompts::feynman_system(ty, ctx)
     };
+    // 学生回合上限:快问 6、附加环节按种类;普通讲授不限
+    let turn_cap = extra.map(|k| k.max_student_turns()).or(if quiz {
+        Some(MAX_QUIZ_STUDENT_TURNS)
+    } else {
+        None
+    });
     let req = CompletionRequest {
         system,
         messages,
@@ -467,14 +486,14 @@ pub fn submit_turn(
         &accept,
     )?
     .into_text();
-    // 快问会话到达回合上限仍未收尾 → 强制收尾(不让复习无限追问)
-    let raw = if quiz && !raw.contains(READY_MARKER) {
+    // 快问/附加环节到达回合上限仍未收尾 → 强制收尾(不让追问无限延续)
+    let raw = if let (Some(cap), false) = (turn_cap, raw.contains(READY_MARKER)) {
         let student_turns: i64 = conn.query_row(
             "SELECT count(*) FROM session_turn WHERE session_id=?1 AND role='student' AND status='done'",
             [session_id],
             |r| r.get(0),
         )?;
-        if student_turns + 1 >= MAX_QUIZ_STUDENT_TURNS {
+        if student_turns + 1 >= cap {
             format!("{raw} {READY_MARKER}")
         } else {
             raw

@@ -12,8 +12,10 @@ import { newClientId } from '../../lib/ids'
 import { localCalendarDate } from '../../lib/localDate'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
-import type { ChatMessage, DailyTask, EvalResult, EvaluationView, KnowledgeBlock, SessionView, TurnResult } from '../../types'
+import type { DailyTask, EvalResult, EvaluationView, KnowledgeBlock, SessionView, TurnResult } from '../../types'
 import EvalCard from './EvalCard'
+import ExtraStage from './ExtraStage'
+import TranscriptLines, { StudentAvatar, type Line } from './Transcript'
 
 /**
  * 评估/判定的请求 id 为每会话常量:core 按 `eval:{session}:{id}` / `verdict:{session}:{id}` 命名空间化,
@@ -30,8 +32,6 @@ interface TeachingSession {
 }
 interface SendArgs { clientTurnId: string; text: string; expectedVersion: number }
 interface PendingTurn { clientTurnId: string; text: string }
-/** 对话流一行:opener 回合(快问开场)标记为 system,渲染为居中提示而非用户气泡 */
-type Line = ChatMessage & { system?: boolean }
 
 const PENDING_TURN_NOTICE = () =>
   new BackendError({ code: 'io_failure', message: '上次发送未完成,学生还没有回复', retryable: true })
@@ -175,12 +175,19 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const ending = endOp.pending.has('end')
   const endError = endOp.errors.get('end')
 
-  // 确认判定:单次原子操作(会话/块/薄弱点/复习/任务/投影都在 core 一个事务里),不再有 completeTask 第二步
+  // 确认判定:单次原子操作(会话/块/薄弱点/复习/任务/投影都在 core 一个事务里),不再有 completeTask 第二步;
+  // 新块判定"通过"后先给附加环节(M2 T5),其余情况直接回今日
+  const [extraOffer, setExtraOffer] = useState(false)
   const confirmOp = useBackendOperation(
     async (pass: boolean) => {
       await backend.confirmSessionVerdict(sessionId, version, VERDICT_REQUEST_ID, pass, today)
     },
-    { onCommitted: async () => navigate('/') },
+    {
+      onCommitted: async (_key, pass: boolean) => {
+        if (pass && task.kind === 'new') setExtraOffer(true)
+        else navigate('/')
+      },
+    },
   )
   const confirming = confirmOp.pending.has('confirm')
   const confirmError = confirmOp.errors.get('confirm')
@@ -347,31 +354,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
                 」讲给 TA 听——讲不清的地方,就是要回补的漏洞。
               </div>
             )}
-            {transcript.map((m, i) =>
-              m.system ? (
-                <div key={i} className="self-center rounded-full bg-paper-3/60 px-3 py-1 text-xs text-ink-4">
-                  {m.text}
-                </div>
-              ) : m.role === 'user' ? (
-                <div key={i} className="self-end">
-                  <div className="max-w-md rounded-m rounded-br-s bg-ink-1 px-4 py-2.5 text-sm leading-relaxed text-paper-2">
-                    {m.text}
-                  </div>
-                </div>
-              ) : (
-                <div key={i} className="flex items-start gap-2.5 self-start">
-                  <span
-                    aria-hidden
-                    className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-new-soft font-serif text-xs text-new"
-                  >
-                    生
-                  </span>
-                  <div className="max-w-md rounded-m rounded-tl-s border border-line bg-paper-2 px-4 py-2.5 text-sm leading-relaxed text-ink-1 shadow-card">
-                    {m.text}
-                  </div>
-                </div>
-              ),
-            )}
+            <TranscriptLines lines={transcript} />
             {pendingTurn && (
               <div className="flex flex-col items-end gap-2 self-end">
                 <div className="max-w-md rounded-m rounded-br-s bg-ink-1 px-4 py-2.5 text-sm leading-relaxed text-paper-2 opacity-80">
@@ -382,23 +365,13 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
             )}
             {thinking && (
               <div className="flex items-center gap-2.5 self-start text-sm text-ink-3">
-                <span
-                  aria-hidden
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-new-soft font-serif text-xs text-new"
-                >
-                  生
-                </span>
+                <StudentAvatar />
                 学生思考中<span className="animate-pulse">…</span>
               </div>
             )}
             {typing !== null && !thinking && (
               <div className="flex items-start gap-2.5 self-start">
-                <span
-                  aria-hidden
-                  className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-new-soft font-serif text-xs text-new"
-                >
-                  生
-                </span>
+                <StudentAvatar />
                 <div className="max-w-md rounded-m rounded-tl-s border border-line bg-paper-2 px-4 py-2.5 text-sm leading-relaxed text-ink-1 shadow-card">
                   {typing}
                   <span className="animate-pulse text-ink-4">▍</span>
@@ -451,7 +424,8 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
         </div>
       </div>
 
-      {evalResult && (
+      {extraOffer && <ExtraStage block={block} onDone={() => navigate('/')} />}
+      {evalResult && !extraOffer && (
         <EvalCard
           result={evalResult}
           onConfirm={decide}

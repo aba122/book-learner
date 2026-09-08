@@ -63,10 +63,14 @@ export interface TurnView {
   role: 'user' | 'student'; text: string; status: 'pending' | 'done' | 'failed'
   clientTurnId: string | null; readyToEnd: boolean
 }
+/** 通过后附加环节种类(M2 T5):教材 → 迁移应用题;方法论 → 情境化「我的版本」;人文 → 观点讨论 */
+export type ExtraKind = 'application' | 'methodology' | 'discussion'
 export interface SessionView {
   sessionId: number; taskId: number; version: number; state: SessionState; blockId: number
-  kind: SessionKind; transcript: TurnView[]; eval: EvalResult | null
+  kind: SessionKind; extraKind: ExtraKind | null; transcript: TurnView[]; eval: EvalResult | null
 }
+/** 附加环节结束产出:整理稿已写 artifact 并经投影归档到记忆库 */
+export interface ExtraOutcome { kind: ExtraKind; artifactId: number; version: number; contentMd: string }
 export interface TurnResult { studentText: string; readyToEnd: boolean; version: number }
 export interface EvaluationView { eval: EvalResult; version: number }
 export interface VerdictOutcome { passed: boolean; blockStatus: BlockStatus; taskDone: boolean; outboxOps: number; version: number }

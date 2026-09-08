@@ -406,6 +406,8 @@ pub struct SessionViewDto {
     pub state: String,
     pub block_id: i64,
     pub kind: String,
+    /// 通过后附加环节种类(M2 T5);普通会话为 null
+    pub extra_kind: Option<String>,
     pub transcript: Vec<TurnViewDto>,
     pub eval: Option<EvalResultDto>,
 }
@@ -419,8 +421,30 @@ impl From<SessionView> for SessionViewDto {
             state: view.state,
             block_id: view.block_id,
             kind: view.kind,
+            extra_kind: view.extra_kind,
             transcript: view.transcript.into_iter().map(Into::into).collect(),
             eval: view.eval.map(Into::into),
+        }
+    }
+}
+
+/// 附加环节结束产出(M2 T5)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraOutcomeDto {
+    pub kind: String,
+    pub artifact_id: i64,
+    pub version: i64,
+    pub content_md: String,
+}
+
+impl From<book_learner_core::extra::ExtraOutcome> for ExtraOutcomeDto {
+    fn from(outcome: book_learner_core::extra::ExtraOutcome) -> Self {
+        Self {
+            kind: outcome.kind.as_str().to_string(),
+            artifact_id: outcome.artifact_id,
+            version: outcome.version,
+            content_md: outcome.content_md,
         }
     }
 }

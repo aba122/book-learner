@@ -7,9 +7,9 @@ use rusqlite::OptionalExtension;
 
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
-    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    ExtraOutcomeDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
+    MapProgressDto, MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto,
+    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -423,4 +423,44 @@ pub fn profile_save(state: &AppState, profile: ProfileDto) -> Result<(), IpcErro
             &serde_json::json!({ "message": "profile: 更新学习者画像" }),
         )
     })
+}
+
+// ---- 通过后附加环节(M2 T5):回合复用 submit_turn;结束走整理 prompt 并入队归档投影 ----
+
+pub fn extra_start(
+    state: &AppState,
+    block_id: i64,
+    kind: &str,
+    client_request_id: &str,
+) -> Result<SessionViewDto, IpcError> {
+    let kind = book_learner_core::extra::ExtraKind::parse(kind).map_err(IpcError::from)?;
+    state
+        .with_connection(|connection| {
+            book_learner_core::extra::start(connection, block_id, kind, client_request_id)
+        })
+        .map(Into::into)
+}
+
+pub fn extra_finish(
+    state: &AppState,
+    session_id: i64,
+    expected_version: i64,
+    request_id: &str,
+) -> Result<ExtraOutcomeDto, IpcError> {
+    let (context, _) = session_context(state, session_id)?;
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::extra::finish(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        session_id,
+        expected_version,
+        request_id,
+        &context,
+    )
+    .map(Into::into)
+    .map_err(Into::into)
 }

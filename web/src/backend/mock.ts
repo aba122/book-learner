@@ -1,9 +1,7 @@
 import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../config'
 import { CLIENT_ID_RE } from '../lib/ids'
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan,
-  TaskKind, TurnResult, TurnView, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -24,6 +22,9 @@ interface MockSession {
   evalRequestId: string | null
   verdictRequestId: string | null
   verdictOutcome: VerdictOutcome | null
+  /** 通过后附加环节(M2 T5);普通会话为 null */
+  extraKind: ExtraKind | null
+  extraOutcome: ExtraOutcome | null
 }
 
 const STUDENT_SCRIPT: { text: string; readyToEnd: boolean }[] = [
@@ -61,6 +62,28 @@ const QUIZ_OPENER: Partial<Record<SessionKind, string>> = {
   retest: '请讲清你之前混淆的那个点:它和相邻概念的区别到底在哪里?',
 }
 const UNCONFIRMED: readonly SessionState[] = ['open', 'evaluating', 'evaluated']
+/** 附加环节学生回合脚本(按已发生的学生回合数取;镜像 core extra_system 的轮次上限) */
+const EXTRA_SCRIPT: Record<ExtraKind, { text: string; readyToEnd: boolean }[]> = {
+  application: [
+    { text: '题目:你所在平台准备把会员价上调 10%,已知会员对价格并不敏感。请用弹性判断总收入会怎样变化,并说明你会先核实哪个数据。', readyToEnd: false },
+    { text: '思路正确:弹性小于 1 时提价会提高总收入。你补上了"先核实弹性估计的样本区间",这正是迁移时最容易漏的一步。', readyToEnd: true },
+  ],
+  methodology: [
+    { text: '先说说:你当下的工作里,有哪个具体问题可以套这套框架?', readyToEnd: false },
+    { text: '好。框架的每个要素分别对应到这个问题里的什么?', readyToEnd: false },
+    { text: '现在请把它写成一段「我的版本」——结合你的情境改写后的个人方法论。', readyToEnd: false },
+    { text: '收到,已经足够具体,可以整理归档了。', readyToEnd: true },
+  ],
+  discussion: [
+    { text: '对立视角:有学者认为这一段叙事夸大了个别人物的作用,结构性因素才是主因。你怎么看?', readyToEnd: false },
+    { text: '你的论证用到了本块的两处史实,结构性因素那一侧还可以再补一条证据。', readyToEnd: true },
+  ],
+}
+const EXTRA_SUMMARY: Record<ExtraKind, string> = {
+  application: '## 题目\n会员价上调 10% 对总收入的影响\n\n## 用户作答要点\n- 弹性小于 1,提价增加总收入\n- 先核实弹性估计的样本区间\n\n## 评语\n运用正确,补充了数据核实步骤。\n\n## 掌握判断\n已掌握迁移能力:能把弹性判断迁移到真实定价决策。',
+  methodology: '## 我的版本\n(用户原话整理)\n\n## 适用情境\n平台定价实验设计\n\n## 来源块\n供需弹性',
+  discussion: '## 争议\n人物作用 vs 结构性因素\n\n## 我的看法\n(用户原话整理)\n\n## 用到的史实\n两处\n\n## 来源块\n供需弹性',
+}
 const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const
 
 // 错误码与 tauri.ts IPC_ERRORS 一致(文案相同),页面对两种后端的失败态无差别
@@ -85,6 +108,7 @@ export class MockBackend implements Backend {
   private spines = new Map<number, SpineChapter[]>()
   private anchors = new Map<number, AnchorSegment[]>()
   private nextSessionId = 1
+  private nextArtifactId = 1
   private nextBookId = 2
   private nextBlockId = 13
   private settings: AppSettings = { ...APP_DEFAULTS }
@@ -437,7 +461,7 @@ export class MockBackend implements Backend {
   private toView(s: MockSession): SessionView {
     return {
       sessionId: s.sessionId, taskId: s.taskId, version: s.version, state: s.state, blockId: s.blockId,
-      kind: s.kind, transcript: s.transcript.map(t => ({ ...t })), eval: s.eval,
+      kind: s.kind, extraKind: s.extraKind, transcript: s.transcript.map(t => ({ ...t })), eval: s.eval,
     }
   }
 
@@ -463,9 +487,50 @@ export class MockBackend implements Backend {
       sessionId: this.nextSessionId++, taskId, blockId: task.blockId, kind: SESSION_KIND[task.kind],
       state: 'open', version: 0, transcript: [], scriptIdx: 0, eval: null, clientRequestId,
       turnResults: new Map(), evalRequestId: null, verdictRequestId: null, verdictOutcome: null,
+      extraKind: null, extraOutcome: null,
     }
     this.v2Sessions.set(session.sessionId, session)
     return this.toView(session)
+  }
+
+  async extraStart(blockId: number, kind: ExtraKind, clientRequestId: string): Promise<SessionView> {
+    requireClientId(clientRequestId)
+    for (const s of this.v2Sessions.values()) {
+      if (s.clientRequestId === clientRequestId) return this.toView(s)
+    }
+    const block = this.blocks.find(b => b.id === blockId)
+    if (!block) throw notFound()
+    for (const s of this.v2Sessions.values()) {
+      if (s.blockId === blockId && s.extraKind === kind) return this.toView(s)
+    }
+    if (block.status !== 'passed' && block.status !== 'consolidated') throw conflict()
+    const session: MockSession = {
+      sessionId: this.nextSessionId++, taskId: 0, blockId, kind: 'learn',
+      state: 'open', version: 0, transcript: [], scriptIdx: 0, eval: null, clientRequestId,
+      turnResults: new Map(), evalRequestId: null, verdictRequestId: null, verdictOutcome: null,
+      extraKind: kind, extraOutcome: null,
+    }
+    this.v2Sessions.set(session.sessionId, session)
+    return this.toView(session)
+  }
+
+  async extraFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<ExtraOutcome> {
+    requireClientId(requestId)
+    const s = this.requireSession(sessionId)
+    if (!s.extraKind) throw invalidRequest()
+    if (s.extraOutcome) {
+      if (s.verdictRequestId === requestId) return { ...s.extraOutcome }
+      throw conflict()
+    }
+    if (s.state !== 'open') throw conflict()
+    if (s.version !== expectedVersion) throw conflict()
+    const answers = s.transcript.filter(t => t.role === 'user' && t.status === 'done' && t.clientTurnId !== OPENER_TURN_ID)
+    if (answers.length === 0) throw conflict()
+    s.state = 'confirmed'
+    s.version += 1
+    s.verdictRequestId = requestId
+    s.extraOutcome = { kind: s.extraKind, artifactId: this.nextArtifactId++, version: s.version, contentMd: EXTRA_SUMMARY[s.extraKind] }
+    return { ...s.extraOutcome }
   }
 
   async submitTurn(sessionId: number, expectedVersion: number, clientTurnId: string, text: string): Promise<TurnResult> {
@@ -478,10 +543,14 @@ export class MockBackend implements Backend {
     if (s.state !== 'open') throw conflict()
     if (s.version !== expectedVersion) throw conflict()
     const opener = clientTurnId === OPENER_TURN_ID ? QUIZ_OPENER[s.kind] : undefined
-    const reply = opener !== undefined
-      ? { text: opener, readyToEnd: false }
-      : STUDENT_SCRIPT[Math.min(s.scriptIdx, STUDENT_SCRIPT.length - 1)]
-    if (opener === undefined) s.scriptIdx += 1
+    const extraScript = s.extraKind ? EXTRA_SCRIPT[s.extraKind] : null
+    const studentTurns = s.transcript.filter(t => t.role === 'student').length
+    const reply = extraScript
+      ? extraScript[Math.min(studentTurns, extraScript.length - 1)]
+      : opener !== undefined
+        ? { text: opener, readyToEnd: false }
+        : STUDENT_SCRIPT[Math.min(s.scriptIdx, STUDENT_SCRIPT.length - 1)]
+    if (opener === undefined && !extraScript) s.scriptIdx += 1
     s.transcript.push({ role: 'user', text: trimmed, status: 'done', clientTurnId, readyToEnd: false })
     s.transcript.push({ role: 'student', text: reply.text, status: 'done', clientTurnId: null, readyToEnd: reply.readyToEnd })
     s.version += 1

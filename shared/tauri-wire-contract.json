@@ -33,7 +33,9 @@
     { "method": "pomodoroStop", "command": "pomodoro_stop", "payloadKeys": [] },
     { "method": "pomodoroState", "command": "pomodoro_state", "payloadKeys": [] },
     { "method": "profileGet", "command": "profile_get", "payloadKeys": [] },
-    { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] }
+    { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] },
+    { "method": "extraStart", "command": "extra_start", "payloadKeys": ["blockId", "kind", "clientRequestId"] },
+    { "method": "extraFinish", "command": "extra_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

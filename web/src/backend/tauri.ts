@@ -3,9 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType,
-  DailyTask, EvalResult, EvaluationView, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState,
-  SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
+  AnchorPrecision, AnchorSegment, AppSettings, BlockStatus, Book, BookStatus, BookType, DailyTask, EvalResult, EvaluationView, ExtraKind, ExtraOutcome, KnowledgeBlock, MapEditOp, MapProgress, PomodoroPhase, PomodoroSnapshot, Profile, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SpineChapter, Stats, StudyPlan, TaskKind, TurnResult, TurnView, Verdict, VerdictOutcome,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -154,6 +152,7 @@ const BOOK_STATUSES = ['active', 'paused', 'finished'] as const satisfies readon
 const BLOCK_STATUSES = ['unlearned', 'learning', 'passed', 'weak', 'consolidated'] as const satisfies readonly BlockStatus[]
 const SESSION_STATES = ['open', 'evaluating', 'evaluated', 'confirmed', 'abandoned'] as const satisfies readonly SessionState[]
 const SESSION_KINDS = ['learn', 'retest', 'review', 'final_exam'] as const satisfies readonly SessionKind[]
+const EXTRA_KINDS = ['application', 'methodology', 'discussion'] as const satisfies readonly ExtraKind[]
 const TURN_ROLES = ['user', 'student'] as const
 const TURN_STATUSES = ['pending', 'done', 'failed'] as const
 const VERDICTS = ['pass_suggested', 'relearn_suggested'] as const satisfies readonly Verdict[]
@@ -362,8 +361,19 @@ function decodeSessionView(value: unknown): SessionView {
     state: enumAt(wire.state, `${path}.state`, SESSION_STATES),
     blockId: safeIntegerAt(wire.blockId, `${path}.blockId`),
     kind: enumAt(wire.kind, `${path}.kind`, SESSION_KINDS),
+    extraKind: wire.extraKind === null ? null : enumAt(wire.extraKind, `${path}.extraKind`, EXTRA_KINDS),
     transcript: arrayAt(wire.transcript, `${path}.transcript`, decodeTurnView),
     eval: wire.eval === null ? null : decodeEval(wire.eval, `${path}.eval`),
+  }
+}
+
+function decodeExtraOutcome(value: unknown): ExtraOutcome {
+  const wire = objectAt(value, 'extra')
+  return {
+    kind: enumAt(wire.kind, 'extra.kind', EXTRA_KINDS),
+    artifactId: safeIntegerAt(wire.artifactId, 'extra.artifactId'),
+    version: safeIntegerAt(wire.version, 'extra.version'),
+    contentMd: stringAt(wire.contentMd, 'extra.contentMd'),
   }
 }
 
@@ -708,6 +718,24 @@ export class TauriBackend implements Backend {
     return this.gated('profileSave', async () => {
       validateProfile(profile)
       await this.decode('profile_save', { profile }, value => unitAt(value, 'profile_save'))
+    })
+  }
+
+  extraStart(blockId: number, kind: ExtraKind, clientRequestId: string): Promise<SessionView> {
+    return this.gated('extraStart', () => {
+      outboundInteger(blockId, 'blockId')
+      if (!EXTRA_KINDS.includes(kind)) invalidShape('kind', EXTRA_KINDS.join(' | '), kind, 'invalid_request')
+      outboundClientId(clientRequestId, 'clientRequestId')
+      return this.decode('extra_start', { blockId, kind, clientRequestId }, decodeSessionView)
+    })
+  }
+
+  extraFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<ExtraOutcome> {
+    return this.gated('extraFinish', () => {
+      outboundInteger(sessionId, 'sessionId')
+      outboundInteger(expectedVersion, 'expectedVersion')
+      outboundClientId(requestId, 'requestId')
+      return this.decode('extra_finish', { sessionId, expectedVersion, requestId }, decodeExtraOutcome)
     })
   }
 
