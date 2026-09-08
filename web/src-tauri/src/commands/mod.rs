@@ -1185,9 +1185,12 @@ pub async fn voice_import_model<R: tauri::Runtime>(
     path: Option<String>,
 ) -> Result<Option<VoiceModelDto>, IpcError> {
     let path = match path.as_deref().map(str::trim) {
-        Some(raw) if !raw.is_empty() => {
-            application::expand_home(raw, std::env::var_os("HOME").map(Into::into).as_deref())
-        }
+        Some(raw) if !raw.is_empty() => application::expand_home(
+            raw,
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .as_deref(),
+        ),
         _ => match pick_model_file(&app)? {
             Some(picked) => picked,
             None => return Ok(None),
