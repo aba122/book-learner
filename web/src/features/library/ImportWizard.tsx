@@ -27,11 +27,11 @@ interface ImportAttempt {
 }
 
 /** EPUB 抽取在 JS 侧(ADR-0004):解析失败是内容问题,不可重试 */
-async function extractChapters(file: File): Promise<SpineChapter[]> {
+async function extractChapters(file: File, onProgress: (label: string) => void): Promise<SpineChapter[]> {
   let book: Awaited<ReturnType<typeof openEpub>> | null = null
   try {
     book = await openEpub(await file.arrayBuffer())
-    return await extractSpine(book)
+    return await extractSpine(book, p => onProgress(`正在抽取章节文本 ${p.done}/${p.total}:${p.title}`))
   } catch {
     throw new BackendError({ code: 'invalid_request', message: '无法解析这个 EPUB 文件', retryable: false })
   } finally {
@@ -57,7 +57,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       }
       if (chapters === undefined) {
         setProgress('正在抽取章节文本…')
-        chapters = await extractChapters(captured.file)
+        chapters = await extractChapters(captured.file, setProgress)
         setAttempt({ ...captured, bookId, chapters })
       }
       await backend.storeSpine(bookId, chapters)

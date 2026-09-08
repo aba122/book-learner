@@ -263,21 +263,8 @@ pub fn apply_eval_in_tx(
         "UPDATE knowledge_block SET scores_json=?2 WHERE id=?1",
         rusqlite::params![block_id, serde_json::to_string(&eval.scores).unwrap()],
     )?;
-    for wp in eval.weak_points.iter().filter(|w| !w.fixed_in_session) {
-        conn.execute(
-            "INSERT INTO weak_point(block_id,title,detail,anchor_json,created_at) \
-                    VALUES(?1,?2,?3,?4,?5)",
-            rusqlite::params![
-                block_id,
-                wp.title,
-                wp.detail,
-                wp.anchor
-                    .as_ref()
-                    .map(|a| serde_json::to_string(a).unwrap()),
-                date
-            ],
-        )?;
-    }
+    // 同块同题的未修复薄弱点不重复登记(重考/重学会再次报出同一漏洞;m2 门禁发现重复行)
+    insert_new_weak_points(conn, block_id, eval, date)?;
     match verdict {
         Verdict::PassSuggested => on_block_passed(conn, block_id, date)?,
         Verdict::RelearnSuggested => {
@@ -639,6 +626,42 @@ mod tests {
             .unwrap();
         assert_eq!(n2, 1);
     }
+    #[test]
+    fn apply_eval_twice_does_not_duplicate_open_weak_points() {
+        let (conn, _) = setup();
+        let e: crate::eval::EvalResult = serde_json::from_str(
+            r#"{
+            "verdict":"relearn_suggested","scores":{"accuracy":2,"completeness":2,"clarity":3},
+            "summary":"s","final_restatement":"r","weak_points":[{"title":"弹性vs斜率","detail":"d"}]}"#,
+        )
+        .unwrap();
+        super::apply_eval_to_db(&conn, 1, &e, "2026-08-30").unwrap();
+        super::apply_eval_to_db(&conn, 1, &e, "2026-08-31").unwrap();
+        let open: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM weak_point WHERE block_id=1 AND title='弹性vs斜率' AND status='open'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(open, 1, "同块同题的未修复薄弱点只登记一次");
+        // 已修复后再次报出 → 新的一行(演变史保留)
+        conn.execute(
+            "UPDATE weak_point SET status='fixed', fixed_at='2026-09-01' WHERE block_id=1",
+            [],
+        )
+        .unwrap();
+        super::apply_eval_to_db(&conn, 1, &e, "2026-09-02").unwrap();
+        let total: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM weak_point WHERE block_id=1 AND title='弹性vs斜率'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 2);
+    }
+
     #[test]
     fn apply_eval_to_db_relearn_keeps_unpassed() {
         let (conn, _) = setup();
