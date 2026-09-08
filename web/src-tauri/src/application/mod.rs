@@ -7,10 +7,10 @@ use rusqlite::OptionalExtension;
 
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExtraOutcomeDto, FinalReportDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto,
-    MapEditOpDto, MapProgressDto, MapRevisionDto, ProfileDto, ReplanDto, SessionViewDto,
-    SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto,
-    VerdictOutcomeDto,
+    ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto, ImportChunkDto,
+    ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, ProfileDto,
+    ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -525,4 +525,85 @@ pub fn final_exam_finish(
     )
     .map(Into::into)
     .map_err(Into::into)
+}
+
+// ---- Obsidian 导出(M3 T2):目标目录 = 设置项 obsidianVault(展开 ~);只读 SQLite 生成清单,增量写入 ----
+
+/// 展开 `~`/`~/…` 为 HOME;core 不读环境变量,这里是唯一的展开点。
+pub fn expand_home(raw: &str, home: Option<&std::path::Path>) -> std::path::PathBuf {
+    if raw == "~" {
+        return home
+            .map(|h| h.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from(raw));
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        if let Some(home) = home {
+            return home.join(rest);
+        }
+    }
+    std::path::PathBuf::from(raw)
+}
+
+fn export_target(state: &AppState) -> Result<std::path::PathBuf, IpcError> {
+    let settings = state.with_connection(book_learner_core::settings::get_settings)?;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let target = expand_home(settings.obsidian_vault.trim(), home.as_deref());
+    if !target.is_absolute() {
+        return Err(IpcError::invalid_request(
+            "Obsidian 目标目录必须是绝对路径",
+            format!("obsidianVault is relative: {}", target.display()),
+        ));
+    }
+    Ok(target)
+}
+
+pub fn export_preview(state: &AppState, book_id: i64) -> Result<ExportPreviewDto, IpcError> {
+    let target = export_target(state)?;
+    let plan = state.with_connection(|connection| {
+        book_learner_core::export::plan(connection, book_id, &target)
+    })?;
+    Ok(ExportPreviewDto {
+        target: target.to_string_lossy().into_owned(),
+        target_exists: target.is_dir(),
+        dir: target.join(&plan.book_dir).to_string_lossy().into_owned(),
+        files: plan.files.into_iter().map(|f| f.rel_path).collect(),
+    })
+}
+
+pub fn export_obsidian(state: &AppState, book_id: i64) -> Result<ExportReportDto, IpcError> {
+    let target = export_target(state)?;
+    let _job = state.jobs().begin();
+    let connection = state.open_connection()?;
+    let plan =
+        book_learner_core::export::plan(&connection, book_id, &target).map_err(IpcError::from)?;
+    let report = book_learner_core::export::write(&plan).map_err(IpcError::from)?;
+    Ok(ExportReportDto {
+        dir: report.dir.to_string_lossy().into_owned(),
+        written: report.written,
+        unchanged: report.unchanged,
+    })
+}
+
+/// 在 Finder 中显示本书的导出目录(只允许由设置 + 书名推导出的路径,不接受任意路径)。
+pub fn export_reveal(state: &AppState, book_id: i64) -> Result<(), IpcError> {
+    let preview = export_preview(state, book_id)?;
+    let dir = std::path::PathBuf::from(&preview.dir);
+    if !dir.is_dir() {
+        return Err(IpcError::invalid_request(
+            "还没有导出过这本书",
+            format!("export dir missing: {}", dir.display()),
+        ));
+    }
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|error| IpcError::internal(format!("open failed: {error}")))?;
+        Ok(())
+    } else {
+        Err(IpcError::invalid_request(
+            "仅 macOS 支持在 Finder 中显示",
+            "reveal unsupported on this platform",
+        ))
+    }
 }

@@ -810,3 +810,25 @@ impl From<book_learner_core::final_exam::FinalReport> for FinalReportDto {
         }
     }
 }
+
+// ---- Obsidian 导出(M3 T2)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPreviewDto {
+    /// 目标目录(已展开 `~`)
+    pub target: String,
+    pub target_exists: bool,
+    /// 本书导出目录(`<target>/<书名>`)
+    pub dir: String,
+    /// 相对目标目录的文件清单
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportReportDto {
+    pub dir: String,
+    pub written: usize,
+    pub unchanged: usize,
+}

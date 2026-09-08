@@ -3,10 +3,10 @@ use tauri::{Emitter, Manager, State};
 use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
-    ExtraOutcomeDto, FinalReportDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto,
-    MapEditOpDto, MapProgressDto, MapRevisionDto, PomodoroSnapshotDto, ProfileDto, ReplanDto,
-    SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
-    TurnResultDto, VerdictOutcomeDto,
+    ExportPreviewDto, ExportReportDto, ExtraOutcomeDto, FinalReportDto, ImportChunkDto,
+    ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto,
+    PomodoroSnapshotDto, ProfileDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto,
+    StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -86,6 +86,10 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
         "final_exam_finish",
         &["sessionId", "expectedVersion", "requestId"],
     ),
+    // M3 T2:Obsidian 导出
+    ("export_preview", &["bookId"]),
+    ("export_obsidian", &["bookId"]),
+    ("export_reveal", &["bookId"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -501,6 +505,24 @@ pub fn final_exam_finish_inner(
     })
 }
 
+pub fn export_preview_inner(state: &AppState, book_id: i64) -> Result<ExportPreviewDto, IpcError> {
+    run_command(state, "export_preview", || {
+        application::export_preview(state, book_id)
+    })
+}
+
+pub fn export_obsidian_inner(state: &AppState, book_id: i64) -> Result<ExportReportDto, IpcError> {
+    run_command(state, "export_obsidian", || {
+        application::export_obsidian(state, book_id)
+    })
+}
+
+pub fn export_reveal_inner(state: &AppState, book_id: i64) -> Result<(), IpcError> {
+    run_command(state, "export_reveal", || {
+        application::export_reveal(state, book_id)
+    })
+}
+
 fn required_header(request: &tauri::ipc::Request<'_>, name: &str) -> Result<String, IpcError> {
     request
         .headers()
@@ -878,4 +900,27 @@ pub async fn final_exam_finish<R: tauri::Runtime>(
         }
     });
     Ok(report)
+}
+
+// ---- Obsidian 导出命令(M3 T2)----
+
+#[tauri::command(async)]
+pub async fn export_preview(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<ExportPreviewDto, IpcError> {
+    export_preview_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn export_obsidian(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<ExportReportDto, IpcError> {
+    export_obsidian_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn export_reveal(state: State<'_, AppState>, book_id: i64) -> Result<(), IpcError> {
+    export_reveal_inner(&state, book_id)
 }

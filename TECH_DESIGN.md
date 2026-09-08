@@ -309,6 +309,8 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 ```
 - frontmatter:`book / block / status / scores / passed_at / tags: [book-learner, <书名>]`;增量重导按文件覆盖。
 
+> **实现说明(M3 T2,2026-09-08)**:`core::export::{plan, write}` **只读 SQLite**(ADR-0001;`eval_json.final_restatement`/`weak_point`/`artifact` 齐全,codex 自由追加的"AI 观察笔记"不导出);设置项 `obsidianVault` 语义为**目标目录**(默认 `~/Obsidian/book-learner`,壳层展开 `~`,必须是绝对路径且已存在,不自动创建 vault 根),文件落在 `<目标>/<书名>/…`;块级文件统一 `<seq>-<块名>` 前缀,书名/块名经 `safe_name`(去 `/\:*?"<>|` 与控制字符、去首尾空白与点、禁 `.`/`..`、限 120 字节);`applications/`(教材 application)与 `notes/`(人文 reflection)按块一文件,`01-我的方法论.md` 合并方法论产出,`00-学习报告.md` 始终生成(无报告时占位并给块索引);wikilink 以目标目录为根(`[[<书名>/blocks/<seq>-<块名>]]`),块文件链学习报告与同模块块,产出文件回链来源块;写入临时文件 + fsync + rename,内容相同不写,不删清单外文件。命令 `export_preview/export_obsidian/export_reveal[bookId]`(reveal 只打开由设置推导的目录)。
+
 ## 10. 通知与番茄钟
 
 - tauri-plugin-notification 发系统通知;提醒调度由常驻 tray 进程的定时器驱动(app 需开机自启可选项)。

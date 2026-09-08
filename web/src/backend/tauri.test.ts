@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -495,6 +495,21 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(seen).toEqual([{ ...snap, phase: 'break' }])
     const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('export: preview/write/reveal decode and send bookId (M3 T2)', async () => {
+    const preview = { target: '/Users/me/Obsidian', targetExists: true, dir: '/Users/me/Obsidian/微观经济学', files: ['微观经济学/00-学习报告.md', '微观经济学/blocks/01-需求曲线.md'] }
+    const report = { dir: '/Users/me/Obsidian/微观经济学', written: 2, unchanged: 0 }
+    const { calls, invoke } = recorder({ export_preview: preview, export_obsidian: report, export_reveal: null })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.exportPreview(1)).toEqual(preview)
+    expect(await backend.exportObsidian(1)).toEqual(report)
+    await backend.exportReveal(1)
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['export_preview', { bookId: 1 }], ['export_obsidian', { bookId: 1 }], ['export_reveal', { bookId: 1 }],
+    ])
+    const bad = new TauriBackend(async <T>() => ({ ...preview, files: [1] }) as T)
+    await expect(bad.exportPreview(1)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('final exam: eligible/start/finish decode with a nullable bookId and a 1..5 overall (M3 T1)', async () => {

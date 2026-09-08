@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
+  AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StatsDetail, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -44,6 +44,10 @@ export interface Backend {
   finalExamEligible(bookId: number): Promise<boolean>
   finalExamStart(bookId: number, clientRequestId: string): Promise<SessionView>
   finalExamFinish(sessionId: number, expectedVersion: number, requestId: string): Promise<FinalReport>
+  /** Obsidian 导出(M3 T2):目标目录取设置项;只读 SQLite 生成清单;写入增量;reveal 只打开由设置推导的目录 */
+  exportPreview(bookId: number): Promise<ExportPreview>
+  exportObsidian(bookId: number): Promise<ExportReport>
+  exportReveal(bookId: number): Promise<void>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

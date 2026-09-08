@@ -874,6 +874,48 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 }
 
 #[test]
+fn export_preview_and_write_use_the_settings_target_and_are_incremental() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("export.db")).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    // 默认目标 ~/Obsidian/book-learner:预览可用,但目录通常不存在 → 写入拒绝
+    let preview = commands::export_preview_inner(&state, first).unwrap();
+    assert!(preview.target.starts_with('/'), "{}", preview.target);
+    assert!(preview.files.iter().any(|f| f.ends_with("/00-学习报告.md")));
+    assert!(preview.files.iter().any(|f| f.contains("/blocks/")));
+    let vault = tempfile::tempdir().unwrap();
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT OR REPLACE INTO setting(key,value) VALUES('obsidianVault',?1)",
+                [vault.path().to_string_lossy().into_owned()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let preview = commands::export_preview_inner(&state, first).unwrap();
+    assert!(preview.target_exists);
+    assert!(preview.dir.starts_with(&preview.target));
+    let report = commands::export_obsidian_inner(&state, first).unwrap();
+    assert_eq!((report.written, report.unchanged), (preview.files.len(), 0));
+    assert!(std::path::Path::new(&report.dir)
+        .join("00-学习报告.md")
+        .exists());
+    let again = commands::export_obsidian_inner(&state, first).unwrap();
+    assert_eq!((again.written, again.unchanged), (0, preview.files.len()));
+    assert_eq!(
+        commands::export_obsidian_inner(&state, 999)
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::NotFound
+    );
+    assert_eq!(
+        application::expand_home("~/Obsidian/x", Some(std::path::Path::new("/Users/me"))),
+        std::path::PathBuf::from("/Users/me/Obsidian/x")
+    );
+}
+
+#[test]
 fn final_exam_runs_after_all_blocks_passed_and_archives_the_report() {
     let directory = tempfile::tempdir().unwrap();
     let (state, mock) = state_with_mock(&directory.path().join("final.db"));
@@ -1964,6 +2006,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     let session_b = commands::session_start_or_resume_inner(&state, task_b, "req-b", DAY)
         .unwrap()
         .session_id;
+    let export_vault = tempfile::tempdir().unwrap();
     // 导入/阅读器命令:second 预置受管 EPUB 文件;契约循环里的分块命令走原始请求体分支
     std::fs::write(state.import_store().book_path(second), fake_epub()).unwrap();
     let app = book_learner_app::register_commands(mock_builder().manage(state))
@@ -2033,6 +2076,28 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "stats_get" => json!({"date": DAY}),
             "stats_detail" => json!({"date": DAY}),
             "final_exam_eligible" => json!({"bookId": first}),
+            "export_preview" => {
+                // 目标目录指向临时 vault(设置表直写),保证 export_obsidian / export_reveal 有效
+                let state = app.state::<AppState>();
+                let vault = export_vault.path().to_string_lossy().into_owned();
+                state
+                    .with_connection(|c| {
+                        c.execute(
+                            "INSERT OR REPLACE INTO setting(key,value) VALUES('obsidianVault',?1)",
+                            [vault],
+                        )?;
+                        Ok(())
+                    })
+                    .unwrap();
+                json!({"bookId": first})
+            }
+            "export_obsidian" => json!({"bookId": first}),
+            "export_reveal" => {
+                // 先真正导出一次,reveal 才有目录可开(CI 上 `open` 打开目录窗口,无副作用)
+                let state = app.state::<AppState>();
+                commands::export_obsidian_inner(&state, first).unwrap();
+                json!({"bookId": first})
+            }
             "final_exam_start" => {
                 // 契约顺序在 session_confirm_verdict 之后:把 first 其余块也置为通过,满足终评前置
                 let state = app.state::<AppState>();
