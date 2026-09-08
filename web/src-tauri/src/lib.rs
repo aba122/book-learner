@@ -265,6 +265,8 @@ fn fail_startup(error: &IpcError) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Finder/Spotlight 启动的 app 只有系统 PATH:先补全,否则 codex(node 脚本)子进程会 127
+    state::ensure_gui_path();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         // 关窗 = 隐藏(留在 Dock 与托盘),Cmd+Q / 托盘"退出"才真正退出

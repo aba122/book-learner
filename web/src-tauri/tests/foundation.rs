@@ -2706,3 +2706,44 @@ fn codex_bin_setting_validates_absolute_executable_and_can_be_cleared() {
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+// ---- GUI PATH 补全(2026-09-08):Finder 启动没有 Homebrew/npm 目录,codex 的 `#!/usr/bin/env node` 找不到 node ----
+
+#[test]
+fn augmented_path_prepends_existing_tool_dirs_without_duplicates() {
+    use book_learner_app::state::augmented_path;
+    let root = tempfile::tempdir().unwrap();
+    let brew = root.path().join("brew-bin");
+    let local = root.path().join("usr-local-bin");
+    let home = root.path().join("home");
+    let nvm_old = home.join(".nvm/versions/node/v20.1.0/bin");
+    let nvm_new = home.join(".nvm/versions/node/v22.3.0/bin");
+    let npm_global = home.join(".npm-global/bin");
+    for dir in [&brew, &nvm_old, &nvm_new, &npm_global] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    // `local` 不存在 → 跳过;brew 已在 PATH → 不重复;nvm 取最新;npm 全局前置;原 PATH 顺序保留
+    let current = std::env::join_paths([Path::new("/usr/bin"), brew.as_path()]).unwrap();
+    let fallback = [brew.to_str().unwrap(), local.to_str().unwrap()];
+    let result = augmented_path(Some(current.as_os_str()), Some(&home), &fallback);
+    let parts: Vec<std::path::PathBuf> = std::env::split_paths(&result).collect();
+    assert_eq!(
+        parts,
+        vec![
+            npm_global.clone(),
+            nvm_new.clone(),
+            std::path::PathBuf::from("/usr/bin"),
+            brew.clone()
+        ]
+    );
+    // 没有 HOME、没有现存候选:原样返回
+    let plain = augmented_path(
+        Some(std::ffi::OsStr::new("/usr/bin:/bin")),
+        None,
+        &[local.to_str().unwrap()],
+    );
+    assert_eq!(plain, std::ffi::OsString::from("/usr/bin:/bin"));
+    // 没有 PATH:只剩候选
+    let only = augmented_path(None, None, &[brew.to_str().unwrap()]);
+    assert_eq!(only, brew.clone().into_os_string());
+}
