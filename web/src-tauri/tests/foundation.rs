@@ -204,6 +204,18 @@ fn error_codes_are_snake_case_and_core_errors_map_to_safe_stable_payloads() {
             "应用内部错误",
             false,
         ),
+        (
+            CoreError::Ai("timeout after 120s".into()),
+            ErrorCode::AiUnavailable,
+            "AI 暂时没有回应,请重试",
+            true,
+        ),
+        (
+            CoreError::EvalParse("missing verdict".into()),
+            ErrorCode::AiUnavailable,
+            "AI 回复无法解析,请重试",
+            true,
+        ),
     ];
 
     for (source, code, message, retryable) in cases {

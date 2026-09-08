@@ -12,6 +12,8 @@ pub enum ErrorCode {
     Conflict,
     DbUnavailable,
     IoFailure,
+    /// AI 后端(codex 子进程)超时/传输失败或输出无法解析:可重试(同 clientTurnId 续跑)
+    AiUnavailable,
     NotImplemented,
     Internal,
 }
@@ -24,6 +26,7 @@ impl ErrorCode {
             Self::Conflict => "conflict",
             Self::DbUnavailable => "db_unavailable",
             Self::IoFailure => "io_failure",
+            Self::AiUnavailable => "ai_unavailable",
             Self::NotImplemented => "not_implemented",
             Self::Internal => "internal",
         }
@@ -91,9 +94,10 @@ impl From<CoreError> for IpcError {
             CoreError::Conflict(_) => (ErrorCode::Conflict, "数据状态冲突，请刷新后重试", false),
             CoreError::Db(_) => (ErrorCode::DbUnavailable, "无法读取本地学习数据", true),
             CoreError::Io(_) => (ErrorCode::IoFailure, "无法访问本地文件", true),
-            CoreError::EvalParse(_) | CoreError::Ai(_) | CoreError::Other(_) => {
-                (ErrorCode::Internal, "应用内部错误", false)
-            }
+            // m1-e2e 实测:codex 超时曾映射为不可重试的 internal,页面没有"重试"入口(2026-09-08)
+            CoreError::Ai(_) => (ErrorCode::AiUnavailable, "AI 暂时没有回应,请重试", true),
+            CoreError::EvalParse(_) => (ErrorCode::AiUnavailable, "AI 回复无法解析,请重试", true),
+            CoreError::Other(_) => (ErrorCode::Internal, "应用内部错误", false),
         };
         Self {
             code,
