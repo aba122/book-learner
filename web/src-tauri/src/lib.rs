@@ -45,6 +45,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::library_epub_url,
         commands::map_block_source,
         commands::stats_get,
+        commands::planning_check_behind,
+        commands::planning_get_plan,
     ])
 }
 

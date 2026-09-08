@@ -27,3 +27,5 @@ export const SESSION_HINT: Partial<Record<SessionKind, string>> = {
   review: '间隔复习 · 快问,约 5 分钟',
   retest: '薄弱点重考 · 优先讲清曾经混淆之处',
 }
+/** 落后重排弹窗"本日不再提醒"的偏好键(值为日历日,M2 T4) */
+export const REPLAN_DISMISSED_KEY = 'bookLearner.replanDismissed'

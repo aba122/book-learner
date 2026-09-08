@@ -1,6 +1,6 @@
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
+  KnowledgeBlock, MapEditOp, MapProgress, Replan, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -12,6 +12,9 @@ export interface Backend {
   setActiveBook(bookId: number): Promise<void>
   // 计划与队列
   setPlan(plan: StudyPlan): Promise<void>
+  /** 落后检测(有副作用:core 可能改写每日新块数),须在 todayQueue 之前调用(M2 T4) */
+  checkBehind(bookId: number, date: string): Promise<Replan>
+  getPlan(bookId: number): Promise<StudyPlan | null>
   todayQueue(date: string): Promise<DailyTask[]>
   completeTask(taskId: number): Promise<void>
   // 知识块与阅读

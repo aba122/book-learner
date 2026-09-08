@@ -23,7 +23,9 @@
     { "method": "importEpubFinalize", "command": "library_import_epub_finalize", "payloadKeys": ["opId", "bookType", "title"] },
     { "method": "epubUrl", "command": "library_epub_url", "payloadKeys": ["bookId"] },
     { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] },
-    { "method": "stats", "command": "stats_get", "payloadKeys": ["date"] }
+    { "method": "stats", "command": "stats_get", "payloadKeys": ["date"] },
+    { "method": "checkBehind", "command": "planning_check_behind", "payloadKeys": ["bookId", "date"] },
+    { "method": "getPlan", "command": "planning_get_plan", "payloadKeys": ["bookId"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

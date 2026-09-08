@@ -5,17 +5,23 @@ import AsyncError from '../../components/AsyncError'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
+import { REPLAN_DISMISSED_KEY } from '../../config'
 import { localCalendarDate } from '../../lib/localDate'
+import { readPref } from '../../lib/prefs'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { DailyTask, KnowledgeBlock } from '../../types'
+import type { Book, DailyTask, KnowledgeBlock, Replan } from '../../types'
 import Pomodoro from './Pomodoro'
+import ReplanDialog from './ReplanDialog'
 import TaskCard from './TaskCard'
 
 interface QueueBundle {
   tasks: DailyTask[]
   blocks: Map<number, KnowledgeBlock>
+  /** 主攻书与其落后检测结果(先于当日队列生成;无主攻书为 null) */
+  activeBook: Book | null
+  replan: Replan | null
 }
 
 export default function TodayPage() {
@@ -24,6 +30,7 @@ export default function TodayPage() {
   // 挂载时固定队列日期:跨午夜重试仍使用同一日期
   const [today] = useState(localCalendarDate)
   const [focusTask, setFocusTask] = useState<DailyTask | null>(null)
+  const [replanDismissed, setReplanDismissed] = useState(() => readPref(REPLAN_DISMISSED_KEY) === today)
   // 一次性跨页提示:挂载时取走并清空 store(zustand set 非 React setState)
   const [notice] = useState(() => useSession.getState().pendingNotice)
   useEffect(() => {
@@ -32,6 +39,15 @@ export default function TodayPage() {
 
   // 队列与其 blocks hydration 为单一原子 pipeline:全部成功后才发布;失败保留旧快照
   const loadQueueBundle = useCallback(async (isCurrent: () => boolean): Promise<QueueBundle> => {
+    // 落后检测必须先于当日队列生成:core 在"均摊 ≤ 上限"时会改写每日新块数(M2 T4)
+    const books = await backend.listBooks()
+    if (!isCurrent()) throw new StaleResult()
+    const activeBook = books.find(b => b.status === 'active') ?? null
+    let replan: Replan | null = null
+    if (activeBook) {
+      replan = await backend.checkBehind(activeBook.id, today)
+      if (!isCurrent()) throw new StaleResult()
+    }
     const tasks = await backend.todayQueue(today)
     if (!isCurrent()) throw new StaleResult()
     const blocks = new Map<number, KnowledgeBlock>()
@@ -39,7 +55,7 @@ export default function TodayPage() {
       for (const b of await backend.listBlocks(bookId)) blocks.set(b.id, b)
       if (!isCurrent()) throw new StaleResult()
     }
-    return { tasks, blocks }
+    return { tasks, blocks, activeBook, replan }
   }, [today])
   const queue = useAsyncResource(loadQueueBundle)
   const stats = useAsyncResource(useCallback(() => backend.stats(), []))
@@ -82,6 +98,8 @@ export default function TodayPage() {
 
   const tasks = queue.data?.tasks ?? null
   const blocks = queue.data?.blocks ?? new Map<number, KnowledgeBlock>()
+  const activeBook = queue.data?.activeBook ?? null
+  const replan = queue.data?.replan ?? null
   const doneCount = tasks?.filter(t => t.status === 'done').length ?? 0
   const allDone = tasks !== null && tasks.length > 0 && doneCount === tasks.length
 
@@ -114,6 +132,12 @@ export default function TodayPage() {
       {notice && (
         <Card role="status" className="mb-6 border-review/40 bg-review-soft/40 p-4 text-sm text-ink-2">
           {notice}
+        </Card>
+      )}
+
+      {replan?.status === 'auto_adjusted' && (
+        <Card role="status" className="mb-6 border-review/40 bg-review-soft/40 p-4 text-sm text-ink-2">
+          进度落后,已按剩余天数均摊:今日起每日 {replan.newDaily} 个新块(截止 {replan.deadline} 不变)。
         </Card>
       )}
 
@@ -174,6 +198,16 @@ export default function TodayPage() {
             )
           })}
         </div>
+      )}
+
+      {activeBook && replan?.status === 'needs_decision' && !replanDismissed && (
+        <ReplanDialog
+          book={activeBook}
+          replan={replan}
+          today={today}
+          onResolved={reloadQueue}
+          onDismiss={() => setReplanDismissed(true)}
+        />
       )}
 
       {focusTask && (

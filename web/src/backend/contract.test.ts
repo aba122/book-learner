@@ -82,6 +82,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'blockSource', command: 'map_block_source', payloadKeys: ['blockId'] },
       // Mac M7:统计(date 由前端本地日历日提供)
       { method: 'stats', command: 'stats_get', payloadKeys: ['date'] },
+      // Mac M2 T4:落后检测(有副作用,先于当日队列)与计划读取
+      { method: 'checkBehind', command: 'planning_check_behind', payloadKeys: ['bookId', 'date'] },
+      { method: 'getPlan', command: 'planning_get_plan', payloadKeys: ['bookId'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

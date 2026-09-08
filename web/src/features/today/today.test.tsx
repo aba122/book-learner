@@ -12,6 +12,8 @@ import { KIND_LABEL, POMODORO_DEFAULT, TASK_EST_MINUTES } from '../../config'
 import type { DailyTask, Stats } from '../../types'
 import { useSession } from '../../store'
 import TodayPage from './TodayPage'
+import { addCalendarDays, localCalendarDate } from '../../lib/localDate'
+import type { Book, Replan } from '../../types'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
@@ -51,6 +53,73 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+const NEEDS_DECISION: Replan = {
+  status: 'needs_decision', requiredDaily: 5, dailyCap: 4, remainingBlocks: 9, remainingDays: 2, deadline: '2026-09-09',
+}
+
+describe('落后重排确认(M2 T4)', () => {
+  it('先 checkBehind 再 todayQueue;auto_adjusted 显示提示条', async () => {
+    const order: string[] = []
+    vi.spyOn(backendModule.backend, 'checkBehind').mockImplementation(async () => {
+      order.push('checkBehind')
+      return { status: 'auto_adjusted', newDaily: 2, dailyCap: 4, remainingBlocks: 6, remainingDays: 3, deadline: '2026-09-10' }
+    })
+    const originalQueue = backendModule.backend.todayQueue.bind(backendModule.backend)
+    vi.spyOn(backendModule.backend, 'todayQueue').mockImplementation(async date => {
+      order.push('todayQueue')
+      return originalQueue(date)
+    })
+    renderToday()
+    expect(await screen.findByRole('status')).toHaveTextContent('每日 2 个新块')
+    expect(order).toEqual(['checkBehind', 'todayQueue'])
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('needs_decision:顺延 = 以现有计划为底只改截止日(今天 + ceil(9/4) - 1 天)', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'checkBehind').mockResolvedValue(NEEDS_DECISION)
+    const setPlan = vi.spyOn(backendModule.backend, 'setPlan')
+    renderToday()
+    const dialog = await screen.findByRole('dialog', { name: '进度落后,需要你决定' })
+    expect(dialog).toHaveTextContent('每日需 5 块,超过每日上限 4 块')
+    await user.click(within(dialog).getByRole('button', { name: /顺延截止日期/ }))
+    const today = localCalendarDate()
+    expect(setPlan).toHaveBeenCalledTimes(1)
+    expect(setPlan.mock.calls[0][0]).toMatchObject({ bookId: 1, deadline: addCalendarDays(today, 2) })
+  })
+
+  it('needs_decision:缩减 = 跳过 seq 最靠后的 (剩余 - 上限×天数) 个未学块', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'checkBehind').mockResolvedValue(NEEDS_DECISION)
+    const confirmMap = vi.spyOn(backendModule.backend, 'confirmMap')
+    renderToday()
+    const dialog = await screen.findByRole('dialog', { name: '进度落后,需要你决定' })
+    await user.click(within(dialog).getByRole('button', { name: /缩减地图:跳过 1 个/ }))
+    expect(confirmMap).toHaveBeenCalledWith(1, 1, [{ op: 'setSkipped', blockId: 12, skipped: true }])
+  })
+
+  it('本日不再提醒:只记偏好,不改计划,弹窗关闭', async () => {
+    const user = userEvent.setup()
+    const memory = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => memory.get(k) ?? null,
+      setItem: (k: string, v: string) => { memory.set(k, v) },
+      removeItem: (k: string) => { memory.delete(k) },
+    })
+    vi.spyOn(backendModule.backend, 'checkBehind').mockResolvedValue(NEEDS_DECISION)
+    const setPlan = vi.spyOn(backendModule.backend, 'setPlan')
+    const confirmMap = vi.spyOn(backendModule.backend, 'confirmMap')
+    renderToday()
+    const dialog = await screen.findByRole('dialog', { name: '进度落后,需要你决定' })
+    await user.click(within(dialog).getByRole('button', { name: '本日不再提醒' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(memory.get('bookLearner.replanDismissed')).toBe(localCalendarDate())
+    expect(setPlan).not.toHaveBeenCalled()
+    expect(confirmMap).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+})
 
 describe('今日学习页', () => {
   it('队列按 weak→review→new 渲染,卡片含类型标签与预估分钟', async () => {
@@ -243,42 +312,48 @@ describe('今日学习页', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  // 管线首步是 listBooks(M2 T4 起先落后检测再生成队列):竞态挂在首步,旧一轮在首步后即判过期
   it('较晚到达的旧队列成功不会覆盖较新的成功快照', async () => {
-    const oldQueue = await backendModule.backend.todayQueue('2026-09-02')
-    const olderAttempt = deferred<DailyTask[]>()
-    const newerAttempt = deferred<DailyTask[]>()
+    const books = await backendModule.backend.listBooks()
+    const olderAttempt = deferred<Book[]>()
+    const newerAttempt = deferred<Book[]>()
+    const listBooks = vi.spyOn(backendModule.backend, 'listBooks')
     const queue = vi.spyOn(backendModule.backend, 'todayQueue')
     vi.spyOn(backendModule.backend, 'completeTask').mockResolvedValue(undefined)
 
     renderToday()
     const cards = await screen.findAllByTestId('task-card')
-    queue.mockReturnValueOnce(olderAttempt.promise).mockReturnValueOnce(newerAttempt.promise)
+    listBooks.mockReturnValueOnce(olderAttempt.promise).mockReturnValueOnce(newerAttempt.promise)
     fireEvent.click(within(cards[0]).getByRole('button', { name: '完成' }))
     fireEvent.click(within(cards[1]).getByRole('button', { name: '完成' }))
-    await waitFor(() => expect(queue).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(3))
 
-    await act(async () => newerAttempt.resolve([]))
+    queue.mockResolvedValue([]) // 较新的一轮取到空队列
+    await act(async () => newerAttempt.resolve(books))
     expect(await screen.findByText('今天没有排定的任务')).toBeInTheDocument()
-    await act(async () => olderAttempt.resolve(oldQueue))
+    await act(async () => olderAttempt.resolve(books)) // 旧一轮晚到:过期,不再继续
 
     expect(screen.queryByTestId('task-card')).not.toBeInTheDocument()
     expect(screen.getByText('今天没有排定的任务')).toBeInTheDocument()
   })
 
   it('较晚到达的旧队列失败不会覆盖较新的成功快照', async () => {
-    const olderAttempt = deferred<DailyTask[]>()
-    const newerAttempt = deferred<DailyTask[]>()
+    const books = await backendModule.backend.listBooks()
+    const olderAttempt = deferred<Book[]>()
+    const newerAttempt = deferred<Book[]>()
+    const listBooks = vi.spyOn(backendModule.backend, 'listBooks')
     const queue = vi.spyOn(backendModule.backend, 'todayQueue')
     vi.spyOn(backendModule.backend, 'completeTask').mockResolvedValue(undefined)
 
     renderToday()
     const cards = await screen.findAllByTestId('task-card')
-    queue.mockReturnValueOnce(olderAttempt.promise).mockReturnValueOnce(newerAttempt.promise)
+    listBooks.mockReturnValueOnce(olderAttempt.promise).mockReturnValueOnce(newerAttempt.promise)
     fireEvent.click(within(cards[0]).getByRole('button', { name: '完成' }))
     fireEvent.click(within(cards[1]).getByRole('button', { name: '完成' }))
-    await waitFor(() => expect(queue).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(3))
 
-    await act(async () => newerAttempt.resolve([]))
+    queue.mockResolvedValue([])
+    await act(async () => newerAttempt.resolve(books))
     expect(await screen.findByText('今天没有排定的任务')).toBeInTheDocument()
     await act(async () => olderAttempt.reject(new BackendError({
       code: 'offline',

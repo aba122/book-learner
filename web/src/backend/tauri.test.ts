@@ -395,7 +395,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -448,6 +448,26 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect((calls[0].payload as { date: string }).date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     const bad = new TauriBackend(async <T>() => ({ ...stats, streakDays: 'three' }) as T)
     await expect(bad.stats()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('decodes replan reports (optional counters) and nullable plans (Mac M2 T4)', async () => {
+    const { calls, invoke } = recorder({
+      planning_check_behind: { status: 'needs_decision', requiredDaily: 5, dailyCap: 4, remainingBlocks: 9, remainingDays: 2, deadline: '2026-09-09' },
+      planning_get_plan: null,
+    })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.checkBehind(1, '2026-09-08')).toEqual({
+      status: 'needs_decision', requiredDaily: 5, dailyCap: 4, remainingBlocks: 9, remainingDays: 2, deadline: '2026-09-09',
+    })
+    expect(await backend.getPlan(1)).toBeNull()
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['planning_check_behind', { bookId: 1, date: '2026-09-08' }],
+      ['planning_get_plan', { bookId: 1 }],
+    ])
+    const withPlan = new TauriBackend(async <T>() => ({ bookId: 1, deadline: '2026-10-01', dailyNewBlocks: 2, dailyCap: 4, remindTime: '21:00' }) as T)
+    expect(await withPlan.getPlan(1)).toEqual({ bookId: 1, deadline: '2026-10-01', dailyNewBlocks: 2, dailyCap: 4, remindTime: '21:00' })
+    const bad = new TauriBackend(async <T>() => ({ status: 'panic', dailyCap: 4, remainingBlocks: 1, remainingDays: 1, deadline: 'x' }) as T)
+    await expect(bad.checkBehind(1, '2026-09-08')).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('turns the managed epub path into an asset url and decodes block source', async () => {

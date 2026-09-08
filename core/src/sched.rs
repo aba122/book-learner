@@ -337,9 +337,65 @@ pub enum Replan {
     NeedsDecision { required_daily: i64, cap: i64 },
 }
 
+/// 落后检测报告(M2 T4):`status` 为 [`Replan`];其余字段供前端展示与"顺延/缩减"计算。
+/// 无主攻计划或未落后时 `status=OnTrack`(不报错),此时 `remaining_days`/`deadline` 取自计划(无计划为 0/空)。
+#[derive(Debug, PartialEq)]
+pub struct ReplanReport {
+    pub status: Replan,
+    /// 未学完(unlearned/learning,非 skipped)的块数
+    pub remaining_blocks: i64,
+    /// 含今天的剩余天数(截止日已过按 1 计)
+    pub remaining_days: i64,
+    pub deadline: String,
+    pub daily_cap: i64,
+}
+
 /// 落后检测与重排(PRODUCT_SPEC §6):最近 2 个有 new 任务的日期其 new 任务均未完成 → 落后;
 /// required = ceil(剩余未学块 / 剩余天数);≤cap 自动改 daily_new_blocks,>cap 交上层确认(截止日不动)。
 pub fn check_behind(conn: &Connection, book_id: i64, today: &str) -> Result<Replan> {
+    check_behind_report(conn, book_id, today).map(|report| report.status)
+}
+
+pub fn check_behind_report(conn: &Connection, book_id: i64, today: &str) -> Result<ReplanReport> {
+    use chrono::NaiveDate;
+    use rusqlite::OptionalExtension;
+    let remaining: i64 = conn.query_row(
+        "SELECT count(*) FROM knowledge_block \
+         WHERE book_id=?1 AND status IN ('unlearned','learning') AND skipped=0",
+        [book_id],
+        |r| r.get(0),
+    )?;
+    let plan: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT deadline, daily_cap FROM study_plan WHERE book_id=?1 AND active=1",
+            [book_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let d_today = NaiveDate::parse_from_str(today, "%Y-%m-%d")
+        .map_err(|e| crate::CoreError::InvalidInput(format!("invalid date {today:?}: {e}")))?;
+    let (deadline, cap, days_left) = match &plan {
+        Some((deadline, cap)) => {
+            let d_end = NaiveDate::parse_from_str(deadline, "%Y-%m-%d")
+                .map_err(|e| crate::CoreError::Other(e.to_string()))?;
+            (
+                deadline.clone(),
+                *cap,
+                ((d_end - d_today).num_days() + 1).max(1),
+            ) // 含今天
+        }
+        None => (String::new(), 0, 0),
+    };
+    let on_track = |status: Replan| ReplanReport {
+        status,
+        remaining_blocks: remaining,
+        remaining_days: days_left,
+        deadline: deadline.clone(),
+        daily_cap: cap,
+    };
+    if plan.is_none() {
+        return Ok(on_track(Replan::OnTrack));
+    }
     let days: Vec<String> = {
         let mut st = conn.prepare(
             "SELECT DISTINCT date FROM daily_task \
@@ -349,7 +405,7 @@ pub fn check_behind(conn: &Connection, book_id: i64, today: &str) -> Result<Repl
         rows.collect::<rusqlite::Result<_>>()?
     };
     if days.len() < 2 {
-        return Ok(Replan::OnTrack);
+        return Ok(on_track(Replan::OnTrack));
     }
     for d in &days {
         let undone: i64 = conn.query_row(
@@ -359,41 +415,23 @@ pub fn check_behind(conn: &Connection, book_id: i64, today: &str) -> Result<Repl
             |r| r.get(0),
         )?;
         if undone == 0 {
-            return Ok(Replan::OnTrack);
+            return Ok(on_track(Replan::OnTrack));
         }
     }
-
-    let remaining: i64 = conn.query_row(
-        "SELECT count(*) FROM knowledge_block \
-         WHERE book_id=?1 AND status IN ('unlearned','learning') AND skipped=0",
-        [book_id],
-        |r| r.get(0),
-    )?;
-    let (deadline, cap): (String, i64) = conn.query_row(
-        "SELECT deadline, daily_cap FROM study_plan WHERE book_id=?1 AND active=1",
-        [book_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    use chrono::NaiveDate;
-    let d_today = NaiveDate::parse_from_str(today, "%Y-%m-%d")
-        .map_err(|e| crate::CoreError::Other(e.to_string()))?;
-    let d_end = NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
-        .map_err(|e| crate::CoreError::Other(e.to_string()))?;
-    let days_left = ((d_end - d_today).num_days() + 1).max(1); // 含今天
     let required = (remaining + days_left - 1) / days_left;
     if required > cap {
-        Ok(Replan::NeedsDecision {
+        Ok(on_track(Replan::NeedsDecision {
             required_daily: required,
             cap,
-        })
+        }))
     } else {
         conn.execute(
             "UPDATE study_plan SET daily_new_blocks=?2 WHERE book_id=?1 AND active=1",
             rusqlite::params![book_id, required.max(1)],
         )?;
-        Ok(Replan::AutoAdjusted {
+        Ok(on_track(Replan::AutoAdjusted {
             new_daily: required.max(1),
-        })
+        }))
     }
 }
 
@@ -783,5 +821,52 @@ mod tests {
             )
             .unwrap();
         assert_eq!(w, 1);
+    }
+
+    #[test]
+    fn check_behind_report_exposes_numbers_and_tolerates_missing_plan() {
+        let (conn, b) = setup();
+        conn.execute("UPDATE study_plan SET deadline='2026-08-30'", [])
+            .unwrap();
+        for d in ["2026-08-28", "2026-08-29"] {
+            conn.execute(
+                "INSERT INTO daily_task(date,book_id,block_id,kind,seq) VALUES(?1,?2,1,'new',1)",
+                rusqlite::params![d, b],
+            )
+            .unwrap();
+        }
+        let report = super::check_behind_report(&conn, b, "2026-08-30").unwrap();
+        assert_eq!(
+            report,
+            super::ReplanReport {
+                status: super::Replan::NeedsDecision {
+                    required_daily: 6,
+                    cap: 4
+                },
+                remaining_blocks: 6,
+                remaining_days: 1,
+                deadline: "2026-08-30".into(),
+                daily_cap: 4,
+            }
+        );
+        // 截止日已过:剩余天数按 1 计
+        let report = super::check_behind_report(&conn, b, "2026-09-02").unwrap();
+        assert_eq!(report.remaining_days, 1);
+        // 无主攻计划:on_track 而非报错
+        conn.execute("DELETE FROM study_plan", []).unwrap();
+        let report = super::check_behind_report(&conn, b, "2026-08-30").unwrap();
+        assert_eq!(report.status, super::Replan::OnTrack);
+        assert_eq!(
+            (
+                report.remaining_days,
+                report.daily_cap,
+                report.deadline.as_str()
+            ),
+            (0, 0, "")
+        );
+        assert!(matches!(
+            super::check_behind_report(&conn, b, "2026/08/30"),
+            Err(crate::CoreError::InvalidInput(_))
+        ));
     }
 }

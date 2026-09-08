@@ -8,8 +8,8 @@ use rusqlite::OptionalExtension;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BlockSourceDto, BookDto, DailyTaskDto, EvaluationViewDto,
     ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto, MapProgressDto,
-    MapRevisionDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanRequest, TurnResultDto,
-    VerdictOutcomeDto,
+    MapRevisionDto, ReplanDto, SessionViewDto, SpineChapterDto, StatsDto, StudyPlanDto,
+    StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -373,4 +373,20 @@ pub fn stats(state: &AppState, date: &str) -> Result<StatsDto, IpcError> {
     state
         .with_connection(|connection| book_learner_core::stats::compute(connection, date))
         .map(Into::into)
+}
+
+// ---- 落后重排(M2 T4):check_behind 有副作用(≤cap 时改写 daily_new_blocks),前端须在生成当日队列之前调用 ----
+
+pub fn check_behind(state: &AppState, book_id: i64, date: &str) -> Result<ReplanDto, IpcError> {
+    state
+        .with_connection(|connection| {
+            book_learner_core::sched::check_behind_report(connection, book_id, date)
+        })
+        .map(Into::into)
+}
+
+pub fn get_plan(state: &AppState, book_id: i64) -> Result<Option<StudyPlanDto>, IpcError> {
+    state
+        .with_connection(|connection| book_learner_core::planning::get_plan(connection, book_id))
+        .map(|plan| plan.map(Into::into))
 }
