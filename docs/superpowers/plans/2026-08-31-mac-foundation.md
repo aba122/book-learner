@@ -26,8 +26,10 @@
 | Tasks 0–6 | Complete and pushed | Remote `feat/mac-m1` through `6c9c1cd` |
 | Task 7 | Complete, verified, and reviewed | Commit `5f194bd`; focused 53/53, Web 93 passed/1 skipped, core and Tauri suites green |
 | Task 8A | Complete, verified, reviewed, and pushed | Commit `e82f572`; focused 33/33, Web 121 passed/1 skipped, lint/build green |
-| Tasks 8B–8D | Remaining | Next: Library/Import/Map preservation, then Reader/Feynman and Stats/Settings |
-| Task 9 | Remaining | Native persistence smoke, milestone documentation, CI/PR/tag gate |
+| Task 8B | Complete locally | App/Library/Import/Map focused 21/21; full Web 134 passed/2 skipped, lint/build green |
+| Task 8C | Complete locally | Reader/Feynman focused 19/19; full Web 145 passed/2 skipped, lint/build green |
+| Task 8D | Complete locally | Stats/Settings focused 16/16; eight-file route contract 86/86; full Web 158 passed/2 skipped, lint/build green |
+| Task 9 | Release-gated | Closeout docs and local non-GUI gates complete; Apple Silicon smoke, push, remote CI, PR, and tag pending |
 
 The original Task 8 acceptance matrix is unchanged. Its implementation is split into four independently testable and pushable nodes so failures remain isolated by route group and future product changes do not require rewriting every page at once. Execute strictly in order: 8A shared/Today, 8B Library/Map, 8C Reader/Feynman, 8D Stats/Settings, then Task 9.
 
@@ -762,7 +764,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/map/map.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Library/Import RED tests**
+- [x] **Step 1: Write Library/Import RED tests**
 
 Cover retryable and non-retryable `listBooks` failures, including superseded and post-unmount results. For import, use two distinct cases: `not_implemented` preserves the selected `File` and type but renders message/close only; a synthetic retryable failure renders retry and reuses the exact captured selection. Assert a synchronous attempt guard prevents duplicate import submits. Close clears the attempt and stale error.
 
@@ -772,11 +774,11 @@ pnpm -C web exec vitest --run src/features/library/library.test.tsx
 
 Expected RED: rejected requests are unhandled or leave the page/wizard in loading/progress state.
 
-- [ ] **Step 2: Implement Library/Import failures and verify GREEN**
+- [x] **Step 2: Implement Library/Import failures and verify GREEN**
 
 Add explicit try/catch/finally boundaries for list/import attempts. Clear stale errors only when a new attempt begins or the wizard closes; do not replace native failures with Mock data.
 
-- [ ] **Step 3: Write Map RED tests**
+- [x] **Step 3: Write Map RED tests**
 
 Cover retryable/non-retryable `listBlocks` failures, including superseded and post-unmount results. For confirm, use two distinct cases after title/module/order/skip edits: native `not_implemented` preserves the draft and shows message only; a synthetic retryable rejection exposes retry and invokes only `confirmMap` with the exact captured edit snapshot. Assert duplicate confirms are blocked while the first write is in flight. List reload is not part of confirm retry.
 
@@ -786,7 +788,7 @@ pnpm -C web exec vitest --run src/features/map/map.test.tsx
 
 Expected RED: list/confirm rejection is unhandled or edit state is lost.
 
-- [ ] **Step 4: Implement Map failure preservation and verify GREEN**
+- [x] **Step 4: Implement Map failure preservation and verify GREEN**
 
 Render list errors at the route boundary and confirm errors beside confirm actions. Preserve draft names, order, and skip flags until a successful confirm or an explicit cancel. Do not add the deferred product goal-entry shortcut.
 
@@ -797,7 +799,7 @@ pnpm -C web lint
 pnpm -C web build
 ```
 
-- [ ] **Step 5: Record, commit, and push node**
+- [x] **Step 5: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/library web/src/features/map DEVLOG.md
@@ -817,7 +819,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/feynman/feynman.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Reader RED tests**
+- [x] **Step 1: Write Reader RED tests**
 
 Reject `getBlock`, `blockSource`, and `epubUrl` independently. Assert loading is replaced by the real Chinese error and a route-aware back action, while `task`/`back` search parameters continue to determine navigation context. Retryable failures may reissue content initialization; non-retryable failures expose only the back action.
 
@@ -827,11 +829,11 @@ pnpm -C web exec vitest --run src/features/reader/reader.test.tsx
 
 Expected RED: rejection leaves the loading copy visible or becomes unhandled.
 
-- [ ] **Step 2: Implement Reader initialization boundary and verify GREEN**
+- [x] **Step 2: Implement Reader initialization boundary and verify GREEN**
 
 Keep one cancel-safe initialization function for the block/source/EPUB sequence. Never mount `EpubView` with missing data, never replace content with a fixture URL, and ignore late results after unmount or parameter change.
 
-- [ ] **Step 3: Write Feynman RED tests**
+- [x] **Step 3: Write Feynman RED tests**
 
 Reject each initialization stage (`todayQueue`, `getBlock`, `blockSource`, `startSession`) and assert loading ends in a safe return state. Read-only initialization failures may retry only before any `startSession` attempt. Set an explicit start-attempted/in-flight guard before invoking `startSession`; while it is pending, after an ambiguous rejection, or after the route is abandoned/superseded, expose safe return only and never issue a second `startSession`. No failed initialization may call `studentReply`, `endSession`, `confirmVerdict`, or `completeTask`.
 
@@ -841,7 +843,7 @@ pnpm -C web exec vitest --run src/features/feynman/feynman.test.tsx
 
 Expected RED: rejected initialization remains stuck, and an unguarded retry can call `startSession` twice.
 
-- [ ] **Step 4: Implement Feynman initialization boundary and verify GREEN**
+- [x] **Step 4: Implement Feynman initialization boundary and verify GREEN**
 
 Keep initialization error/session state separate from transcript state. Retry only read-only stages while `sessionId === null` and no session start has been attempted. Preserve the existing successful-session conversation behavior unchanged; do not add an idempotency key or alter the Backend contract in this node.
 
@@ -852,7 +854,7 @@ pnpm -C web lint
 pnpm -C web build
 ```
 
-- [ ] **Step 5: Record, commit, and push node**
+- [x] **Step 5: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/reader web/src/features/feynman DEVLOG.md
@@ -872,7 +874,7 @@ git push origin feat/mac-m1
 - Modify: `web/src/features/settings/settings.test.tsx`
 - Modify: `DEVLOG.md`
 
-- [ ] **Step 1: Write Stats RED tests**
+- [x] **Step 1: Write Stats RED tests**
 
 Test `not_implemented` separately from a retryable runtime failure. Neither failure may render zero-valued metrics. Runtime retry reissues only `stats`; non-retryable/unimplemented state shows the real unavailable message without a retry action. Superseded and post-unmount results must not restore stale metrics or errors.
 
@@ -882,11 +884,11 @@ pnpm -C web exec vitest --run src/features/stats/stats.test.tsx
 
 Expected RED: rejected stats remains on the loading state or produces an unhandled rejection.
 
-- [ ] **Step 2: Implement Stats unavailable state and verify GREEN**
+- [x] **Step 2: Implement Stats unavailable state and verify GREEN**
 
 Use `Stats | null` only for loading/success and a separate `BackendError | null` for failure. Do not create placeholder metrics or fall back to browser Mock values.
 
-- [ ] **Step 3: Write Settings RED tests**
+- [x] **Step 3: Write Settings RED tests**
 
 Cover retryable/non-retryable load and save failures. A failed save keeps all edited form values, retry uses the current edited snapshot, and a successful retry clears the old error and shows saved state. A load retry must not reuse a failed save closure. Assert stale/post-unmount loads are ignored and duplicate saves are blocked while a write is in flight.
 
@@ -896,11 +898,11 @@ pnpm -C web exec vitest --run src/features/settings/settings.test.tsx
 
 Expected RED: load/save rejection is unhandled or the edited form is lost.
 
-- [ ] **Step 4: Implement Settings load/save isolation and verify GREEN**
+- [x] **Step 4: Implement Settings load/save isolation and verify GREEN**
 
 Keep load and save errors independent. Disable only actions that require missing data or an in-flight duplicate request; do not reset the form on failure.
 
-- [ ] **Step 5: Verify the complete seven-route contract**
+- [x] **Step 5: Verify the complete seven-route contract**
 
 ```bash
 pnpm -C web exec vitest --run \
@@ -919,7 +921,7 @@ pnpm -C web build
 
 Expected: existing browser Mock happy paths and all new real-backend failure paths pass together.
 
-- [ ] **Step 6: Record, commit, and push node**
+- [x] **Step 6: Record and commit node; push pending repository write access**
 
 ```bash
 git add web/src/features/stats web/src/features/settings DEVLOG.md
@@ -940,7 +942,7 @@ git push origin feat/mac-m1
 - Modify: `docs/superpowers/plans/2026-08-31-mac-foundation.md` (check completed steps)
 - Create: `docs/smoke/mac-m1-native-smoke.md`
 
-- [ ] **Step 1: Update authority and closeout documentation**
+- [x] **Step 1: Update authority and closeout documentation**
 
 Mark Mac Foundation complete in `CLAUDE.md`, document actual command/DTO locations in `TECH_DESIGN.md`, keep product M1 unchecked, update `web/ARCHITECTURE.md`, append final DEVLOG evidence/deviations, and draft `docs/smoke/mac-m1-native-smoke.md` with pending result slots.
 
@@ -963,6 +965,8 @@ pnpm -C web exec playwright test e2e/cfi-smoke.spec.ts
 ```
 
 Expected: zero test/build/lint errors. Existing known bundle-size warning may remain documented.
+
+Current-host result (2026-09-02): core fmt/tests/clippy, Tauri fmt, Web tests/lint/build, and Playwright CFI pass. Tauri tests/clippy/debug build cannot reach project compilation on this Linux x86_64 host because the Tauri Linux target requires unavailable GTK/Pango/Cairo development libraries. Keep Step 2 open until the macOS job runs the exact native gates.
 
 - [ ] **Step 3: Prepare explicit native fixture**
 
@@ -1006,7 +1010,7 @@ git diff --check
 git status --short --branch
 ```
 
-- [ ] **Step 6: Final commit and push**
+- [x] **Step 6: Final local commit; push pending repository write access**
 
 ```bash
 git add CLAUDE.md TECH_DESIGN.md web/ARCHITECTURE.md DEVLOG.md docs/smoke/mac-m1-native-smoke.md docs/superpowers/plans/2026-08-31-mac-foundation.md

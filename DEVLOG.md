@@ -152,3 +152,63 @@
 - 质量修复最终验证:`pnpm -C web exec vitest --run src/components/AsyncError.test.tsx src/features/today/today.test.tsx` 为 32/32;`pnpm -C web exec vitest --run` 为 120 passed/1 skipped(14 files);`pnpm -C web lint` exit 0,仅保留既有 6 条警告(LibraryPage/TodayPage/MapPage 各 1 条 `react(set-state-in-effect)`,EpubView 3 条 `react(refs)`);`pnpm -C web build` 成功(179 modules),保留单一 minified chunk >500 kB 警告(`index-DvYvy9ij.js` 595.41 kB,gzip 187.96 kB);`git diff --check` 通过。
 - 不可重试完成失败复审 RED/GREEN:`pnpm -C web exec vitest --run src/features/today/today.test.tsx -t '不可重试的完成失败禁用完成动作但不阻塞其他任务动作'` 在旧实现为 1 failed/26 skipped(仍显示可点击“完成”)→保留该任务 completion guard,并以独立 `completionUnavailable` 状态显示禁用的“完成暂不可用”后为 1 passed/26 skipped;错误仍在对应 row 内且无重试按钮,“专注”“开始重考”与“回读原文”保持可用。最终 focused 两文件 33/33;全量 Vitest 121 passed/1 skipped(14 files);lint exit 0,仅既有 6 条警告;build 成功(179 modules),保留单一 minified chunk >500 kB 警告(`index-DkvQupeo.js` 595.58 kB,gzip 188.02 kB)。
 - T8A 收口:最终代码复审与计划增量复审均 APPROVED,无 Critical/Important/Minor 遗留。主线程重新运行 focused 33/33、全量 121 passed/1 skipped、lint(exit 0,既有 6 warnings)、build(179 modules)与 `git diff --check`,结果全部符合节点门禁;后续从 T8B Library/Import/Map 状态保留开始。
+
+## 2026-09-02 · Mac Foundation CI 工具链修复
+- `main` 与 `feat/mac-m1` 的 Web/macOS jobs 均在业务门禁前失败:从仓库根目录启动的 Corepack 选择 pnpm 11.25.0,与 `web/package.json` 固定的 11.24.0 冲突。两个 job 在 `corepack enable` 后显式激活 `pnpm@11.24.0`,保持包管理器版本与项目契约一致。
+- 该修复只恢复 CI 依赖安装入口,不改变产品代码;提交后以远端 Actions 作为 Linux Web 与 macOS Tauri 门禁证据。
+
+## 2026-09-02 · Mac Foundation T8B 完成
+- App 启动时的主攻书探测变为 cancel-safe 的非关键读取,失败由 route loader 负责呈现且不再产生 unhandled rejection。Library 的书目读取按 generation 隔离重试、过期及卸载结果;已有书目在刷新失败时保留。切换主攻书使用同步 guard,错误留在确认框内。
+- Import 捕获不可变的 File/type 尝试快照,同步 guard 阻止重复提交;`importEpub` 成功而 `generateMap` 失败时保存 `bookId`,重试只恢复地图生成而不重复导入。不可重试错误保留所选文件和类型并只提供关闭,关闭清理全部尝试状态。
+- Map 将 block list 与 book title 作为独立读取资源,分别支持 retry/generation/unmount 隔离;定稿失败保留名称、顺序与跳过编辑,重试复用精确快照且不触发列表读取,同步 guard 阻止双击。目标保存同样捕获错误并防止并发写。
+- TDD:新增用例在旧实现上为 11 failed/7 passed 且产生 10 个 unhandled rejections;最小实现后 App/Library/Import/Map focused 21/21。全量 Web 为 134 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅 6 条既有 React warnings),production build 通过(179 modules,保留 599.77 kB chunk warning),`git diff --check` 通过。
+- 远端偏差:当前 GitHub 身份 `Liuzzyg` 对仓库仅有 READ 权限,CI 修复提交 `980e83e` 推送收到 HTTP 403;后续节点继续保留本地原子提交,待具备写权限后统一推送并取得 Actions 证据。
+
+## 2026-09-02 · Mac Foundation T8C 完成
+- Reader 使用单一 generation/cancel-safe 内容管线,只有 `getBlock`、`blockSource` 与 `epubUrl` 全部成功才原子发布并挂载 `EpubView`;失败替换永久 loading,保留 `task`/`back` 导航语义,可重试错误重跑完整读取,参数切换或卸载后的结果被忽略。
+- Feynman 将 today queue、block、source 三段只读准备与 `startSession` 非幂等边界分开。只读失败可在尚未尝试创建 session 时重试;调用 `startSession` 前同步设置 attempted guard,其 pending、歧义失败或卸载结果都不会获得第二次创建入口。失败初始化不发布半成品 task/block/source,也无法调用 reply/end/verdict/complete 操作。
+- TDD:Reader/Feynman 新用例在旧实现上为 10 failed/9 passed 并产生 10 个 unhandled rejections;实现后 focused 19/19。全量 Web 为 145 passed/2 timezone-conditional skipped(14 files),lint exit 0 且仍只有 6 条既有 warning,production build 通过(179 modules,保留约 602 kB chunk warning),`git diff --check` 通过。
+
+## 2026-09-02 · Mac Foundation T8D 完成
+- Stats 将 loading/success 与 `BackendError` 分开,不用零值或 Mock 数据伪装原生失败;可重试错误只重发 `stats`,generation 与 unmount invalidation 阻止较晚的旧成功/失败恢复过期页面。
+- Settings 将加载与保存错误独立呈现;保存时捕获不可变快照,失败不重置表单,编辑后重试使用当前新快照。同步 ref guard 阻止双击写入,form revision 避免在写入期间继续编辑后误报“已保存”,load/save generation 忽略过期与卸载结果。
+- TDD:旧实现在 Stats/Settings 新矩阵上为 7 failed/7 passed 且有 10 个 unhandled rejections;实现后两文件 16/16。八文件页面错误契约 86/86,全量 Web 158 passed/2 timezone-conditional skipped(14 files),lint exit 0(仅原有 6 warnings),production build 成功(179 modules,602.96 kB chunk warning),`git diff --check` 通过。
+
+## 2026-09-02 · Mac Foundation T9 本地收口(发布门禁待完成)
+- 权威文档已对齐真实边界:`CLAUDE.md` 将 Mac Foundation 本地实现与 Apple Silicon 发布门禁/产品 M1 分开;`TECH_DESIGN.md` 记录 runtime、transport、command/application/DTO、数据路径及 8 supported/11 unsupported 能力;`web/ARCHITECTURE.md` 补齐 TauriBackend、BackendError 与异步边界守则。
+- 持久化冒烟手册新增 `docs/smoke/mac-m1-native-smoke.md`,固定单一 `mktemp` fixture、两次同 shell 启动、Cmd+Q 退出、Settings 重启持久化、Tauri/Mock 对照与 production Application Support 路径检查;当前未在 Apple Silicon 上执行的槽位保持 PENDING。
+- 历史 rustfmt 偏差:Task 6 曾明确保留 core 中 7 个旧文件的全库格式差异;Task 9 需要全量 `cargo fmt --check`,因此以单独的纯机械提交 `83b9275` 应用当前 stable rustfmt。格式化后 core 66 passed/1 ignored 且 clippy `-D warnings` 通过,无行为变更。
+- CI 增加 core rustfmt + all-target tests + clippy、Web lint 与 Tauri rustfmt 门禁;工作流 YAML 解析通过。两个 Node job 仍显式激活项目锁定的 pnpm 11.24.0。
+- 当前 Linux x86_64 验证:core fmt/tests/clippy PASS,Tauri fmt PASS,Web 158 passed/2 skipped + lint/build PASS,Playwright CFI 1/1 PASS。Tauri tests/clippy/debug build 在编译项目代码前因主机缺 `gdk-3.0`/Pango/Cairo 开发库失败;这些命令与 GUI 持久化冒烟必须由 macOS-14 CI/Apple Silicon 重跑。
+- 发布阻塞:当前 GitHub 身份 `Liuzzyg` 的 REST 权限为 `pull:true,push:false`,无法推送本地节点或触发 Actions。远程 `28f563f` 的 [Actions 33606579463](https://github.com/aba122/book-learner/actions/runs/33606579463) 仅 core 成功,Web/macOS 都在 pnpm install 失败后跳过后续;本地 `980e83e` 修复了该入口但无法发布验证。因此不创建 PR、不合并、不打 `mac-m1` tag,也不将产品 M1 标记完成。
+
+## 2026-09-02 · 产品 M1 架构复审与执行基线
+- 复审不把 Foundation 的 11 个 `not_implemented` 直接按方法表平铺:真实依赖是“发布门禁 → ADR/模型 → EPUB 导入与缓存 → Codex 调用硬化 → 地图生成/定稿 → 阅读锚定 → 持久会话 → 评估确认/outbox → 前端操作失败恢复 → tray/E2E”。
+- 必须先修的高风险边界:当前 schema 只有单段 `spine_href/cfi_start/cfi_end`,无 spine 文本缓存/多段锚点/地图版本;地图定稿 DTO 无 stable block ID/version;Feynman 传整段客户端 transcript 且 send/end/confirm 尚无错误恢复与幂等 key;SQLite→Markdown→Git 测试只是两段顺序调用,不具备跨存储原子性。
+- Codex provider 在子进程退出前不消费 piped stderr,大量输出可填满 pipe 并被误判为超时;只 kill 直接 child 也需要验证不留后代进程。MemoryStore 直接 `join(slug)` 且原地覆写,生产接线前必须限定内部 slug、使用 temp+rename 投影并以 operation ID 幂等重放。
+- 新基线文档:`docs/superpowers/plans/2026-09-02-product-m1-implementation-baseline.md`;保留 `IMPLEMENTATION_PLAN.md` 的产品验收,但用 12 个可审计节点取代已过时的粗粒度实施顺序。
+
+## 2026-09-05 · M1 加固切片启动(Linux,分支 feat/m1-hardening)
+- 触发:对 Mac Foundation(远端 main 74830ac)+ 本机 8 个未推送提交(linux-local d23ab9f)的 review,含 code-review 自动化排查 10 条(F1–F10,清单与处置见 docs/superpowers/plans/2026-09-05-m1-hardening-linux.md)。
+- 范围:不含产品行为、不预设 ADR 结论的加固——前端两公共异步 hook 并迁移七页、费曼页三处裸 await 错误态、Today conflict 永久禁用/stats 不刷新、Settings 空输入、EpubView lint、IPC transport_error;core busy_timeout、v2/v3 迁移收敛与子表外键、主攻书/活跃计划唯一性、Codex stderr 死锁与进程组、记忆库 slug 消毒与原子写。
+- 范围外:ADR 四份及其 schema 扩展、MapEditBlock 稳定 id(Node 6)、会话幂等(Node 8)、原生 EPUB(Node 2/3/7)、F3 Tauri setup panic(本机不可编译 Tauri crate,交 Mac)、Apple Silicon 门禁(Node 0)。
+- 基线(独立复跑,非自述):web vitest 158 passed/2 skipped(14 files);core 66 passed/1 ignored(40 单测 + 25 foundation + 1 lifecycle);oxlint 6 warnings(Library/Today/Map 各 1 set-state-in-effect,EpubView 3 refs)。
+- 环境:/p 卷群组配额 100%,工作仓库改为 /bigtemp/fzv6en/book-learner/review-clone;CARGO_TARGET_DIR=/bigtemp/fzv6en/book-learner/cargo-target。
+- 推送:本机 PAT 已撤销(push:false)。每 Task 本地 commit;凭证恢复后 `git push origin linux-local:feat/mac-m1 feat/m1-hardening`,补记 CI URL。
+- 远端 CI 现状:main/feat/mac-m1 各 run 均在 `pnpm install --frozen-lockfile` 失败(corepack pnpm 版本漂移);本地 980e83e 已修(`corepack prepare pnpm@11.24.0 --activate`),随上述推送生效。
+
+## 2026-09-05 · M1 加固切片完成(feat/m1-hardening,Linux)
+- 前端(T1–T6b):新增 `lib/useAsyncResource`(6 用例)与 `lib/useBackendOperation`(8 用例);七页面全部迁移,features/ 下再无自持 generation/mounted/guard ref;MapPage/ReaderPage 以 key 重挂载处理参数切换。费曼页初始化管线与 send/end/confirm 全部接 hook(F7,+7 用例);Today conflict 刷新后恢复(F6)、完成后刷 stats(F9,有意改动 today.test.tsx:472 断言 1→2)、跨页一次性提示 `store.pendingNotice`;Settings 数字草稿(F10);EpubView 回调 ref 改提交期同步;tauri.ts 非契约拒绝 → `transport_error` + 脱敏摘要(F8,有意更新 it.each 用例,隐私断言保留)。oxlint **0 warnings**(原 6 条全消)。
+- core(T7–T9b):ai.rs stderr 并发排空/进程组终止/有界尾部(+3 用例,libc 依赖);memory.rs slug 白名单 + 原子写(+3 用例);db.rs busy_timeout 显式化、v2 收敛(F2)、v3 外键重建与 book_single_active(+8 用例,删 1 条语义相反旧用例);sched 读后写事务 IMMEDIATE;insert_book 降级 paused、set_active_book 要求有计划(F4/F5,+2 foundation 用例 + 1 Mock 契约用例)。
+- code-review F1–F10 处置:F1 **部分误报**——rusqlite `Connection::open` 默认已设 5s busy_timeout,`open()` 并发实测本就成功;真问题是 `generate_daily` DEFERRED 读后写升级锁(已改 IMMEDIATE 并用并发用例锁定)。F2/F4/F5/F6/F7/F8/F9/F10 已修;**F3(Tauri setup panic)交 Mac 阶段**(本机不可编译 Tauri crate)。
+- 与计划偏差:ReaderPage 迁移为计划外新增(否则 DoD"页面无自持 generation"不成立);T9a 并入 insert_book 降级(唯一索引落地后既有多书用例会撞索引,需同 commit 绿);set_plan 的 1e 语义由既有两条用例已锁定,未新增。
+- 最终门禁:web vitest **186 passed / 2 skipped**(16 files)、tsc、oxlint 0、build 181 modules(单 chunk 604 kB 警告如前);core **53 单测 + 27 foundation + 1 lifecycle** 全绿、1 ignored(真实 codex)、clippy -D warnings 干净、fmt --check 通过。
+- 回写:web/ARCHITECTURE.md(规则 1 契约面、规则 5 单点 hook、目录导览 lib/)、TECH_DESIGN §3.5/§4/§5.1、IMPLEMENTATION_PLAN 加固切片注记、基线文档 Node 1/4/6/10 状态。
+- **待推送清单(本机无凭证,PAT 已撤销)**:`linux-local`(→ origin/feat/mac-m1,8 提交)与 `feat/m1-hardening`(15 提交)。凭证到位后:`git push origin linux-local:feat/mac-m1 feat/m1-hardening`,创建 PR #3(feat/m1-hardening → feat/mac-m1,堆叠),补记 CI URL。
+- 后续建议:为"切换到无计划书籍"增加专用 IPC 错误码/文案(现复用 conflict 通用文案);Reader/Feynman 路由懒加载以压缩 604 kB 主包(基线 P1);F3 在 Mac 上修。
+
+## 2026-09-05 · 加固切片合并入 linux-local
+- 按用户选择,`feat/m1-hardening` 快进合并进本地 `linux-local`(= 待推送的 feat/mac-m1 续做分支),feature 分支删除。合并结果复跑:core 53+27+1 绿、web 186/2 绿。
+- **待推送**:`linux-local` 领先 `origin/feat/mac-m1` 23 提交(8 Mac Foundation 续做 + 15 加固)。命令:`git push origin linux-local:feat/mac-m1`;远端 feat/mac-m1 之前是直接 merge 进 main 的,这批需再开 PR(feat/mac-m1 → main)。
+- 便携方案:`/bigtemp/fzv6en/book-learner/feat-mac-m1-pending.bundle` 含这 23 个提交,可在有凭证的机器上 `git fetch <bundle> linux-local` 后推送。
+- 权威工作副本为 `/bigtemp/fzv6en/book-learner/review-clone`;`/p/fzv6enresearch/xwl/book-learner` 副本停留在 d23ab9f(卷满不可写)。

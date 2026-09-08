@@ -108,9 +108,15 @@ pub fn insert_book(
     ty: BookType,
     slug: &str,
 ) -> Result<i64> {
+    // 单主攻书:已有 active 书时新书以 paused 入库(唯一索引 book_single_active 兜底)
+    let has_active: i64 =
+        conn.query_row("SELECT count(*) FROM book WHERE status='active'", [], |r| {
+            r.get(0)
+        })?;
+    let status = if has_active > 0 { "paused" } else { "active" };
     conn.execute(
-        "INSERT INTO book(title,author,type,slug) VALUES(?1,?2,?3,?4)",
-        rusqlite::params![title, author, ty.as_str(), slug],
+        "INSERT INTO book(title,author,type,slug,status) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params![title, author, ty.as_str(), slug, status],
     )?;
     Ok(conn.last_insert_rowid())
 }

@@ -21,6 +21,19 @@ pub fn set_active_book(conn: &Connection, book_id: i64) -> Result<()> {
     if exists.is_none() {
         return Err(CoreError::NotFound(format!("book {book_id}")));
     }
+    // 无学习计划的书不能成为主攻书:否则全局将没有 active 计划,今日队列会静默停产(F4)
+    let has_plan = transaction
+        .query_row(
+            "SELECT 1 FROM study_plan WHERE book_id=?1",
+            [book_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    if has_plan.is_none() {
+        return Err(CoreError::Conflict(format!(
+            "book {book_id} has no study plan; set a plan before activating it"
+        )));
+    }
     transaction
         .execute(
             "UPDATE book SET status='paused' WHERE status='active' AND id<>?1",

@@ -1,25 +1,37 @@
-use serde::Deserialize;
 use crate::{CoreError, Result};
+use serde::Deserialize;
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "snake_case")]
-pub enum Verdict { PassSuggested, RelearnSuggested }
+pub enum Verdict {
+    PassSuggested,
+    RelearnSuggested,
+}
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct Scores { pub accuracy: u8, pub completeness: u8, pub clarity: u8 }
+pub struct Scores {
+    pub accuracy: u8,
+    pub completeness: u8,
+    pub clarity: u8,
+}
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct Anchor { pub chapter_href: String, pub hint: String }
+pub struct Anchor {
+    pub chapter_href: String,
+    pub hint: String,
+}
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct WeakPointItem {
     pub title: String,
     pub detail: String,
-    #[serde(default)] pub fixed_in_session: bool,
-    #[serde(default)] pub anchor: Option<Anchor>,
+    #[serde(default)]
+    pub fixed_in_session: bool,
+    #[serde(default)]
+    pub anchor: Option<Anchor>,
 }
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
@@ -28,9 +40,11 @@ pub struct EvalResult {
     pub verdict: Verdict,
     pub scores: Scores,
     pub summary: String,
-    #[serde(default)] pub weak_points: Vec<WeakPointItem>,
+    #[serde(default)]
+    pub weak_points: Vec<WeakPointItem>,
     pub final_restatement: String,
-    #[serde(default)] pub observation_note: String,
+    #[serde(default)]
+    pub observation_note: String,
 }
 
 /// 从可能带 markdown 围栏/前后缀文本中提取首个 `{`..末个 `}` 并严格解析。
@@ -45,18 +59,22 @@ pub fn parse_eval(raw: &str) -> Result<EvalResult> {
 }
 
 fn strict_extract<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
-    let start = raw.find('{').ok_or_else(|| CoreError::EvalParse("no json".into()))?;
-    let end = raw.rfind('}').ok_or_else(|| CoreError::EvalParse("no json".into()))?;
+    let start = raw
+        .find('{')
+        .ok_or_else(|| CoreError::EvalParse("no json".into()))?;
+    let end = raw
+        .rfind('}')
+        .ok_or_else(|| CoreError::EvalParse("no json".into()))?;
     serde_json::from_str(&raw[start..=end]).map_err(|e| CoreError::EvalParse(e.to_string()))
 }
-
 
 #[derive(Debug, serde::Serialize, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct QuizResult {
     pub passed: bool,
     pub comment: String,
-    #[serde(default)] pub new_weak_point: Option<WeakPointItem>,
+    #[serde(default)]
+    pub new_weak_point: Option<WeakPointItem>,
 }
 
 /// 间隔复习快问结果解析(提取/严格规则同 parse_eval)。

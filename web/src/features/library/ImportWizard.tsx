@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { BookType } from '../../types'
 
 const TYPES: { type: BookType; label: string; desc: string }[] = [
@@ -11,19 +13,61 @@ const TYPES: { type: BookType; label: string; desc: string }[] = [
   { type: 'humanities', label: '人文·社科', desc: '主题与脉络优先,重理解、联结与观点' },
 ]
 
+interface ImportAttempt {
+  file: File
+  type: BookType
+  bookId?: number
+}
+
 export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
+  const importedBookId = useRef<number | null>(null)
+
+  // 两步写(导入→生成地图)为一个操作;导入成功后立即把 bookId 记进 attempt,失败重试只重跑生成地图
+  const importOp = useBackendOperation(
+    async (captured: ImportAttempt) => {
+      setProgress(captured.bookId === undefined ? '正在导入书籍…' : '正在生成知识地图…')
+      let bookId = captured.bookId
+      if (bookId === undefined) {
+        const imported = await backend.importEpub(captured.file, captured.type)
+        bookId = imported.bookId
+        setAttempt({ ...captured, bookId })
+      }
+      await backend.generateMap(bookId, message => setProgress(message))
+      importedBookId.current = bookId
+    },
+    {
+      onCommitted: async () => {
+        if (importedBookId.current !== null) navigate(`/map/${importedBookId.current}`)
+      },
+    },
+  )
+  const busy = importOp.pending.has('import')
+  const failure = importOp.errors.get('import')
 
   if (!open) return null
 
-  const chooseType = async (type: BookType) => {
+  const close = () => {
+    if (busy) return
+    importOp.clearError('import')
+    setFile(null)
+    setProgress(null)
+    setAttempt(null)
+    onClose()
+  }
+
+  const runAttempt = (captured: ImportAttempt) => {
+    importOp.clearError('import')
+    setAttempt(captured)
+    void importOp.run('import', captured)
+  }
+
+  const chooseType = (type: BookType) => {
     if (!file) return
-    setProgress('正在导入书籍…')
-    const { bookId } = await backend.importEpub(file, type)
-    await backend.generateMap(bookId, msg => setProgress(msg))
-    navigate(`/map/${bookId}`)
+    runAttempt({ file, type })
   }
 
   return (
@@ -33,17 +77,30 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       aria-label="导入书籍"
       className="fixed inset-0 z-50 flex items-center justify-center"
     >
-      <div className="absolute inset-0 bg-ink-1/25" onClick={progress ? undefined : onClose} />
+      <div className="absolute inset-0 bg-ink-1/25" onClick={busy ? undefined : close} />
       <Card className="relative w-130 max-w-[92vw] p-8 shadow-pop">
-        {progress ? (
+        {busy ? (
           <div className="py-6 text-center">
             <div
               aria-hidden
               className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-line border-t-new"
             />
-            <p className="font-serif text-lg text-ink-1">{progress}</p>
+            <p className="font-serif text-lg text-ink-1">{progress ?? '正在处理…'}</p>
             <p className="mt-2 text-xs text-ink-3">AI 正在通读目录并拆分知识块,请稍候</p>
           </div>
+        ) : failure && attempt ? (
+          <>
+            <h2 className="font-serif text-xl font-semibold text-ink-1">导入未完成</h2>
+            <p className="mt-1 text-sm text-ink-3">
+              《{attempt.file.name.replace(/\.epub$/i, '')}》· {TYPES.find(t => t.type === attempt.type)?.label}
+            </p>
+            <div className="mt-6">
+              <AsyncError error={failure} onRetry={() => runAttempt(attempt)} />
+            </div>
+            <div className="mt-5 flex justify-end">
+              <Button onClick={close}>关闭</Button>
+            </div>
+          </>
         ) : !file ? (
           <>
             <h2 className="font-serif text-xl font-semibold text-ink-1">导入 EPUB</h2>
@@ -59,7 +116,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
               />
             </label>
             <div className="mt-5 flex justify-end">
-              <Button onClick={onClose}>取消</Button>
+              <Button onClick={close}>取消</Button>
             </div>
           </>
         ) : (
@@ -83,7 +140,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
             </div>
             <div className="mt-5 flex justify-between">
               <Button onClick={() => setFile(null)}>重选文件</Button>
-              <Button onClick={onClose}>取消</Button>
+              <Button onClick={close}>取消</Button>
             </div>
           </>
         )}

@@ -1,3 +1,5 @@
+import type { BackendError } from '../../backend/errors'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Tag from '../../components/Tag'
@@ -18,9 +20,19 @@ function StarRow({ label, value }: { label: string; value: number }) {
 export default function EvalCard({
   result,
   onConfirm,
+  error = null,
+  onRetry,
+  busy = false,
+  confirmDisabled = false,
 }: {
   result: EvalResult
   onConfirm: (pass: boolean) => void
+  /** 确认判定的后端错误:在卡内显示,不导航 */
+  error?: BackendError | null
+  onRetry?: () => void
+  busy?: boolean
+  /** 不可重试错误:禁用"确认通过",避免重复提交 */
+  confirmDisabled?: boolean
 }) {
   const pass = result.verdict === 'pass_suggested'
   return (
@@ -71,10 +83,12 @@ export default function EvalCard({
           <p className="mt-1 text-sm leading-relaxed text-ink-2">{result.observationNote}</p>
         </div>
 
+        {error && <AsyncError error={error} onRetry={onRetry} variant="compact" />}
+
         <div className="mt-1 flex justify-end gap-2">
-          <Button onClick={() => onConfirm(false)}>暂不通过,再学一遍</Button>
-          <Button variant="primary" onClick={() => onConfirm(true)}>
-            确认通过
+          <Button disabled={busy} onClick={() => onConfirm(false)}>暂不通过,再学一遍</Button>
+          <Button variant="primary" disabled={busy || confirmDisabled} onClick={() => onConfirm(true)}>
+            {confirmDisabled ? '确认暂不可用' : busy ? '保存中…' : '确认通过'}
           </Button>
         </div>
       </Card>

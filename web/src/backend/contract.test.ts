@@ -67,3 +67,15 @@ describe('Tauri wire contract fixture', () => {
     ])
   })
 })
+
+describe('MockBackend 与原生一致的切换约束(H-T9b / F4)', () => {
+  it('切换到无学习计划的书籍返回 conflict;设定计划后可切换', async () => {
+    const b = new MockBackend()
+    const { bookId } = await b.importEpub(new File(['x'], 'x.epub'), 'textbook')
+    await expect(b.setActiveBook(bookId)).rejects.toMatchObject({ code: 'conflict', retryable: false })
+    expect((await b.listBooks()).find(x => x.id === 1)?.status).toBe('active')
+    await b.setPlan({ bookId, deadline: '2026-12-31', dailyNewBlocks: 1, dailyCap: 4, remindTime: '21:00' })
+    await b.setActiveBook(bookId)
+    expect((await b.listBooks()).find(x => x.id === bookId)?.status).toBe('active')
+  })
+})

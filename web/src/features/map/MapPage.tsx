@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import type { MapEditBlock } from '../../backend/types'
+import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import Tag, { type TagTone } from '../../components/Tag'
 import { DAILY_CAP_DEFAULT } from '../../config'
 import { localCalendarDate } from '../../lib/localDate'
+import { useAsyncResource } from '../../lib/useAsyncResource'
+import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
 import type { BlockStatus, KnowledgeBlock, Scores } from '../../types'
 
@@ -46,31 +50,82 @@ interface EditEntry {
   block: KnowledgeBlock
 }
 
+/** 路由参数变化即重挂载:旧 bookId 的晚到结果随旧实例卸载而作废,无需手工 generation。 */
 export default function MapPage() {
   const { bookId: bookIdParam } = useParams()
   const bookId = Number(bookIdParam)
+  return <MapPageContent key={bookId} bookId={bookId} />
+}
+
+function MapPageContent({ bookId }: { bookId: number }) {
   const navigate = useNavigate()
   const setActiveBookId = useSession(s => s.setActiveBookId)
 
-  const [blocks, setBlocks] = useState<KnowledgeBlock[] | null>(null)
-  const [bookTitle, setBookTitle] = useState('')
   const [edits, setEdits] = useState<EditEntry[] | null>(null) // 非 null = 编辑模式
   const [goalOpen, setGoalOpen] = useState(false)
   const [deadline, setDeadline] = useState('')
   const [remindTime, setRemindTime] = useState('21:00')
 
-  const reload = useCallback(async () => {
+  const blocksRes = useAsyncResource(useCallback(async () => {
     const list = await backend.listBlocks(bookId)
-    setBlocks([...list].sort((a, z) => a.seq - z.seq))
-  }, [bookId])
+    return [...list].sort((a, z) => a.seq - z.seq)
+  }, [bookId]))
+  const title = useAsyncResource(useCallback(async () => {
+    const books = await backend.listBooks()
+    return books.find(book => book.id === bookId)?.title ?? ''
+  }, [bookId]))
+  const blocks = blocksRes.data
+  const bookTitle = title.data ?? ''
 
-  useEffect(() => {
-    reload()
-    backend.listBooks().then(bs => setBookTitle(bs.find(b => b.id === bookId)?.title ?? ''))
-  }, [reload, bookId])
+  // 定稿:失败保留全部编辑;重试重发精确快照(hook 记录上次 args);成功才重载列表并打开目标设定
+  const confirmOp = useBackendOperation(
+    (snapshot: MapEditBlock[]) => backend.confirmMap(bookId, snapshot),
+    {
+      onCommitted: async () => {
+        setEdits(null)
+        setGoalOpen(true)
+        void blocksRes.reload()
+      },
+    },
+  )
+  const confirming = confirmOp.pending.has('confirm')
+  const confirmError = confirmOp.errors.get('confirm')
+
+  // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整(须先于 planOp 声明,其闭包引用它)
+  const remaining = blocks?.length ?? 0
+  const dailyBlocks = (() => {
+    if (!deadline) return null
+    const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
+    if (days < 1) return null
+    return Math.ceil(remaining / days)
+  })()
+
+  // 目标设定:setPlan→setActiveBook 两步为一个操作;成功后该书成为主攻书并回今日
+  const planOp = useBackendOperation(
+    async () => {
+      if (!deadline || dailyBlocks === null) return
+      await backend.setPlan({
+        bookId,
+        deadline,
+        dailyNewBlocks: dailyBlocks,
+        dailyCap: DAILY_CAP_DEFAULT,
+        remindTime,
+      })
+      await backend.setActiveBook(bookId)
+    },
+    {
+      onCommitted: async () => {
+        setActiveBookId(bookId)
+        navigate('/')
+      },
+    },
+  )
+  const planning = planOp.pending.has('plan')
+  const planError = planOp.errors.get('plan')
 
   const startEdit = () => {
     if (!blocks) return
+    confirmOp.clearError('confirm')
     setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: false, block: b })))
   }
 
@@ -97,38 +152,22 @@ export default function MapPage() {
     )
   }
 
-  const finalize = async () => {
+  const finalize = () => {
     if (!edits) return
-    await backend.confirmMap(
-      bookId,
-      edits.map((e, i) => ({ title: e.title, moduleName: e.moduleName, seq: i + 1, skipped: e.skipped })),
-    )
-    setEdits(null)
-    await reload()
-    setGoalOpen(true)
+    const snapshot: MapEditBlock[] = edits.map((entry, index) => ({
+      title: entry.title,
+      moduleName: entry.moduleName,
+      seq: index + 1,
+      skipped: entry.skipped,
+    }))
+    confirmOp.clearError('confirm')
+    void confirmOp.run('confirm', snapshot)
   }
 
-  // 目标换算:未跳过块数 ÷ 天数(含今天与截止日),向上取整
-  const remaining = blocks?.length ?? 0
-  const dailyBlocks = useMemo(() => {
-    if (!deadline) return null
-    const days = Math.floor((Date.parse(deadline) - Date.parse(localCalendarDate())) / 86400000) + 1
-    if (days < 1) return null
-    return Math.ceil(remaining / days)
-  }, [deadline, remaining])
-
-  const startLearning = async () => {
+  const startLearning = () => {
     if (!deadline || dailyBlocks === null) return
-    await backend.setPlan({
-      bookId,
-      deadline,
-      dailyNewBlocks: dailyBlocks,
-      dailyCap: DAILY_CAP_DEFAULT,
-      remindTime,
-    })
-    await backend.setActiveBook(bookId)
-    setActiveBookId(bookId)
-    navigate('/')
+    planOp.clearError('plan')
+    void planOp.run('plan')
   }
 
   // 渲染顺序:编辑模式用 edits 平铺;浏览模式用 blocks
@@ -153,9 +192,14 @@ export default function MapPage() {
         actions={
           editing ? (
             <>
-              <Button onClick={() => setEdits(null)}>取消</Button>
-              <Button variant="primary" onClick={finalize}>
-                确认定稿
+              <Button disabled={confirming} onClick={() => {
+                confirmOp.clearError('confirm')
+                setEdits(null)
+              }}>
+                取消
+              </Button>
+              <Button variant="primary" disabled={confirming} onClick={finalize}>
+                {confirming ? '定稿中…' : '确认定稿'}
               </Button>
             </>
           ) : (
@@ -164,7 +208,31 @@ export default function MapPage() {
         }
       />
 
-      {blocks === null ? (
+      {title.error && (
+        <div className="mb-4">
+          <AsyncError error={title.error} onRetry={title.reload} variant="compact" />
+        </div>
+      )}
+
+      {blocksRes.error && blocks !== null && (
+        <div className="mb-4">
+          <AsyncError error={blocksRes.error} onRetry={blocksRes.reload} variant="compact" />
+        </div>
+      )}
+
+      {confirmError && (
+        <div className="mb-4">
+          <AsyncError
+            error={confirmError}
+            onRetry={() => void confirmOp.retry('confirm')}
+            variant="compact"
+          />
+        </div>
+      )}
+
+      {blocksRes.error && blocks === null ? (
+        <AsyncError error={blocksRes.error} onRetry={blocksRes.reload} />
+      ) : blocks === null ? (
         <p className="text-sm text-ink-3">正在展开地图…</p>
       ) : (
         <div className="flex flex-col gap-8">
@@ -175,6 +243,7 @@ export default function MapPage() {
                   <input
                     aria-label={`模块名:${group.moduleName}`}
                     defaultValue={group.moduleName}
+                    disabled={confirming}
                     onBlur={e => renameModule(group.moduleName, e.target.value || group.moduleName)}
                     className="rounded-s border border-line bg-paper-2 px-2 py-1 font-serif text-base font-semibold text-ink-1"
                   />
@@ -209,13 +278,13 @@ export default function MapPage() {
                     {!editing && <Tag tone={STATUS_TONE[block.status]}>{STATUS_LABEL[block.status]}</Tag>}
                     {editing && (
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, -1)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, -1)}>
                           上移
                         </Button>
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, 1)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, 1)}>
                           下移
                         </Button>
-                        <Button className="px-2.5 py-1 text-xs" onClick={() => toggleSkip(flatIdx)}>
+                        <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => toggleSkip(flatIdx)}>
                           {entry?.skipped ? '恢复' : '跳过'}
                         </Button>
                         <Button
@@ -254,6 +323,7 @@ export default function MapPage() {
                 <input
                   type="date"
                   value={deadline}
+                  disabled={planning}
                   onChange={e => setDeadline(e.target.value)}
                   className="rounded-s border border-line bg-paper-1 px-3 py-1.5 text-ink-1"
                 />
@@ -263,6 +333,7 @@ export default function MapPage() {
                 <input
                   type="time"
                   value={remindTime}
+                  disabled={planning}
                   onChange={e => setRemindTime(e.target.value)}
                   className="rounded-s border border-line bg-paper-1 px-3 py-1.5 text-ink-1"
                 />
@@ -278,10 +349,20 @@ export default function MapPage() {
                 )}
               </div>
             </div>
+            {planError && (
+              <div className="mt-4">
+                <AsyncError error={planError} onRetry={startLearning} variant="compact" />
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-2">
-              <Button onClick={() => setGoalOpen(false)}>稍后再定</Button>
-              <Button variant="primary" disabled={dailyBlocks === null} onClick={startLearning}>
-                开始学习
+              <Button disabled={planning} onClick={() => {
+                planOp.clearError('plan')
+                setGoalOpen(false)
+              }}>
+                稍后再定
+              </Button>
+              <Button variant="primary" disabled={dailyBlocks === null || planning} onClick={startLearning}>
+                {planning ? '保存中…' : '开始学习'}
               </Button>
             </div>
           </Card>

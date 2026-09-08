@@ -55,7 +55,24 @@ function normalizeInvokeError(value: unknown): BackendError {
       return new BackendError({ code, ...safe, details })
     }
   }
-  return new BackendError({ code: 'unknown', message: '原生后端调用失败', retryable: false })
+  // 非契约拒绝(如 Tauri 参数反序列化失败的纯字符串、DTO 漂移):显式归类为 transport_error,
+  // details 只含脱敏摘要(类型/长度/键名,绝不带原文),并输出到控制台便于诊断(F8)。
+  const details = redactedShape(value)
+  console.error('[ipc] transport_error', details)
+  return new BackendError({ code: 'transport_error', message: '与本地后端通信失败', retryable: false, details })
+}
+
+const REDACTED_KEY_LIMIT = 10
+
+function redactedShape(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') return { actualType: 'string', length: value.length }
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const shape: Record<string, unknown> = { actualType: 'object' }
+    if (value instanceof Error) shape.errorName = value.name
+    shape.keys = Object.keys(value).slice(0, REDACTED_KEY_LIMIT)
+    return shape
+  }
+  return { actualType: actualType(value) }
 }
 
 function objectAt(value: unknown, path: string, code: ErrorCode = 'invalid_response'): WireObject {

@@ -3,6 +3,7 @@ import type {
   AppSettings, Book, BookType, ChatMessage, DailyTask, EvalResult,
   KnowledgeBlock, Stats, StudyPlan, TaskKind,
 } from '../types'
+import { BackendError } from './errors'
 import type { Backend, MapEditBlock } from './types'
 
 interface Session { blockId: number; scriptIdx: number }
@@ -128,6 +129,10 @@ export class MockBackend implements Backend {
   }
 
   async setActiveBook(bookId: number): Promise<void> {
+    // 与原生 library::set_active_book 一致:无学习计划的书不能成为主攻书(F4)
+    if (!this.plans.some(p => p.bookId === bookId)) {
+      throw new BackendError({ code: 'conflict', message: '数据状态冲突，请刷新后重试', retryable: false })
+    }
     for (const b of this.books) {
       if (b.id === bookId) b.status = 'active'
       else if (b.status === 'active') b.status = 'paused'
