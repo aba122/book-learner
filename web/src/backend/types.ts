@@ -1,6 +1,6 @@
 import type {
   AnchorSegment, AppSettings, Book, BookType, DailyTask, EvaluationView,
-  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Replan, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
+  KnowledgeBlock, MapEditOp, MapProgress, PomodoroSnapshot, Profile, Replan, SessionView, SpineChapter, Stats, StudyPlan, TurnResult, VerdictOutcome,
 } from '../types'
 
 export interface Backend {
@@ -33,6 +33,9 @@ export interface Backend {
   pomodoroStop(): Promise<PomodoroSnapshot>
   pomodoroState(): Promise<PomodoroSnapshot>
   subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void>
+  /** 学习者画像(M2 T6):写入经记忆库 outbox git commit */
+  profileGet(): Promise<Profile>
+  profileSave(profile: Profile): Promise<void>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 

@@ -93,6 +93,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'pomodoroResume', command: 'pomodoro_resume', payloadKeys: [] },
       { method: 'pomodoroStop', command: 'pomodoro_stop', payloadKeys: [] },
       { method: 'pomodoroState', command: 'pomodoro_state', payloadKeys: [] },
+      // Mac M2 T6:学习者画像
+      { method: 'profileGet', command: 'profile_get', payloadKeys: [] },
+      { method: 'profileSave', command: 'profile_save', payloadKeys: ['profile'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

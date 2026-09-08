@@ -453,3 +453,10 @@
 - **T3 壳层**:`AppState.pomodoro: Mutex<Machine>`;`pomodoro.rs`:命令层 `start/pause/resume/stop/snapshot`(锁内只改状态,落分钟在锁外;`date` 来自前端),ticker 线程每 1s `tick(now)`:阶段变化 → 落分钟、发事件 `pomodoro_changed{snapshot}`、系统通知;托盘标题 `●MM:SS`/`○MM:SS`/`‖MM:SS`(仅在文本变化时写,无托盘时静默);`orderly_shutdown` 前 `stop_for_shutdown` 落分钟。五条命令 `pomodoro_start[taskId,date]/pause/resume/stop/state`,六处契约同步(事件名只作常量,`ARCHITECTURE.md` 已注)。
 - **T3 web**:`Backend` 增五个方法 + `subscribePomodoro`;Mock 用 `setTimeout` 镜像阶段切换并广播;`Pomodoro.tsx` 只按快照渲染(`endsAt − Date.now()` 每秒重绘,暂停/继续/结束经 `useBackendOperation`,订阅推送);TodayPage 挂载取 `pomodoroState`,"专注"经 `pomodoroStart(taskId, today)`;用例改为经后端启动/暂停/继续/结束。
 - 门禁:core 139/27/1/1、web 269/2、lint 0、tsc;src-tauri 由 CI 验证。
+
+## 2026-09-08 · M2 T6:学习者画像编辑
+- **core**:`memory::PROFILE_HEADINGS` 与 `ProfileSections{background, mastered, pitfalls, context}`;`profile_sections()` 读四节,`write_profile_sections()` 原子重写(标题行固定、空节写"(待补充)"、未知小节按原顺序保留在末尾),**不直接 git commit**;`profile_summary_for(ty)`:教材/方法论追加"个人情境"节(模板占位文案不算内容),人文只前两节。单测覆盖往返、未知节保留、按类型摘要。
+- **壳层**:`ProfileDto`(deny_unknown_fields);`application::profile_get/profile_save`——保存后入队 outbox `git_commit{message:"profile: 更新学习者画像"}`(`op_id=profile:<毫秒>`),命令层 `profile_save` 在返回前 `spawn_blocking` 走 `run_startup_recovery` 同款后台重放;`session_context` 改为先取书类型再取 `profile_summary_for(ty)`。命令 `profile_get[]`、`profile_save[profile]`,六处契约同步;foundation 用例:模板默认值 → 保存 → 读回一致、outbox 出现 1 条 pending、重放后记忆库 git log 含该提交、多余字段拒绝。
+- **web**:`Profile` 类型与 `profileGet/profileSave`;Mock 内存实现;`TauriBackend` 解码/出站校验;设置页新增"学习者画像"卡:知识背景/个人情境文本域、已掌握概念/误区模式只读 `<pre>`,独立"保存画像"按钮(`useBackendOperation`,与设置表单互不影响),读取失败只影响本卡且可重试。用例 4 条(展示、只提交画像不触发 saveSettings、保存失败重试、读取失败不影响设置表单)。
+- 门禁:core 140/27/1/1、web 274/2、lint 0、rustfmt;src-tauri 由 CI 验证(Linux 无 GTK)。**首推 CI 红**:`ProfileSection` 用了不存在的 `resource.version`,而本地 `tsc --noEmit -p tsconfig.json` 对 solution 式 tsconfig(只有 references)什么都不检查,故未发现。**规则更新**:web 类型门禁一律用 `pnpm -C web build`(`tsc -b && vite build`),不再用 `tsc --noEmit -p tsconfig.json`。`cargo test` 在 Linux 会给 `web/src-tauri/Cargo.lock` 追加 Linux 平台依赖,已回退不提交。
+

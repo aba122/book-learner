@@ -7,7 +7,7 @@ use book_learner_app::application;
 use book_learner_app::commands;
 use book_learner_app::dto::{
     AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    MapProgressDto, ProfileDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
 use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState, JobRegistry};
@@ -751,6 +751,46 @@ fn pomodoro_commands_drive_the_machine_and_persist_focus_minutes() {
             .minutes_today,
         25
     );
+}
+
+#[test]
+fn profile_round_trips_through_memory_and_enqueues_a_git_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("app.db")).unwrap();
+    let fresh = commands::profile_get_inner(&state).unwrap();
+    assert!(fresh.background.contains("待补充"));
+    let profile = ProfileDto {
+        background: "经济学本科".into(),
+        mastered: "- 供需".into(),
+        pitfalls: fresh.pitfalls.clone(),
+        context: "在做定价研究".into(),
+    };
+    commands::profile_save_inner(&state, profile.clone()).unwrap();
+    assert_eq!(commands::profile_get_inner(&state).unwrap(), profile);
+    assert_eq!(
+        serde_json::to_value(&profile).unwrap()["background"],
+        json!("经济学本科")
+    );
+    // 写入经 outbox git_commit;重放后记忆库出现提交
+    let pending: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind='git_commit' AND status='pending'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(pending, 1);
+    assert_eq!(book_learner_app::run_startup_recovery(&state).unwrap(), 1);
+    let log = std::process::Command::new("git")
+        .arg("-C")
+        .arg(state.memory_root())
+        .args(["log", "--oneline"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&log.stdout).contains("profile: 更新学习者画像"));
+    assert!(serde_json::from_value::<ProfileDto>(json!({"background": "x", "extra": 1})).is_err());
 }
 
 fn seeded_state(path: &Path) -> (AppState, i64, i64, i64) {
@@ -1769,6 +1809,10 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "pomodoro_resume" => json!({}),
             "pomodoro_stop" => json!({}),
             "pomodoro_state" => json!({}),
+            "profile_get" => json!({}),
+            "profile_save" => json!({"profile": {
+                "background": "经济学本科", "mastered": "", "pitfalls": "", "context": "研究者"
+            }}),
             other => panic!("contract contains unknown command {other}"),
         };
         // payload 是 JSON 对象,键序无语义(serde_json 默认 BTreeMap),按集合比对

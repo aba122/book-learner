@@ -396,7 +396,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -471,6 +471,20 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(seen).toEqual([{ ...snap, phase: 'break' }])
     const bad = new TauriBackend(async <T>() => ({ ...snap, phase: 'nap' }) as T)
     await expect(bad.pomodoroState()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('profile round-trips four string sections (Mac M2 T6)', async () => {
+    const profile = { background: '经济学本科', mastered: '- 供需', pitfalls: '- 弹性 vs 斜率', context: '定价研究' }
+    const { calls, invoke } = recorder({ profile_get: profile, profile_save: null })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.profileGet()).toEqual(profile)
+    await backend.profileSave({ ...profile, context: '实验设计' })
+    expect(calls.map(c => [c.command, c.payload])).toEqual([
+      ['profile_get', {}], ['profile_save', { profile: { ...profile, context: '实验设计' } }],
+    ])
+    await expect(backend.profileSave({ ...profile, context: 1 as never })).rejects.toMatchObject({ code: 'invalid_request' })
+    const bad = new TauriBackend(async <T>() => ({ background: 'x' }) as T)
+    await expect(bad.profileGet()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('finishBook sends the id and accepts a unit reply (Mac M2 T8)', async () => {

@@ -31,7 +31,9 @@
     { "method": "pomodoroPause", "command": "pomodoro_pause", "payloadKeys": [] },
     { "method": "pomodoroResume", "command": "pomodoro_resume", "payloadKeys": [] },
     { "method": "pomodoroStop", "command": "pomodoro_stop", "payloadKeys": [] },
-    { "method": "pomodoroState", "command": "pomodoro_state", "payloadKeys": [] }
+    { "method": "pomodoroState", "command": "pomodoro_state", "payloadKeys": [] },
+    { "method": "profileGet", "command": "profile_get", "payloadKeys": [] },
+    { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

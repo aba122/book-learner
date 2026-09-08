@@ -6,7 +6,7 @@ import Card from '../../components/Card'
 import PageHeader from '../../components/PageHeader'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
-import type { AppSettings } from '../../types'
+import type { AppSettings, Profile } from '../../types'
 
 function Field({
   label,
@@ -46,6 +46,80 @@ function parsePositiveInt(draft: string): number | null {
 interface LoadedSettings {
   settings: AppSettings
   version: number
+}
+
+/** 学习者画像(M2 T6):独立加载/保存;知识背景与个人情境可编辑,误区模式与已掌握概念由 AI 积累、只读展示 */
+function ProfileSection() {
+  // 与设置表单同款:以加载代次为 key 重挂载表单,后端新数据到达即丢弃本地编辑
+  const generation = useRef(0)
+  const profile = useAsyncResource(useCallback(async () => ({
+    profile: await backend.profileGet(),
+    version: ++generation.current,
+  }), []))
+  if (profile.data === null) {
+    return (
+      <Card className="px-6 py-4">
+        <h2 className="font-serif text-base font-semibold text-ink-1">学习者画像</h2>
+        <div className="mt-3">
+          {profile.error ? <AsyncError error={profile.error} onRetry={profile.reload} variant="compact" /> : <p className="text-sm text-ink-3">正在读取画像…</p>}
+        </div>
+      </Card>
+    )
+  }
+  return <ProfileForm key={profile.data.version} initial={profile.data.profile} />
+}
+
+function ProfileForm({ initial }: { initial: Profile }) {
+  const [form, setForm] = useState<Profile>(initial)
+  const [saved, setSaved] = useState(false)
+  const save = useBackendOperation((snapshot: Profile) => backend.profileSave(snapshot), {
+    onCommitted: async () => setSaved(true),
+  })
+  const saving = save.pending.has('profile')
+  const failure = save.errors.get('profile')
+  const update = (patch: Partial<Profile>) => {
+    setForm(cur => ({ ...cur, ...patch }))
+    setSaved(false)
+  }
+  const submit = () => {
+    if (saving) return
+    save.clearError('profile')
+    void save.run('profile', form)
+  }
+  const areaCls = 'w-full rounded-s border border-line bg-paper-1 px-3 py-2 text-sm leading-relaxed text-ink-1 outline-none focus:border-new'
+  return (
+    <Card className="px-6 py-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-serif text-base font-semibold text-ink-1">学习者画像</h2>
+          <p className="mt-0.5 text-xs text-ink-3">写进记忆库 profile.md,AI 讲授与出题时固定参考;方法论书的情境化引导依赖"个人情境"。</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {saved && <span className="text-xs text-ok">画像已保存</span>}
+          <Button variant="primary" onClick={submit} disabled={saving}>{saving ? '保存中…' : '保存画像'}</Button>
+        </div>
+      </div>
+      {failure && <div className="mt-3"><AsyncError error={failure} onRetry={submit} variant="compact" /></div>}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm text-ink-2">
+          知识背景
+          <textarea rows={4} className={areaCls} value={form.background} onChange={e => update({ background: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-ink-2">
+          个人情境
+          <textarea rows={4} className={areaCls} value={form.context} onChange={e => update({ context: e.target.value })} />
+        </label>
+        <div className="flex flex-col gap-1 text-sm text-ink-2">
+          已掌握概念(AI 积累,只读)
+          <pre className="whitespace-pre-wrap rounded-s bg-paper-3/50 px-3 py-2 text-xs leading-relaxed text-ink-3">{form.mastered || '(尚无)'}</pre>
+        </div>
+        <div className="flex flex-col gap-1 text-sm text-ink-2">
+          误区模式(AI 观察,只读)
+          <pre className="whitespace-pre-wrap rounded-s bg-paper-3/50 px-3 py-2 text-xs leading-relaxed text-ink-3">{form.pitfalls || '(尚无)'}</pre>
+        </div>
+      </div>
+    </Card>
+  )
 }
 
 /** 以 key=version 重挂载:后端新数据到达即丢弃本地编辑(与旧行为一致),且无需 effect 内 setState。 */
@@ -205,6 +279,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
             )}
           </Field>
         </Card>
+        <ProfileSection />
       </div>
     </>
   )

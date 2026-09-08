@@ -76,3 +76,5 @@ export interface PomodoroSnapshot {
   phase: PomodoroPhase; taskId: number | null; date: string | null; endsAt: number | null
   remainingSecs: number; pausedPhase: 'work' | 'break' | null
 }
+/** 学习者画像四小节(memory/profile.md,M2 T6);误区模式由 AI 观察积累,只读展示 */
+export interface Profile { background: string; mastered: string; pitfalls: string; context: string }
