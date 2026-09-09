@@ -257,6 +257,7 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
                 &content,
             )
         }
+        "remove_book" => memory.remove_book(field_str(&p, "slug")?),
         "git_commit" => memory.commit(field_str(&p, "message")?),
         other => Err(CoreError::InvalidInput(format!(
             "unknown projection kind {other:?}"

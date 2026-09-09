@@ -67,6 +67,9 @@ describe('单主攻书补完(M2 T8)', () => {
   it('暂停书显示"计划冻结 · 复习照常";标记为已学完经确认调用 finishBook 并更新徽标', async () => {
     const user = userEvent.setup()
     const { bookId } = await backendModule.backend.importEpub(new File(['x'], '系统之美.epub'), 'methodology')
+    // 完成导入(存 spine + 地图作业),否则徽标是「导入未完成」而非「已暂停」
+    await backendModule.backend.storeSpine(bookId, [{ idx: 0, href: 'c.xhtml', title: '一', text: '正文' }])
+    await backendModule.backend.runMapJob(bookId, 'job-finish')
     const finishBook = vi.spyOn(backendModule.backend, 'finishBook')
     renderLibrary()
     expect(await screen.findByText('系统之美')).toBeInTheDocument()
@@ -151,6 +154,30 @@ describe('书架页', () => {
     })))
 
     expect(normalize).not.toHaveBeenCalled()
+  })
+
+  it('删除书:确认后调用 deleteBook(日期为本地日历日),书从书架消失;主攻书删后无主攻', async () => {
+    const user = userEvent.setup()
+    const deleteBook = vi.spyOn(backendModule.backend, 'deleteBook')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '删除《微观经济学》' }))
+    const dialog = await screen.findByRole('dialog', { name: '删除《微观经济学》?' })
+    expect(dialog).toHaveTextContent('删除前会更新今日快照')
+    await user.click(within(dialog).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(screen.queryByText('微观经济学')).toBeNull())
+    expect(deleteBook).toHaveBeenCalledWith(1, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/))
+    expect(await screen.findByText('书架还空着——导入一本 EPUB 开始。')).toBeInTheDocument()
+  })
+
+  it('导入未完成的书显示徽标,也可删除', async () => {
+    const user = userEvent.setup()
+    await backendModule.backend.importEpub(new File(['epub'], '半途.epub', { type: 'application/epub+zip' }), 'textbook')
+    renderLibrary()
+    expect(await screen.findByText('导入未完成')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '删除《半途》' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(screen.queryByText('半途')).toBeNull())
+    expect(screen.getByText('微观经济学')).toBeInTheDocument()
   })
 
   it('导入向导:上传→选"教材"→抽取→storeSpine→作业进度→完成跳 /map/:bookId', async () => {

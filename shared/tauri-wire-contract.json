@@ -64,7 +64,8 @@
     { "method": "codexBinSet", "command": "settings_codex_set", "payloadKeys": ["path"] },
     { "method": "appInfo", "command": "app_info", "payloadKeys": [] },
     { "method": "appRevealLogs", "command": "app_reveal_logs", "payloadKeys": [] },
-    { "method": "logClientEvent", "command": "log_client_event", "payloadKeys": ["level", "message", "context"] }
+    { "method": "logClientEvent", "command": "log_client_event", "payloadKeys": ["level", "message", "context"] },
+    { "method": "deleteBook", "command": "library_delete_book", "payloadKeys": ["bookId", "date"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

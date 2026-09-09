@@ -18,6 +18,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 
 | 症状(用户看到的) | 首先查 | 代码入口 |
 |---|---|---|
+| 书架删除书失败/删后记忆库目录还在 | `projection_outbox` `remove_book` 行;删前快照在 `snapshots/` | `core/src/library.rs` `delete_book`;`core/src/memory.rs` `remove_book`;壳层 `application::delete_book` |
 | 导入向导「导入未完成 · 请求内容无效」 | 文件不是 EPUB(PDF 直选)/zip 结构异常;`import.rs` 校验 | `web/src-tauri/src/import.rs` `validate_epub` / `finalize`;向导 `web/src/features/library/ImportWizard.tsx` |
 | 导入停在「正在生成知识地图」或报「AI 暂时没有回应」 | `ai_request` 表最新一行的 `error`(codex 退出码/超时/解析失败);`map_job.stage/error` | `core/src/mapgen.rs` `run_map_job`;codex 启动 `core/src/ai.rs`;PATH 问题见 §9 |
 | 地图页空/块数为 0 | `book.import_state`(ready/extracted/mapped)、`knowledge_block` 行数、`map_job` | `core/src/map.rs` `apply_draft_map`;`web/src/features/map/MapPage.tsx` |
@@ -234,6 +235,6 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 
 ## 10. 未做 / 范围外(测试时不要当缺陷报)
 
-**待修缺陷(本次 review 发现,建议测试阶段优先修)**:①前端从不调用 `setAnchorSegments`,原生锚点全为整章回退(见 §4「锚点」;影响:回读原文定位到章首、学习模式无块下划线、费曼注入整章原文);②地图页无删除/合并/拆分 UI(core 已支持 delete/merge/split ops);③夜读模式不持久化。
+**待修缺陷(本次 review 发现,建议测试阶段优先修)**:①前端从不调用 `setAnchorSegments`,原生锚点全为整章回退(见 §4「锚点」;影响:回读原文定位到章首、学习模式无块下划线、费曼注入整章原文);②地图页无删除/合并/拆分 UI(core 已支持 delete/merge/split ops);③夜读模式不持久化。已补:书架删除书(2026-09-09,`library_delete_book`)。
 
 **范围外**:PDF 原生导入(用 Calibre 转 EPUB,`docs/pdf-import.md`);应用内下载 whisper 模型;Developer ID 签名与公证(dmg 为 ad-hoc,首次打开需右键);霞鹜文楷内置;手动锚点校正 UI(选区设为块起点/终点);画像「个人情境」的 AI 提取与确认流;书架对 `staged/extracted` 未完成导入书的徽标与删除入口;未发送草稿跨重启持久化;大文件 EPUB(≥ 30 MB)吞吐未实测。

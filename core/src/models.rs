@@ -58,6 +58,8 @@ pub struct Book {
     pub status: BookStatus,
     /// 地图乐观并发修订号:草图落库置 1,每次 confirm_map +1(0 = 尚无地图)
     pub map_revision: i64,
+    /// 导入进度:ready(旧数据/草图后)| staged(已落盘未抽取)| extracted(已存 spine)| mapped(地图完成)
+    pub import_state: String,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +79,9 @@ pub struct KnowledgeBlock {
 }
 
 pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
-    let mut statement =
-        conn.prepare("SELECT id,title,author,type,slug,status,map_revision FROM book ORDER BY id")?;
+    let mut statement = conn.prepare(
+        "SELECT id,title,author,type,slug,status,map_revision,import_state FROM book ORDER BY id",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, i64>(0)?,
@@ -88,11 +91,12 @@ pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
             row.get::<_, String>(4)?,
             row.get::<_, String>(5)?,
             row.get::<_, i64>(6)?,
+            row.get::<_, String>(7)?,
         ))
     })?;
 
     rows.map(|row| {
-        let (id, title, author, book_type, slug, status, map_revision) = row?;
+        let (id, title, author, book_type, slug, status, map_revision, import_state) = row?;
         let status = BookStatus::from_db_str(&status)?;
         Ok(Book {
             id,
@@ -102,6 +106,7 @@ pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
             slug,
             status,
             map_revision,
+            import_state,
         })
     })
     .collect()

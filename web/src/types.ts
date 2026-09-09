@@ -4,10 +4,13 @@ export type BlockStatus = 'unlearned' | 'learning' | 'passed' | 'weak' | 'consol
 export type TaskKind = 'new' | 'weak_retest' | 'review'
 export type Verdict = 'pass_suggested' | 'relearn_suggested'
 
+/** 导入进度(core book.import_state):staged/extracted = 导入未完成(可删除重导) */
+export type ImportState = 'ready' | 'staged' | 'extracted' | 'mapped'
 export interface Book {
   id: number; title: string; author: string; type: BookType; slug: string; status: BookStatus
   /** 地图乐观并发修订号(core book.map_revision;草图落库置 1,每次 confirmMap +1) */
   mapRevision: number
+  importState: ImportState
 }
 export interface Scores { accuracy: number; completeness: number; clarity: number }
 export interface KnowledgeBlock {

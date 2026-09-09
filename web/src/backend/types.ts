@@ -11,6 +11,8 @@ export interface Backend {
   setActiveBook(bookId: number): Promise<void>
   /** 标记学完:计划冻结、到期复习照常;之后不能再设为主攻(M2 T8) */
   finishBook(bookId: number): Promise<void>
+  /** 删除书(测试阶段):删前刷当日快照;删数据与 EPUB;记忆库目录经 outbox 移除;主攻书删后无主攻 */
+  deleteBook(bookId: number, date: string): Promise<void>
   // 计划与队列
   setPlan(plan: StudyPlan): Promise<void>
   /** 落后检测(有副作用:core 可能改写每日新块数),须在 todayQueue 之前调用(M2 T4) */
