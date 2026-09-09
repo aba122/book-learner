@@ -11,3 +11,4 @@
 | BL-004 | P0 | verified | 导入 | Finder 启动后导入报「AI 暂时没有回应」 | GUI 进程无 Homebrew PATH,codex(node 脚本)127 | PR #32 `ensure_gui_path` | foundation `augmented_path_*` | 09-08(用户) |
 | BL-005 | P1 | verified | 书架 | 没有删除书的入口;导入失败的书无法清理 | 功能缺失(ADR-0004 已记) | PR #35 `library_delete_book` + 「导入未完成」徽标 | core `delete_book_*`、foundation `delete_book_*`、library.test ×2 | 09-09(用户) |
 | BL-006 | P1 | fixed | 阅读器 | 用户口述(09-09 17:4x):"在阅读器里用鼠标在正文里选中一段文字,松开后,没有小工具条出现" | WKWebView 里 epub.js 的正文 iframe 是 `sandbox="allow-same-origin"`(无脚本),其文档不派发 `selectionchange`,epub.js `selected` 永不触发(调试包实测 0 次) | `EpubView` 每 300 ms 轮询各 contents 的 `getSelection()`,用 `cfiFromRange` 算区间 CFI 上报(同一选区不重复) | reader.test「BL-006」 | 09-09(用户) |
+| BL-007 | P2 | open | 阅读器 | 用户口述(09-09 18:5x):"高亮之后没有取消高亮的选项" | 现状:只能在顶栏「标记」面板里逐条删除;正文里点击已有高亮没有任何反应(epub.js 注解点击回调未接) | — | — | 09-09(用户) |
