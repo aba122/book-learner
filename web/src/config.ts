@@ -21,6 +21,8 @@ export const READER_LINE_HEIGHT_DEFAULT_IDX = 1
 export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
 /** 阅读位置写回节流(毫秒):relocated 很密,只记最后一次 */
 export const READER_POSITION_DEBOUNCE_MS = 800
+/** 选区轮询间隔(毫秒):WKWebView 里 sandbox(无 allow-scripts)的 iframe 不派发 selectionchange,epub.js 的 selected 永不触发(BL-006) */
+export const READER_SELECTION_POLL_MS = 300
 /** 学生回复打字机渐显速度(毫秒/字) */
 export const TYPEWRITER_CHAR_MS = 28
 /** 快问会话(review/retest,M2 T1):core 回合协议要求用户先开口,前端以固定 id 自动提交开场回合(幂等,重进不重复) */
