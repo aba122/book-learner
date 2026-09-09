@@ -142,7 +142,7 @@ fn run_command<T>(
             command,
             correlation_id,
             elapsed_ms,
-            outcome = error.code.as_str(),
+            error_code = error.code.as_str(),
             internal_cause = error.internal_cause()
         ),
     }
