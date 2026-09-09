@@ -35,7 +35,7 @@ if pgrep -f "$APP" >/dev/null; then
 fi
 rm -rf "$APP" && cp -R "$SRC" "$APP" || { echo "copy failed"; exit 1 }
 # 清掉门禁遗留的临时安装副本(只删本脚本族创建的目录)
-rm -rf /private/tmp/bl-t6-inst.* 2>/dev/null
+rm -rf /private/tmp/bl-t6-inst.*(N) 2>/dev/null   # (N):zsh 无匹配时不报错
 open -a "$APP" && sleep 4
 pgrep -f "$APP" >/dev/null && echo "new app running" || echo "WARN: app not running after open"
 echo "== installed: $(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist" 2>/dev/null) git=$(git rev-parse --short HEAD) built=$(stat -f %Sm -t '%F %T' "$APP/Contents/MacOS/book-learner")"
