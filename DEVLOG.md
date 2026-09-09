@@ -557,3 +557,8 @@
 - **壳层/契约**:`BookDto.importState`;`application::delete_book`(先刷当日快照 → core 删 → 删 `books/<id>.epub`);命令 `library_delete_book[bookId, date]`(后台重放投影);六处同步;foundation 用例 1 条 + wire 尾条。
 - **web**:`Book.importState`、`deleteBook(bookId, date)`;书架卡片:`staged/extracted` 显示「导入未完成」徽标替代状态徽标;每张卡「删除」→ 危险确认框(说明会删什么、删前快照可恢复)→ 删主攻书后 `activeBookId` 置空;Mock 同语义(`importEpub` staged → `storeSpine` extracted → `runMapJob` mapped)。用例 +3(library 2、tauri 1);旧用例"暂停书显示已暂停"改为先完成导入。
 - 门禁:core 168/27/1/1、clippy 0;web 330/2、lint 0、build;Mac 壳层见 PR。
+
+## 2026-09-09 · 测试阶段套件 + BL-001 锚点回填
+- **套件(PR #37)**:`docs/testing/BUGS.md` 缺陷台账(BL-001–005 预填)、`BUG_TEMPLATE.md`、`TEST_PLAN.md`(六大块清单 + 范围外)、`docs/smoke/scripts/diag-bundle.sh`(日志 + `app.db` 只读 `VACUUM INTO` 快照 + 16 张关键表导出 + 版本/系统信息 → 桌面 zip)、`CHANGELOG.md`(按批次发版)。
+- **BL-001**:代码地图 review 发现 App 从未调用 `resolveBlockAnchors`/`setAnchorSegments`(只有 Playwright 冒烟在用),原生环境所有块锚点都是壳层落库时的整章回退。修法:新增 `web/src/epub/anchorBlocks.ts`——导入向导在 `runMapJob` 返回后重开 EPUB,对每块 `listAnchors` 取小节标题,`resolveBlockAnchors` 解析成两点 CFI 后 `setAnchorSegments` 写回;已是 `exact` 的块跳过(重试幂等),单块失败只计数不阻塞导入,进度显示「正在定位原文 n/N」。单测 1 条(解析/跳过/失败隔离/进度)+ 向导用例 1 条(Mock 整章回退 → 回填后全为精确段)。**已导入的书不回填**(需删除重导);手动锚点校正 UI 仍在范围外。
+- 门禁:web 332/2、lint 0、build。
