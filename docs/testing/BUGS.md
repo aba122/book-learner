@@ -5,7 +5,7 @@
 
 | 编号 | 级别 | 状态 | 页面 | 现象 | 根因 | 修复 | 回归用例 | 报告日 |
 |---|---|---|---|---|---|---|---|---|
-| BL-001 | P1 | open | 阅读器/费曼 | 「回读原文」只跳到章首、学习模式无块下划线、费曼注入整章原文 | 前端从未调用 `resolveBlockAnchors`/`setAnchorSegments`,原生锚点全为 `chapter_fallback`(CODE_MAP §4) | — | — | 09-09(review 发现) |
+| BL-001 | P1 | fixed | 阅读器/费曼 | 「回读原文」只跳到章首、学习模式无块下划线、费曼注入整章原文 | 前端从未调用 `resolveBlockAnchors`/`setAnchorSegments`,原生锚点全为 `chapter_fallback`(CODE_MAP §4) | 导入向导在地图作业后回填锚点(`epub/anchorBlocks.ts`);已导入的书需删除重导才有精确锚点 | `anchorBlocks.test`、library.test「BL-001」 | 09-09(review 发现) |
 | BL-002 | P2 | open | 地图 | 编辑态只有上下移/跳过/改模块名,没有删除、合并、拆分 | 前端未做 UI;core `confirm_map` 已支持 delete/merge/split ops | — | — | 09-09(review 发现) |
 | BL-003 | P3 | open | 全局 | 夜读模式刷新/重开后失效 | `store.theme` 只在内存,未持久化 | — | — | 09-09(review 发现) |
 | BL-004 | P0 | verified | 导入 | Finder 启动后导入报「AI 暂时没有回应」 | GUI 进程无 Homebrew PATH,codex(node 脚本)127 | PR #32 `ensure_gui_path` | foundation `augmented_path_*` | 09-08(用户) |

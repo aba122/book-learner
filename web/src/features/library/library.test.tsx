@@ -16,6 +16,13 @@ vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 vi.mock('../../epub/extract', () => ({
   openEpub: vi.fn(async () => ({ destroy: vi.fn() })),
   extractSpine: vi.fn(async () => CHAPTERS),
+  EXTRACT_YIELD_EVERY: 6,
+  yieldToMain: vi.fn(async () => {}),
+}))
+// 锚点解析同样依赖 epub.js DOM:mock 成"按 hint 返回精确段"(BL-001 回填路径由 anchorBlocks.test 单测覆盖)
+vi.mock('../../epub/anchors', () => ({
+  resolveBlockAnchors: vi.fn(async (_book: unknown, hints: { spineHref: string; hint: string }[]) =>
+    hints.map(h => ({ spineHref: h.spineHref, cfiStart: 'epubcfi(/6/2!/4/4/1:0)', cfiEnd: 'epubcfi(/6/2!/4/6/1:0)', precision: 'exact', hint: h.hint, text: '精确段' }))),
 }))
 
 const CHAPTERS: SpineChapter[] = [
@@ -231,6 +238,25 @@ describe('书架页', () => {
     await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '经济学原理.epub', { type: 'application/epub+zip' }))
     expect(await screen.findByRole('button', { name: '教材' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('BL-001:导入完成后每块锚点由整章回退回填为精确段(经 resolveBlockAnchors + setAnchorSegments)', async () => {
+    const user = userEvent.setup()
+    const setAnchors = vi.spyOn(backendModule.backend, 'setAnchorSegments')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '锚点.epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '教材' }))
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toMatch(/^\/map\/\d+$/))
+    const bookId = Number(screen.getByTestId('loc').textContent!.split('/').pop())
+    const blocks = await backendModule.backend.listBlocks(bookId)
+    expect(blocks.length).toBe(CHAPTERS.length)
+    expect(setAnchors).toHaveBeenCalledTimes(CHAPTERS.length)
+    for (const block of blocks) {
+      const anchors = await backendModule.backend.listAnchors(block.id)
+      expect(anchors.map(a => a.precision)).toEqual(['exact'])
+      expect(anchors[0].hint).toBe(block.title)
+    }
   })
 
   it('作业失败后重试:导入与抽取只做一次,runMapJob 复用同一 jobId', async () => {

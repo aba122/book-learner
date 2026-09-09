@@ -46,6 +46,8 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 
 **数据目录**(release):`~/Library/Application Support/book-learner/`;debug 构建可用 `BOOK_LEARNER_DATA_DIR=<绝对路径>` 覆盖。内容:`app.db`、`books/<book_id>.epub`(文件名是 book id 不是 slug)、`import/`(分块暂存)、`memory/`(git 仓库)、`models/`(whisper)、`snapshots/`、`logs/`、`restore-pending.json`。
 
+**测试阶段套件**:缺陷台账 `docs/testing/BUGS.md`(编号 BL-xxx、级别、根因、修复 PR、回归用例)、报告模板 `docs/testing/BUG_TEMPLATE.md`、测试清单 `docs/testing/TEST_PLAN.md`;用户报 bug 先跑一键诊断包 `docs/smoke/scripts/diag-bundle.sh`(日志 + `app.db` 只读快照 + 关键表导出 + 版本信息 → 桌面 zip);发版批次见 `CHANGELOG.md`。
+
 **看日志**:`<数据目录>/logs/app.log.YYYY-MM-DD`(按天滚动、保留 14 天;设置页「诊断」→「打开日志目录」)。每条 IPC 命令一行 info(`command / correlation_id / elapsed_ms / outcome`),失败另带 `internal_cause`;前端事件 target=`client`(window.error / unhandledrejection / console.error / 路由 `route path=`);启动首行有 `version / git_sha / built_at`。`RUST_LOG` 可调级别。代码在 `web/src-tauri/src/diagnostics.rs`、`web/src/lib/clientLog.ts`。
 
 **SQLite 只读速查**(把 `$DB` 换成 `~/Library/Application\ Support/book-learner/app.db`,务必 `-readonly`):
@@ -134,7 +136,7 @@ select * from setting;
 
 **地图页(`features/map/MapPage.tsx` + `mapOps.ts`)**:编辑态可用操作只有上/下移、跳过/恢复、模块改名(「合并/拆分」硬禁用;无删除 UI);`finalize()` → `diffMapOps`(renameModule → setSkipped → reorder),ops 为空不调后端直接进目标设定;`confirmMap(bookId, book.mapRevision, ops)` 冲突不可重试但保留编辑可重发;成功 → 目标设定对话框(`dailyBlocks = ceil(未跳过块/(deadline−today+1))`,`dailyCap=4`)→ `setPlan` → `setActiveBook` → `/`。「整书终评」仅 `allPassed` 时显示。
 
-**锚点(`epub/anchors.ts` + `epub/headings.ts`)**:`resolveBlockAnchors(book, hints)` 把 core 的 `source_section="{href}#{小节标题}"` 解析成 [标题文本节点, 下一同级标题) 的两点折叠 CFI(`exact`),未命中 → 整章 `chapter_fallback`。**⚠️ 目前 App 代码没有任何地方调用它或 `backend.setAnchorSegments`**(只有 `anchors-smoke.ts`/Playwright 用例在用),所以原生环境的锚点全部是壳层落库时的 `chapter_fallback`:阅读器学习模式无精确下划线、起始定位为章首、费曼注入整章原文(≤ 60 KiB)。m3 门禁 `anchors: chapter_fallback|44` 即此。**修法**:在 `ImportWizard` 的 `runMapJob` 成功后(或地图定稿时)对每块调 `resolveBlockAnchors` + `setAnchorSegments`;Rust 端命令已接线。
+**锚点(`epub/anchors.ts` + `epub/headings.ts`)**:`resolveBlockAnchors(book, hints)` 把 core 的 `source_section="{href}#{小节标题}"` 解析成 [标题文本节点, 下一同级标题) 的两点折叠 CFI(`exact`),未命中 → 整章 `chapter_fallback`。**回填(BL-001,2026-09-09)**:`epub/anchorBlocks.ts` 在导入向导 `runMapJob` 后对每块 `listAnchors` → `resolveBlockAnchors` → `setAnchorSegments`,已 `exact` 跳过、单块失败不阻塞(console.error 进日志 target=client);2026-09-09 之前导入的书仍是整章回退,删除重导即可。回读定位/块下划线不准时先看 `block_anchor.precision`(诊断包 `tables/anchors.txt`)。
 
 **今日页(`features/today/`)**:`today` 在挂载时固定;`loadQueueBundle` 顺序 `listBooks → checkBehind → todayQueue → listBlocks`;`TaskCard` 动作:所有任务「专注」;new → 「开始」进 `/reader/:blockId?task=`;weak_retest/review → 「完成」(Tauri 下不可用,显示「讲完自动完成」)+「开始重考/开始复习」直达 `/feynman/:taskId`,review 另有「回读原文」。`ReplanDialog`:顺延 = `setPlan(deadline = today + ceil(剩余/cap) − 1)`;缩减 = 按 seq 倒序把多出的块 `confirmMap(setSkipped)`;「本日不再提醒」写 `bookLearner.replanDismissed`。`Pomodoro.tsx` 本地按 `endsAt` 每秒重绘 + `subscribePomodoro`。
 
@@ -235,6 +237,6 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 
 ## 10. 未做 / 范围外(测试时不要当缺陷报)
 
-**待修缺陷(本次 review 发现,建议测试阶段优先修)**:①前端从不调用 `setAnchorSegments`,原生锚点全为整章回退(见 §4「锚点」;影响:回读原文定位到章首、学习模式无块下划线、费曼注入整章原文);②地图页无删除/合并/拆分 UI(core 已支持 delete/merge/split ops);③夜读模式不持久化。已补:书架删除书(2026-09-09,`library_delete_book`)。
+**待修缺陷**(台账 `docs/testing/BUGS.md`):BL-002 地图页无删除/合并/拆分 UI(core 已支持 delete/merge/split ops);BL-003 夜读模式不持久化。已修:BL-001 锚点回填、BL-004 Finder PATH、BL-005 删除书。
 
 **范围外**:PDF 原生导入(用 Calibre 转 EPUB,`docs/pdf-import.md`);应用内下载 whisper 模型;Developer ID 签名与公证(dmg 为 ad-hoc,首次打开需右键);霞鹜文楷内置;手动锚点校正 UI(选区设为块起点/终点);画像「个人情境」的 AI 提取与确认流;书架对 `staged/extracted` 未完成导入书的徽标与删除入口;未发送草稿跨重启持久化;大文件 EPUB(≥ 30 MB)吞吐未实测。

@@ -5,6 +5,7 @@ import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
+import { anchorBlocks } from '../../epub/anchorBlocks'
 import { extractSpine, openEpub } from '../../epub/extract'
 import { newClientId } from '../../lib/ids'
 import { useBackendOperation } from '../../lib/useBackendOperation'
@@ -64,7 +65,19 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       }
       await backend.storeSpine(bookId, chapters)
       setProgress('正在生成知识地图…')
-      await backend.runMapJob(bookId, captured.jobId, p => setProgress(progressLabel(p)))
+      const blocks = await backend.runMapJob(bookId, captured.jobId, p => setProgress(progressLabel(p)))
+      // 锚点回填(BL-001):把每块的小节标题解析成精确 CFI 写回;失败只退回整章,不阻塞导入
+      setProgress(`正在定位原文 0/${blocks.length}`)
+      let book: Awaited<ReturnType<typeof openEpub>> | null = null
+      try {
+        book = await openEpub(await captured.file.arrayBuffer())
+        const report = await anchorBlocks(book, blocks, backend, p => setProgress(`正在定位原文 ${p.done}/${p.total}`))
+        if (report.failed > 0) console.error('[anchors] backfill incomplete:', report)
+      } catch (error) {
+        console.error('[anchors] backfill skipped:', error instanceof Error ? error.message : String(error))
+      } finally {
+        book?.destroy()
+      }
       importedBookId.current = bookId
     },
     {
