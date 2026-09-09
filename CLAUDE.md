@@ -34,4 +34,6 @@ Mac 本地 EPUB 深度学习软件:西蒙学习法(拆知识块→设目标→�
 - 浏览器开发:`pnpm -C web dev`;原生开发:`pnpm -C web tauri dev`;基础调试构建:`pnpm -C web tauri:build:debug`
 - 界面语言中文;设计决策变更须同步回写对应 SPEC 文档
 - Mac Foundation 的真实能力矩阵和冒烟手册见 `docs/smoke/mac-m1-native-smoke.md`;禁止原生环境回退到 Mock 数据
+- **发布/换包只走 `docs/smoke/scripts/install-release.sh`**(拉 main → 测试 → release → 优雅退出旧版 → 替换 `/Applications` → 重开),不手动 cp,不留多份旧版;设置页「诊断」分区显示当前包的 git 提交与构建时间
+- **日志**:`~/Library/Application Support/book-learner/logs/app.log.YYYY-MM-DD`(按天滚动、保留 14 天;每条 IPC 命令一行 + 前端异常/路由;不含复述正文);报 bug 附当天日志
 - 桌面门禁可经 SSH 无人值守执行:debug 构建设 `BOOK_LEARNER_AUTOMATION_SOCK` 启用自动化桥,驱动器与脚本在 `docs/smoke/scripts/`(脚本名传给 `bl-run.sh` 时用 `<name>-cmd.sh`,与会话名不同);后台 WebView 会被 macOS 节流,驱动前先把窗口置前

@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -648,6 +648,16 @@ export class MockBackend implements Backend {
       this.marks.push(m)
     }
     return { ...m }
+  }
+
+  // ---- 诊断:固定信息;前端事件记录在内存供用例断言 ----
+  readonly clientEvents: { level: ClientLogLevel; message: string; context?: Record<string, unknown> }[] = []
+  async appInfo(): Promise<AppInfo> {
+    return { version: '0.1.0', gitSha: 'mock', builtAt: '2026-09-09T00:00:00Z', dataDir: '/mock/book-learner', logDir: '/mock/book-learner/logs' }
+  }
+  async appRevealLogs(): Promise<void> {}
+  async logClientEvent(level: ClientLogLevel, message: string, context?: Record<string, unknown>): Promise<void> {
+    this.clientEvents.push({ level, message, context })
   }
 
   // ---- codex 路径(M3 T6):内存设置;相对路径拒绝 ----

@@ -8,7 +8,7 @@ import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import Confirm from '../../components/Confirm'
 import { localCalendarDate } from '../../lib/localDate'
-import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
+import type { AppInfo, AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import VoiceSection from './VoiceSection'
 
 function Field({
@@ -136,6 +136,32 @@ function DataSection() {
         onConfirm={() => { const name = restoreTarget; setRestoreTarget(null); if (name) { restoreOp.clearError('restore'); void restoreOp.run('restore', name) } }}
         onCancel={() => setRestoreTarget(null)}
       />
+    </Card>
+  )
+}
+
+/** 诊断(测试阶段):版本 / git 提交 / 构建时间 / 数据与日志目录;报告问题时附上当天的 app.log.YYYY-MM-DD */
+function DiagnosticsSection() {
+  const info = useAsyncResource(useCallback(() => backend.appInfo(), []))
+  const revealOp = useBackendOperation(async () => { await backend.appRevealLogs() })
+  const data = info.data
+  return (
+    <Card className="px-6 py-4" data-testid="diagnostics-section">
+      <h2 className="font-serif text-base font-semibold text-ink-1">诊断</h2>
+      <p className="mt-0.5 text-xs text-ink-3">遇到问题时,把日志目录里当天的 <code>app.log.日期</code> 文件连同现象一起反馈。日志只记录操作与错误元数据,不含复述正文,保留 14 天。</p>
+      {data === null ? (
+        info.error ? <div className="mt-2"><AsyncError error={info.error} onRetry={info.reload} variant="compact" /></div> : <p className="mt-2 text-sm text-ink-3">正在读取版本信息…</p>
+      ) : (
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+          <dt className="text-ink-3">版本</dt><dd className="text-ink-1" data-testid="app-version">{data.version} · {data.gitSha} · 构建于 {data.builtAt}</dd>
+          <dt className="text-ink-3">数据目录</dt><dd className="break-all text-ink-1"><code className="text-xs">{data.dataDir}</code></dd>
+          <dt className="text-ink-3">日志目录</dt><dd className="break-all text-ink-1"><code className="text-xs">{data.logDir}</code></dd>
+        </dl>
+      )}
+      <div className="mt-3 flex items-center gap-3">
+        <Button disabled={revealOp.pending.has('reveal')} onClick={() => { revealOp.clearError('reveal'); void revealOp.run('reveal') }}>打开日志目录</Button>
+        {revealOp.errors.get('reveal') && <AsyncError error={revealOp.errors.get('reveal')!} variant="compact" />}
+      </div>
     </Card>
   )
 }
@@ -386,6 +412,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
         <VoiceSection />
         <ProfileSection />
         <DataSection />
+        <DiagnosticsSection />
       </div>
     </>
   )

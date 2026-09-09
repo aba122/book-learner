@@ -118,6 +118,10 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     // M3 T6:codex 可执行路径(设置项直读表)
     ("settings_codex_get", &[]),
     ("settings_codex_set", &["path"]),
+    // 诊断(测试阶段):版本/目录信息、打开日志目录、前端事件落日志
+    ("app_info", &[]),
+    ("app_reveal_logs", &[]),
+    ("log_client_event", &["level", "message", "context"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -128,14 +132,21 @@ fn run_command<T>(
     operation: impl FnOnce() -> Result<T, IpcError>,
 ) -> Result<T, IpcError> {
     let correlation_id = state.next_correlation_id();
-    operation().inspect_err(|error| {
-        tracing::error!(
+    let started = std::time::Instant::now();
+    let result = operation();
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        // 交互日志:每条命令一行(只记元数据,不记正文),便于按时间线回溯用户操作
+        Ok(_) => tracing::info!(command, correlation_id, elapsed_ms, outcome = "ok"),
+        Err(error) => tracing::error!(
             command,
             correlation_id,
-            error_code = error.code.as_str(),
+            elapsed_ms,
+            outcome = error.code.as_str(),
             internal_cause = error.internal_cause()
-        );
-    })
+        ),
+    }
+    result
 }
 
 pub fn library_list_books_inner(state: &AppState) -> Result<Vec<BookDto>, IpcError> {
@@ -634,6 +645,27 @@ pub fn reader_position_set_inner(
     run_command(state, "reader_position_set", || {
         application::reader_position_set(state, book_id, spine_href, cfi)
     })
+}
+
+pub fn app_info_inner(state: &AppState) -> Result<crate::diagnostics::AppInfoDto, IpcError> {
+    run_command(state, "app_info", || {
+        Ok(crate::diagnostics::app_info(state))
+    })
+}
+
+pub fn app_reveal_logs_inner(state: &AppState) -> Result<(), IpcError> {
+    run_command(state, "app_reveal_logs", || {
+        crate::diagnostics::reveal_logs(state)
+    })
+}
+
+/// 前端事件不经 run_command(它本身就是日志,不再记一行"命令成功")
+pub fn log_client_event_inner(
+    level: &str,
+    message: &str,
+    context: Option<&serde_json::Value>,
+) -> Result<(), IpcError> {
+    crate::diagnostics::record_client_event(level, message, context)
 }
 
 pub fn settings_codex_get_inner(state: &AppState) -> Result<CodexBinDto, IpcError> {
@@ -1186,6 +1218,29 @@ pub async fn reader_position_set(
     cfi: String,
 ) -> Result<ReaderMarkDto, IpcError> {
     reader_position_set_inner(&state, book_id, &spine_href, &cfi)
+}
+
+// ---- 诊断 ----
+
+#[tauri::command(async)]
+pub async fn app_info(
+    state: State<'_, AppState>,
+) -> Result<crate::diagnostics::AppInfoDto, IpcError> {
+    app_info_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn app_reveal_logs(state: State<'_, AppState>) -> Result<(), IpcError> {
+    app_reveal_logs_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn log_client_event(
+    level: String,
+    message: String,
+    context: Option<serde_json::Value>,
+) -> Result<(), IpcError> {
+    log_client_event_inner(&level, &message, context.as_ref())
 }
 
 // ---- codex 路径(M3 T6)----

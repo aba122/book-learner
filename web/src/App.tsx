@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { backend } from './backend'
 import FeynmanPage from './features/feynman/FeynmanPage'
 import FinalExamPage from './features/feynman/FinalExamPage'
@@ -10,6 +10,15 @@ import SettingsPage from './features/settings/SettingsPage'
 import StatsPage from './features/stats/StatsPage'
 import TodayPage from './features/today/TodayPage'
 import { useSession } from './store'
+
+/** 路由切换写进 app 日志(target client),用于回溯用户操作时间线;只记路径,不记参数以外的内容 */
+function RouteLogger() {
+  const location = useLocation()
+  useEffect(() => {
+    void backend.logClientEvent('info', 'route', { path: location.pathname + location.search })
+  }, [location.pathname, location.search])
+  return null
+}
 
 function Sidebar() {
   const activeBookId = useSession(s => s.activeBookId)
@@ -81,6 +90,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <RouteLogger />
       <div className="flex h-full">
         <Sidebar />
         <main className="min-w-0 flex-1 overflow-y-auto">

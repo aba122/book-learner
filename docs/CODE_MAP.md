@@ -43,13 +43,9 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 
 ## 2. 诊断工具箱
 
-**数据目录**(release):`~/Library/Application Support/book-learner/`;debug 构建可用 `BOOK_LEARNER_DATA_DIR=<绝对路径>` 覆盖。内容:`app.db`、`books/<book_id>.epub`(文件名是 book id 不是 slug)、`import/`(分块暂存)、`memory/`(git 仓库)、`models/`(whisper)、`snapshots/`、`restore-pending.json`。
+**数据目录**(release):`~/Library/Application Support/book-learner/`;debug 构建可用 `BOOK_LEARNER_DATA_DIR=<绝对路径>` 覆盖。内容:`app.db`、`books/<book_id>.epub`(文件名是 book id 不是 slug)、`import/`(分块暂存)、`memory/`(git 仓库)、`models/`(whisper)、`snapshots/`、`logs/`、`restore-pending.json`。
 
-**看日志**:app 只把 tracing 写到 stderr,Finder 启动时看不到。要看日志就从终端启动:
-```bash
-RUST_LOG=info /Applications/book-learner.app/Contents/MacOS/book-learner 2>&1 | tee ~/bl.log
-```
-每条命令失败都会记 `command / correlation_id / error_code / internal_cause`(`commands/mod.rs` `run_command`)。
+**看日志**:`<数据目录>/logs/app.log.YYYY-MM-DD`(按天滚动、保留 14 天;设置页「诊断」→「打开日志目录」)。每条 IPC 命令一行 info(`command / correlation_id / elapsed_ms / outcome`),失败另带 `internal_cause`;前端事件 target=`client`(window.error / unhandledrejection / console.error / 路由 `route path=`);启动首行有 `version / git_sha / built_at`。`RUST_LOG` 可调级别。代码在 `web/src-tauri/src/diagnostics.rs`、`web/src/lib/clientLog.ts`。
 
 **SQLite 只读速查**(把 `$DB` 换成 `~/Library/Application\ Support/book-learner/app.db`,务必 `-readonly`):
 ```sql

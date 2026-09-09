@@ -401,7 +401,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -511,6 +511,23 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(calls[2].payload).toEqual({ id: 3, note: 'n', color: null })
     const bad = new TauriBackend(async <T>() => ([{ ...mark, kind: 'note' }]) as T)
     await expect(bad.readerMarkList(1)).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('diagnostics: app info decode, reveal logs, client events forwarded and never throw', async () => {
+    const info = { version: '0.1.0', gitSha: 'abc1234', builtAt: '2026-09-09T01:00:00Z', dataDir: '/d', logDir: '/d/logs' }
+    const { calls, invoke } = recorder({ app_info: info, app_reveal_logs: null, log_client_event: null })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.appInfo()).toEqual(info)
+    await backend.appRevealLogs()
+    await backend.logClientEvent('error', 'boom', { stack: 'x' })
+    await backend.logClientEvent('info', 'route')
+    expect(calls.map(c => c.command)).toEqual(['app_info', 'app_reveal_logs', 'log_client_event', 'log_client_event'])
+    expect(calls[2].payload).toEqual({ level: 'error', message: 'boom', context: { stack: 'x' } })
+    expect(calls[3].payload).toEqual({ level: 'info', message: 'route', context: null })
+    const failing = new TauriBackend(async () => { throw new Error('ipc down') })
+    await expect(failing.logClientEvent('warn', 'still fine')).resolves.toBeUndefined()
+    const bad = new TauriBackend(async <T>() => ({ version: 1 }) as T)
+    await expect(bad.appInfo()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('codex path: get/set decode and payload (M3 T6)', async () => {

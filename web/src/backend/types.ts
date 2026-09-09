@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppSettings, BackupList, Book, BookType, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -71,6 +71,10 @@ export interface Backend {
   /** codex 可执行路径(M3 T6):set 校验绝对路径且可执行,空则清除 */
   codexBinGet(): Promise<CodexBin>
   codexBinSet(path: string | null): Promise<CodexBin>
+  /** 诊断:版本/目录;在 Finder 打开日志目录;前端事件写进 app 日志(target client),失败不抛给页面 */
+  appInfo(): Promise<AppInfo>
+  appRevealLogs(): Promise<void>
+  logClientEvent(level: ClientLogLevel, message: string, context?: Record<string, unknown>): Promise<void>
   getSettings(): Promise<AppSettings>
   saveSettings(s: AppSettings): Promise<void>
 
