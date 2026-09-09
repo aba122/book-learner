@@ -8,7 +8,7 @@ import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import Confirm from '../../components/Confirm'
 import { localCalendarDate } from '../../lib/localDate'
-import type { AppInfo, AppSettings, BackupList, CodexBin, Profile } from '../../types'
+import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import VoiceSection from './VoiceSection'
 
 function Field({
