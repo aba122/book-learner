@@ -14,8 +14,12 @@ git checkout -q -- web/src-tauri/Cargo.lock 2>/dev/null
 git fetch -q origin && git checkout -q "$REF" 2>/dev/null && git pull -q --ff-only 2>/dev/null
 echo "== build $(git rev-parse --short HEAD) ($REF) $(date '+%F %T')"
 if [ -z "$SKIP_TESTS" ]; then
-  ( cd web/src-tauri && cargo test 2>&1 | grep -E "^test result|FAILED|panicked" | head -8 ); rc=${pipestatus[1]}
-  grep -q "FAILED" <(cd web/src-tauri && cargo test 2>&1 | tail -3) && { echo "壳层测试失败,停止发布"; exit 1 }
+  # 只跑一次:输出落到临时文件,既打印摘要又按退出码/FAILED 判定
+  TLOG=$(mktemp /tmp/bl-install-test.XXXX)
+  ( cd web/src-tauri && cargo test > "$TLOG" 2>&1 ); rc=$?
+  grep -E "^test result|FAILED|panicked" "$TLOG" | head -8
+  { [ "$rc" != 0 ] || grep -q "FAILED" "$TLOG"; } && { echo "壳层测试失败,停止发布(日志 $TLOG)"; exit 1 }
+  rm -f "$TLOG"
 fi
 ( cd web && pnpm tauri build --bundles app,dmg 2>&1 | grep -E "Finished|Bundling|error\[|error:" | tail -4 ); rc=${pipestatus[1]}
 [ "$rc" = 0 ] || { echo "构建失败 rc=$rc"; exit 1 }
