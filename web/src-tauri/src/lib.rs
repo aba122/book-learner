@@ -1,6 +1,7 @@
 pub mod application;
 pub mod automation;
 pub mod commands;
+pub mod diagnostics;
 pub mod dto;
 pub mod error;
 pub mod import;
@@ -19,8 +20,9 @@ use tauri::Manager;
 
 use crate::error::IpcError;
 
+/// 进程级 subscriber(stderr;`run()` 会先装带日志文件的版本,此处重复调用返回 false)
 pub fn install_tracing() -> bool {
-    tracing_subscriber::fmt().try_init().is_ok()
+    diagnostics::init_logging(None)
 }
 
 pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
@@ -87,6 +89,9 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::voice_transcribe,
         commands::settings_codex_get,
         commands::settings_codex_set,
+        commands::app_info,
+        commands::app_reveal_logs,
+        commands::log_client_event,
         commands::automation_report,
     ])
 }
@@ -265,6 +270,18 @@ fn fail_startup(error: &IpcError) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 日志先于一切:stderr + <data_root>/logs/app.log.YYYY-MM-DD(Finder 启动没有 stderr)
+    let early_root = diagnostics::platform_data_dir_early()
+        .and_then(|platform| state::resolve_database_path(&platform).ok())
+        .and_then(|db| db.parent().map(Path::to_path_buf));
+    diagnostics::init_logging(early_root.as_deref());
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        git_sha = diagnostics::GIT_SHA,
+        built_at = diagnostics::BUILT_AT,
+        log_dir = %early_root.as_deref().map(|r| diagnostics::log_dir(r).display().to_string()).unwrap_or_default(),
+        "攻书启动"
+    );
     // Finder/Spotlight 启动的 app 只有系统 PATH:先补全,否则 codex(node 脚本)子进程会 127
     state::ensure_gui_path();
     let builder = tauri::Builder::default()
@@ -293,6 +310,16 @@ pub fn run() {
                             "asset protocol scope for {} failed: {error}",
                             books_dir.display()
                         )));
+                    }
+                    {
+                        let removed = diagnostics::prune_logs(
+                            &diagnostics::log_dir(state.data_root()),
+                            diagnostics::LOG_KEEP_DAYS,
+                            chrono::Local::now().date_naive(),
+                        );
+                        if removed > 0 {
+                            tracing::info!(removed, "已清理过期日志");
+                        }
                     }
                     app.manage(state);
                     // 调试自动化桥:仅 debug 构建且设置了 BOOK_LEARNER_AUTOMATION_SOCK 时才监听

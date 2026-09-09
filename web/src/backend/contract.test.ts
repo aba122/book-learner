@@ -132,6 +132,10 @@ describe('Tauri wire contract fixture', () => {
       // M3 T6:codex 可执行路径(设置项直读表,不进 AppSettings)
       { method: 'codexBinGet', command: 'settings_codex_get', payloadKeys: [] },
       { method: 'codexBinSet', command: 'settings_codex_set', payloadKeys: ['path'] },
+      // 诊断(测试阶段):版本/目录、打开日志目录、前端事件落日志
+      { method: 'appInfo', command: 'app_info', payloadKeys: [] },
+      { method: 'appRevealLogs', command: 'app_reveal_logs', payloadKeys: [] },
+      { method: 'logClientEvent', command: 'log_client_event', payloadKeys: ['level', 'message', 'context'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

@@ -126,3 +126,6 @@ export interface VoiceModel { name: string; file: string; note: string; present:
 export interface Transcript { text: string; seconds: number; elapsed: number; model: string }
 /** codex 可执行路径(M3 T6):path 为设置项;resolved 为当前实际解析到的路径;解析失败时 error 为文案 */
 export interface CodexBin { path: string | null; resolved: string | null; error: string | null }
+/** 诊断(测试阶段):版本与目录信息;日志目录下 app.log.YYYY-MM-DD 按天滚动 */
+export interface AppInfo { version: string; gitSha: string; builtAt: string; dataDir: string; logDir: string }
+export type ClientLogLevel = 'error' | 'warn' | 'info'

@@ -2397,6 +2397,20 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "profile_save" => json!({"profile": {
                 "background": "经济学本科", "mastered": "", "pitfalls": "", "context": "研究者"
             }}),
+            "app_info" => json!({}),
+            "app_reveal_logs" => {
+                // CI(macOS)上 `open` 打开目录窗口无副作用;非 macOS 返回 invalid_request
+                let response = invoke_json(&webview, command, json!({}));
+                if cfg!(target_os = "macos") {
+                    response.unwrap_or_else(|error| panic!("{command} was not invokable: {error}"));
+                } else {
+                    assert_eq!(response.unwrap_err()["code"], "invalid_request");
+                }
+                continue;
+            }
+            "log_client_event" => {
+                json!({"level": "info", "message": "wire probe", "context": {"path": "/"}})
+            }
             "settings_codex_get" => json!({}),
             "settings_codex_set" => json!({"path": null}),
             "voice_models" => json!({}),
@@ -2746,4 +2760,76 @@ fn augmented_path_prepends_existing_tool_dirs_without_duplicates() {
     // 没有 PATH:只剩候选
     let only = augmented_path(None, None, &[brew.to_str().unwrap()]);
     assert_eq!(only, brew.clone().into_os_string());
+}
+
+// ---- 诊断与日志(2026-09-09):日志按天保留、前端事件校验、版本信息 ----
+
+#[test]
+fn prune_logs_removes_only_old_app_logs() {
+    use book_learner_app::diagnostics::{prune_logs, LOG_FILE_PREFIX, LOG_KEEP_DAYS};
+    let dir = tempfile::tempdir().unwrap();
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 9).unwrap();
+    for (name, keep) in [
+        (format!("{LOG_FILE_PREFIX}.2026-09-09"), true),
+        (format!("{LOG_FILE_PREFIX}.2026-08-26"), true), // 恰好 14 天:保留
+        (format!("{LOG_FILE_PREFIX}.2026-08-25"), false),
+        (format!("{LOG_FILE_PREFIX}.2026-01-01"), false),
+        ("other.log.2026-01-01".to_string(), true),
+        (format!("{LOG_FILE_PREFIX}.not-a-date"), true),
+    ] {
+        std::fs::write(dir.path().join(&name), b"x").unwrap();
+        let _ = keep;
+    }
+    assert_eq!(prune_logs(dir.path(), LOG_KEEP_DAYS, today), 2);
+    let mut left: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        vec![
+            format!("{LOG_FILE_PREFIX}.2026-08-26"),
+            format!("{LOG_FILE_PREFIX}.2026-09-09"),
+            format!("{LOG_FILE_PREFIX}.not-a-date"),
+            "other.log.2026-01-01".to_string()
+        ]
+    );
+    assert_eq!(
+        prune_logs(&dir.path().join("missing"), LOG_KEEP_DAYS, today),
+        0
+    );
+}
+
+#[test]
+fn client_events_are_validated_and_app_info_points_into_data_root() {
+    use book_learner_app::diagnostics;
+    assert_eq!(
+        commands::log_client_event_inner("debug", "x", None)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::log_client_event_inner("error", "   ", None)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let long = "很".repeat(5000);
+    commands::log_client_event_inner("warn", &long, Some(&json!({"stack": long}))).unwrap();
+    commands::log_client_event_inner("info", "route", Some(&json!({"path": "/library"}))).unwrap();
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("app.db")).unwrap();
+    let info = commands::app_info_inner(&state).unwrap();
+    assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
+    assert!(!info.git_sha.is_empty() && !info.built_at.is_empty());
+    assert_eq!(info.data_dir, directory.path().to_string_lossy());
+    assert_eq!(
+        Path::new(&info.log_dir),
+        diagnostics::log_dir(directory.path())
+    );
+    assert_eq!(diagnostics::GIT_SHA, info.git_sha);
 }

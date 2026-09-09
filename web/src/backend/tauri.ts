@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -442,6 +442,16 @@ function decodePushResult(value: unknown): PushResult {
 
 const READER_MARK_KINDS = ['highlight', 'bookmark', 'position'] as const satisfies readonly ReaderMarkKind[]
 
+function decodeAppInfo(value: unknown): AppInfo {
+  const wire = objectAt(value, 'appInfo')
+  return {
+    version: stringAt(wire.version, 'appInfo.version'),
+    gitSha: stringAt(wire.gitSha, 'appInfo.gitSha'),
+    builtAt: stringAt(wire.builtAt, 'appInfo.builtAt'),
+    dataDir: stringAt(wire.dataDir, 'appInfo.dataDir'),
+    logDir: stringAt(wire.logDir, 'appInfo.logDir'),
+  }
+}
 function decodeCodexBin(value: unknown): CodexBin {
   const wire = objectAt(value, 'codexBin')
   return {
@@ -1038,6 +1048,24 @@ export class TauriBackend implements Backend {
 
   async statsDetail(): Promise<StatsDetail> {
     return this.gated('statsDetail', () => this.decode('stats_detail', { date: localCalendarDate() }, decodeStatsDetail))
+  }
+
+  // ---- 诊断 ----
+  appInfo(): Promise<AppInfo> {
+    return this.gated('appInfo', () => this.decode('app_info', {}, decodeAppInfo))
+  }
+  async appRevealLogs(): Promise<void> {
+    return this.gated('appRevealLogs', async () => {
+      await this.decode('app_reveal_logs', {}, value => unitAt(value, 'app_reveal_logs'))
+    })
+  }
+  /** 日志转发绝不影响页面:任何失败吞掉(避免 error → log → error 循环) */
+  async logClientEvent(level: ClientLogLevel, message: string, context?: Record<string, unknown>): Promise<void> {
+    try {
+      await this.invokeFn<unknown>('log_client_event', { level, message, context: context ?? null })
+    } catch {
+      /* 日志失败静默 */
+    }
   }
 
   // ---- codex 路径(M3 T6)----

@@ -10,6 +10,7 @@ name = "book_learner_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+chrono = "0.4"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -23,7 +24,8 @@ tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-notification = "2"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 whisper-rs = { version = "0.16", optional = true }
 # deflate:读取 OPF 元数据(dc:title/dc:creator)需要解压条目;校验本身只读未压缩的 mimetype
 zip = { version = "8", default-features = false, features = ["deflate"] }

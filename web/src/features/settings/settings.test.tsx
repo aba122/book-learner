@@ -30,6 +30,18 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe('设置页 · 诊断', () => {
+  it('显示版本/提交/目录,「打开日志目录」调用 appRevealLogs', async () => {
+    const user = userEvent.setup()
+    const reveal = vi.spyOn(backendModule.backend, 'appRevealLogs')
+    render(<SettingsPage />)
+    expect(await screen.findByTestId('app-version')).toHaveTextContent('0.1.0 · mock · 构建于 2026-09-09T00:00:00Z')
+    expect(screen.getByText('/mock/book-learner/logs')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '打开日志目录' }))
+    await waitFor(() => expect(reveal).toHaveBeenCalledTimes(1))
+  })
+})
+
 describe('设置页 · codex 路径(M3 T6)', () => {
   it('显示当前解析到的路径;保存绝对路径后生效,相对路径报错,清空恢复自动寻找', async () => {
     const user = userEvent.setup()

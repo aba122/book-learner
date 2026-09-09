@@ -58,6 +58,7 @@ Mac Foundation 是原生合同与 SQLite 竖片,不是产品 M1。EPUB、Codex�
 ├─ books/<slug>.epub    ← 导入的书源文件(原生分块导入落盘,ADR-0004)
 ├─ models/              ← whisper 模型(手动导入的 ggml-*.bin,M3 T3)
 ├─ snapshots/           ← SQLite 快照 app-YYYY-MM-DD.db(每日首次启动与退出前;保留最近 7 份 + 近 3 个月各一份,M3 T5)
+├─ logs/                ← app.log.YYYY-MM-DD 按天滚动、保留 14 天(IPC 命令元数据 + 前端异常/路由;不含正文)
 ├─ restore-pending.json ← 恢复登记标记(下次启动前替换 app.db,原库留 .replaced-<ts>)
 └─ memory/              ← 记忆库(git 仓库,详见 §3;不含快照)
 ```

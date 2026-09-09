@@ -61,7 +61,10 @@
     { "method": "voiceDeleteModel", "command": "voice_delete_model", "payloadKeys": ["name"] },
     { "method": "voiceTranscribe", "command": "voice_transcribe", "payloadKeys": [] },
     { "method": "codexBinGet", "command": "settings_codex_get", "payloadKeys": [] },
-    { "method": "codexBinSet", "command": "settings_codex_set", "payloadKeys": ["path"] }
+    { "method": "codexBinSet", "command": "settings_codex_set", "payloadKeys": ["path"] },
+    { "method": "appInfo", "command": "app_info", "payloadKeys": [] },
+    { "method": "appRevealLogs", "command": "app_reveal_logs", "payloadKeys": [] },
+    { "method": "logClientEvent", "command": "log_client_event", "payloadKeys": ["level", "message", "context"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"
