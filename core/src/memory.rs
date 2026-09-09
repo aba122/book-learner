@@ -169,6 +169,26 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// 删除一本书的记忆库目录与 INDEX 行(`remove_book` 投影;幂等:目录/行不存在即 no-op)。
+    pub fn remove_book(&self, slug: &str) -> Result<()> {
+        let slug = validate_slug(slug)?;
+        let dir = self.root.join("books").join(slug);
+        if dir.is_dir() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        let index_path = self.root.join("INDEX.md");
+        if index_path.is_file() {
+            let idx = std::fs::read_to_string(&index_path)?;
+            let needle = format!("| books/{slug}/ |");
+            let kept: Vec<&str> = idx.lines().filter(|line| !line.contains(&needle)).collect();
+            let rewritten = format!("{}\n", kept.join("\n"));
+            if rewritten != idx {
+                atomic_write(&index_path, &rewritten)?;
+            }
+        }
+        Ok(())
+    }
+
     /// 块 md 投影(ADR-0001/0003):文件 `blocks/{block_id:04}-{slug}.md`;`passed` 为用户判定(覆盖 eval.verdict);
     /// `entry_key`(通常为 outbox op_id)写入评估历史行,同 key 已存在则整次调用 no-op(跨崩溃重放幂等)。
     #[allow(clippy::too_many_arguments)]
@@ -890,5 +910,22 @@ mod tests {
         assert!(f.contains("status: passed") && f.contains("passed_at: 2026-09-05"));
         assert!(f.contains("弹性是相对变化率"), "终稿按通过写入: {f}");
         assert!(f.contains("通过建议 ✓"));
+    }
+
+    #[test]
+    fn remove_book_deletes_dir_and_index_line_idempotently() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = super::MemoryStore::init(dir.path()).unwrap();
+        store.ensure_book("keep", "留下的书").unwrap();
+        store.ensure_book("gone", "删掉的书").unwrap();
+        assert!(dir.path().join("books/gone/_map.md").exists());
+        store.remove_book("gone").unwrap();
+        assert!(!dir.path().join("books/gone").exists());
+        let idx = std::fs::read_to_string(dir.path().join("INDEX.md")).unwrap();
+        assert!(idx.contains("| 留下的书 | books/keep/ |"));
+        assert!(!idx.contains("books/gone/"));
+        assert!(idx.ends_with('\n'));
+        store.remove_book("gone").unwrap(); // 幂等
+        assert!(store.remove_book("../etc").is_err());
     }
 }

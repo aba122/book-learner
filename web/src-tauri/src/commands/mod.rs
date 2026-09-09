@@ -122,6 +122,8 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("app_info", &[]),
     ("app_reveal_logs", &[]),
     ("log_client_event", &["level", "message", "context"]),
+    // 删除书(测试阶段补功能):date 供删前快照命名
+    ("library_delete_book", &["bookId", "date"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -666,6 +668,16 @@ pub fn log_client_event_inner(
     context: Option<&serde_json::Value>,
 ) -> Result<(), IpcError> {
     crate::diagnostics::record_client_event(level, message, context)
+}
+
+pub fn library_delete_book_inner(
+    state: &AppState,
+    book_id: i64,
+    date: &str,
+) -> Result<(), IpcError> {
+    run_command(state, "library_delete_book", || {
+        application::delete_book(state, book_id, date)
+    })
 }
 
 pub fn settings_codex_get_inner(state: &AppState) -> Result<CodexBinDto, IpcError> {
@@ -1241,6 +1253,32 @@ pub async fn log_client_event(
     context: Option<serde_json::Value>,
 ) -> Result<(), IpcError> {
     log_client_event_inner(&level, &message, context.as_ref())
+}
+
+// ---- 删除书 ----
+
+#[tauri::command(async)]
+pub async fn library_delete_book<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    book_id: i64,
+    date: String,
+) -> Result<(), IpcError> {
+    library_delete_book_inner(&state, book_id, &date)?;
+    // 记忆库目录删除与 git 提交在后台重放(独立连接);失败只记日志,启动恢复会补跑
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match crate::run_startup_recovery(&state) {
+            Ok(processed) => tracing::info!(book_id, processed, "删书后投影重放完成"),
+            Err(error) => tracing::error!(
+                book_id,
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "删书后投影重放失败"
+            ),
+        }
+    });
+    Ok(())
 }
 
 // ---- codex 路径(M3 T6)----

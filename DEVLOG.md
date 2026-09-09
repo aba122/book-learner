@@ -550,3 +550,10 @@
 - **日志**(`diagnostics.rs`):`run()` 最先安装 stderr + `<data_root>/logs/app.log.YYYY-MM-DD`(`tracing-appender` 按天滚动、非阻塞;`RUST_LOG` 默认 info),启动首行记版本/提交/构建时间/日志目录;启动时清理 14 天前的日志;`run_command` 每条命令一行 info(命令名/关联 id/耗时/结果),失败带 `internal_cause`,不记正文;命令 `app_info[]`(版本/提交/构建/数据目录/日志目录)、`app_reveal_logs[]`(Finder 打开)、`log_client_event[level,message,context]`(白名单级别、消息与上下文各截 4 KiB、target client);六处契约同提交。
 - **web**:`lib/clientLog.ts` 在 `main.tsx` 安装——window error / unhandledrejection / console.error 转发(每分钟 30 条限流并补丢弃计数、防递归、失败静默),`App.tsx` `RouteLogger` 记路由切换;设置页新增「诊断」分区(版本 · 提交 · 构建时间、数据/日志目录、打开日志目录)。用例:clientLog 3、settings 1、tauri 解码 1、契约 1;foundation 2。
 - 教训回写 CODE_MAP §2 / CLAUDE.md 约定 / TECH_DESIGN §2。
+
+## 2026-09-09 · 删除书(测试阶段补功能)
+- **背景**:用户测试时问"书架没有删除?"——此前只有设为主攻/标记学完/导出,ADR-0004 也早记着"导入未完成书的徽标与删除入口未做"。
+- **core**:`library::delete_book`(单事务:清掉引用该书的待处理投影 → 显式删 v1 老表 `daily_task/study_plan/knowledge_block`(对 book 无级联)→ 删 `book` 行,其余表靠外键级联 → 入队 `remove_book` + `git_commit`);`memory::remove_book`(删 `books/<slug>/`、去 INDEX 行,幂等);投影种类 `remove_book`;`Book.import_state` 进模型。单测 2 条(library 1、memory 1)。
+- **壳层/契约**:`BookDto.importState`;`application::delete_book`(先刷当日快照 → core 删 → 删 `books/<id>.epub`);命令 `library_delete_book[bookId, date]`(后台重放投影);六处同步;foundation 用例 1 条 + wire 尾条。
+- **web**:`Book.importState`、`deleteBook(bookId, date)`;书架卡片:`staged/extracted` 显示「导入未完成」徽标替代状态徽标;每张卡「删除」→ 危险确认框(说明会删什么、删前快照可恢复)→ 删主攻书后 `activeBookId` 置空;Mock 同语义(`importEpub` staged → `storeSpine` extracted → `runMapJob` mapped)。用例 +3(library 2、tauri 1);旧用例"暂停书显示已暂停"改为先完成导入。
+- 门禁:core 168/27/1/1、clippy 0;web 330/2、lint 0、build;Mac 壳层见 PR。

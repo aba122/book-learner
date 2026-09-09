@@ -11,6 +11,7 @@ const book = {
   slug: 'microeconomics',
   status: 'active',
   mapRevision: 1,
+  importState: 'mapped',
 }
 
 const block = {
@@ -401,7 +402,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -528,6 +529,15 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     await expect(failing.logClientEvent('warn', 'still fine')).resolves.toBeUndefined()
     const bad = new TauriBackend(async <T>() => ({ version: 1 }) as T)
     await expect(bad.appInfo()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('deleteBook sends bookId+date and books require importState', async () => {
+    const { calls, invoke } = recorder({ library_delete_book: null })
+    const backend = new TauriBackend(invoke)
+    await backend.deleteBook(7, '2026-09-09')
+    expect(calls).toEqual([{ command: 'library_delete_book', payload: { bookId: 7, date: '2026-09-09' }, headers: undefined }])
+    const bad = new TauriBackend(async <T>() => ({ books: [{ id: 1, title: 't', author: 'a', type: 'textbook', slug: 's', status: 'active', mapRevision: 1, importState: 'weird' }] }) as T)
+    await expect(bad.listBooks()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('codex path: get/set decode and payload (M3 T6)', async () => {

@@ -788,6 +788,34 @@ pub fn git_push_now(state: &AppState) -> Result<PushResultDto, IpcError> {
     }
 }
 
+// ---- 删除书(测试阶段补功能)----
+
+/// 删除一本书:先刷当日快照(误删可恢复)→ core 单事务删数据并入队 `remove_book`/`git_commit` 投影 →
+/// 删受管 EPUB 文件。投影由调用方在后台重放。
+pub fn delete_book(state: &AppState, book_id: i64, date: &str) -> Result<(), IpcError> {
+    let _job = state.jobs().begin();
+    let connection = state.open_connection()?;
+    book_learner_core::backup::snapshot(&connection, &snapshots_dir(state), date)
+        .map_err(IpcError::from)?;
+    let deleted =
+        book_learner_core::library::delete_book(&connection, book_id).map_err(IpcError::from)?;
+    let epub = state.import_store().book_path(book_id);
+    match std::fs::remove_file(&epub) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::warn!(book_id, path = %epub.display(), %error, "删除 EPUB 文件失败(数据已删)")
+        }
+    }
+    tracing::info!(
+        book_id,
+        slug = deleted.slug,
+        was_active = deleted.was_active,
+        "书已删除"
+    );
+    Ok(())
+}
+
 // ---- 阅读器标记(M3 T4):高亮/书签/阅读位置 ----
 
 pub fn reader_mark_list(state: &AppState, book_id: i64) -> Result<Vec<ReaderMarkDto>, IpcError> {

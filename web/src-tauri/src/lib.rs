@@ -92,6 +92,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::app_info,
         commands::app_reveal_logs,
         commands::log_client_event,
+        commands::library_delete_book,
         commands::automation_report,
     ])
 }

@@ -36,6 +36,7 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
         book_type: BookType::Methodology,
         slug: "systems".into(),
         status: BookStatus::Paused,
+        import_state: "ready".into(),
         map_revision: 3,
     });
     assert_eq!(
@@ -2413,6 +2414,8 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             }
             "settings_codex_get" => json!({}),
             "settings_codex_set" => json!({"path": null}),
+            // 契约最后一条:删掉 second(之前的条目都已用过它)
+            "library_delete_book" => json!({"bookId": second, "date": DAY}),
             "voice_models" => json!({}),
             "voice_import_model" => {
                 // 无模型文件:校验失败 invalid_request(不会弹原生选择器,因为 path 非空)
@@ -2832,4 +2835,93 @@ fn client_events_are_validated_and_app_info_points_into_data_root() {
         diagnostics::log_dir(directory.path())
     );
     assert_eq!(diagnostics::GIT_SHA, info.git_sha);
+}
+
+// ---- 删除书(测试阶段补功能):快照 → 数据/文件/投影 → 记忆库目录与 INDEX 行 ----
+
+#[test]
+fn delete_book_snapshots_then_removes_rows_file_and_memory_dir() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("delete.db")).unwrap();
+    let (first, second, _block) = seed_books(&state);
+    state.memory().ensure_book("first", "第一本").unwrap();
+    state.memory().ensure_book("second", "第二本").unwrap();
+    let epub = state.import_store().book_path(first);
+    std::fs::create_dir_all(epub.parent().unwrap()).unwrap();
+    std::fs::write(&epub, b"PK\x03\x04fake").unwrap();
+    commands::reader_position_set_inner(&state, first, "ch0.xhtml", "epubcfi(/6/4!/4/2/1:0)")
+        .unwrap();
+    // 引用 first 的待处理投影会被清掉;引用 second 的保留
+    state
+        .with_connection(|c| {
+            book_learner_core::projection::enqueue(
+                c,
+                "stale:first",
+                "sync_map",
+                &json!({"book_id": first}),
+            )?;
+            book_learner_core::projection::enqueue(
+                c,
+                "keep:second",
+                "sync_map",
+                &json!({"book_id": second}),
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+    commands::library_delete_book_inner(&state, first, DAY).unwrap();
+
+    assert!(!epub.exists(), "受管 EPUB 已删");
+    assert!(
+        application::snapshots_dir(&state)
+            .join(format!("app-{DAY}.db"))
+            .is_file(),
+        "删前快照"
+    );
+    let books = commands::library_list_books_inner(&state).unwrap();
+    assert_eq!(books.iter().map(|b| b.id).collect::<Vec<_>>(), vec![second]);
+    assert_eq!(books[0].import_state, "ready");
+    let (blocks, marks): (i64, i64) = state
+        .with_connection(|c| {
+            Ok((
+                c.query_row("SELECT count(*) FROM knowledge_block", [], |r| r.get(0))?,
+                c.query_row("SELECT count(*) FROM reader_mark", [], |r| r.get(0))?,
+            ))
+        })
+        .unwrap();
+    assert_eq!((blocks, marks), (0, 0));
+    // 后台重放:记忆库目录与 INDEX 行消失,second 的投影照常处理,git 有提交
+    book_learner_app::run_startup_recovery(&state).unwrap();
+    assert!(!state.memory_root().join("books/first").exists());
+    assert!(state.memory_root().join("books/second/_map.md").exists());
+    let index = std::fs::read_to_string(state.memory_root().join("INDEX.md")).unwrap();
+    assert!(!index.contains("books/first/"));
+    assert!(index.contains("books/second/"));
+    let pending: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM projection_outbox WHERE status<>'done'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(pending, 0);
+    let log = std::process::Command::new("git")
+        .args([
+            "-C",
+            &state.memory_root().to_string_lossy(),
+            "log",
+            "--oneline",
+        ])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&log.stdout).contains("remove: 删除书 first"));
+    assert_eq!(
+        commands::library_delete_book_inner(&state, first, DAY)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
 }

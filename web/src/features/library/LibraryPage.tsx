@@ -8,6 +8,7 @@ import PageHeader from '../../components/PageHeader'
 import Tag from '../../components/Tag'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
+import { localCalendarDate } from '../../lib/localDate'
 import { useSession } from '../../store'
 import type { Book, BookStatus } from '../../types'
 import ExportDialog from './ExportDialog'
@@ -34,6 +35,7 @@ export default function LibraryPage() {
   const [switchTarget, setSwitchTarget] = useState<Book | null>(null)
   const [finishTarget, setFinishTarget] = useState<Book | null>(null)
   const [exportTarget, setExportTarget] = useState<Book | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Book | null>(null)
 
   const books = useAsyncResource(useCallback(async () => {
     const list = await backend.listBooks()
@@ -68,6 +70,24 @@ export default function LibraryPage() {
     if (!finishTarget) return
     finishOp.clearError('finish')
     void finishOp.run('finish', finishTarget.id)
+  }
+
+  const deleteOp = useBackendOperation(
+    (book: Book) => backend.deleteBook(book.id, localCalendarDate()),
+    {
+      onCommitted: async (_key, book) => {
+        if (book.status === 'active') setActiveBookId(null)
+        setDeleteTarget(null)
+        void books.reload()
+      },
+    },
+  )
+  const deleting = deleteOp.pending.has('delete')
+  const deleteError = deleteOp.errors.get('delete')
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    deleteOp.clearError('delete')
+    void deleteOp.run('delete', deleteTarget)
   }
 
   // 主攻书与已学完的书直接看地图;暂停的书需确认切换
@@ -145,9 +165,13 @@ export default function LibraryPage() {
                   </div>
                   <div className="truncate text-xs text-ink-4">{book.author}</div>
                 </div>
-                <Tag tone={book.status === 'active' ? 'new' : 'neutral'} className="shrink-0">
-                  {STATUS_LABEL[book.status]}
-                </Tag>
+                {book.importState === 'staged' || book.importState === 'extracted' ? (
+                  <Tag tone="weak" className="shrink-0">导入未完成</Tag>
+                ) : (
+                  <Tag tone={book.status === 'active' ? 'new' : 'neutral'} className="shrink-0">
+                    {STATUS_LABEL[book.status]}
+                  </Tag>
+                )}
               </div>
             </button>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-4">
@@ -167,6 +191,13 @@ export default function LibraryPage() {
                     标记为已学完
                   </button>
                 )}
+                <button
+                  className="cursor-pointer text-ink-4 underline-offset-2 hover:text-weak hover:underline"
+                  aria-label={`删除《${book.title}》`}
+                  onClick={() => { deleteOp.clearError('delete'); setDeleteTarget(book) }}
+                >
+                  删除
+                </button>
               </span>
             </div>
             </div>
@@ -192,6 +223,24 @@ export default function LibraryPage() {
         )}
       </Confirm>
       {exportTarget && <ExportDialog book={exportTarget} onClose={() => setExportTarget(null)} />}
+      <Confirm
+        open={deleteTarget !== null}
+        title={`删除《${deleteTarget?.title ?? ''}》?`}
+        message="将删除这本书的知识地图、学习记录、薄弱点、复习排期、标记与产出,记忆库里它的目录也会移除(git 记录一次提交)。删除前会更新今日快照,可在设置页恢复到删除前。"
+        confirmText={deleting ? '删除中…' : '删除'}
+        cancelText="取消"
+        danger
+        confirmDisabled={deleting}
+        cancelDisabled={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => { if (!deleting) setDeleteTarget(null) }}
+      >
+        {deleteError && (
+          <div className="mt-4">
+            <AsyncError error={deleteError} onRetry={confirmDelete} variant="compact" />
+          </div>
+        )}
+      </Confirm>
       <Confirm
         open={finishTarget !== null}
         title="标记为已学完?"

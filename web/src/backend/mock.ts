@@ -139,7 +139,7 @@ export class MockBackend implements Backend {
 
   private seed() {
     this.books = [
-      { id: 1, title: '微观经济学', author: '哈尔·范里安', type: 'textbook', slug: 'microeconomics', status: 'active', mapRevision: 1 },
+      { id: 1, title: '微观经济学', author: '哈尔·范里安', type: 'textbook', slug: 'microeconomics', status: 'active', mapRevision: 1, importState: 'mapped' },
     ]
     const mk = (
       id: number, moduleName: string, seq: number, title: string, slug: string,
@@ -177,7 +177,7 @@ export class MockBackend implements Backend {
   async importEpub(file: File, type: BookType): Promise<{ bookId: number }> {
     const id = this.nextBookId++
     const title = file.name.replace(/\.epub$/i, '') || '未命名书籍'
-    this.books.push({ id, title, author: '待识别', type, slug: `book-${id}`, status: 'paused', mapRevision: 0 })
+    this.books.push({ id, title, author: '待识别', type, slug: `book-${id}`, status: 'paused', mapRevision: 0, importState: 'staged' })
     return { bookId: id }
   }
 
@@ -249,6 +249,22 @@ export class MockBackend implements Backend {
     for (const [id, segs] of anchorsWorking) this.anchors.set(id, segs)
     book.mapRevision += 1
     return { revision: book.mapRevision }
+  }
+
+  /** 删除书(测试阶段):与 core library::delete_book 同语义;主攻书删后无主攻 */
+  async deleteBook(bookId: number, date: string): Promise<void> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw invalidRequest()
+    const idx = this.books.findIndex(b => b.id === bookId)
+    if (idx < 0) throw notFound()
+    this.books.splice(idx, 1)
+    const blockIds = new Set(this.blocks.filter(b => b.bookId === bookId).map(b => b.id))
+    this.blocks = this.blocks.filter(b => b.bookId !== bookId)
+    this.tasks = this.tasks.filter(t => t.bookId !== bookId)
+    this.plans = this.plans.filter(p => p.bookId !== bookId)
+    this.marks = this.marks.filter(m => m.bookId !== bookId)
+    this.spines.delete(bookId)
+    for (const [id, s] of this.v2Sessions) if (blockIds.has(s.blockId) || s.bookId === bookId) this.v2Sessions.delete(id)
+    this.snapshots = [{ name: `app-${date}.db`, date, bytes: 204800 }, ...this.snapshots.filter(s => s.date !== date)]
   }
 
   async finishBook(bookId: number): Promise<void> {
@@ -457,8 +473,10 @@ export class MockBackend implements Backend {
   // ---- 契约 v2:地图 ----
 
   async storeSpine(bookId: number, chapters: SpineChapter[]): Promise<void> {
-    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    const book = this.books.find(b => b.id === bookId)
+    if (!book) throw notFound()
     this.spines.set(bookId, chapters.map(c => ({ ...c })))
+    if (book.importState === 'staged') book.importState = 'extracted'
   }
 
   async runMapJob(bookId: number, jobId: string, onProgress?: (p: MapProgress) => void): Promise<KnowledgeBlock[]> {
@@ -488,6 +506,7 @@ export class MockBackend implements Backend {
     onProgress?.({ stage: 'merging' })
     this.blocks.push(...created)
     book.mapRevision = 1
+    book.importState = 'mapped'
     onProgress?.({ stage: 'done', blocks: created.length })
     return created
   }

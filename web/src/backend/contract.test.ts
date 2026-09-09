@@ -136,6 +136,8 @@ describe('Tauri wire contract fixture', () => {
       { method: 'appInfo', command: 'app_info', payloadKeys: [] },
       { method: 'appRevealLogs', command: 'app_reveal_logs', payloadKeys: [] },
       { method: 'logClientEvent', command: 'log_client_event', payloadKeys: ['level', 'message', 'context'] },
+      // 删除书(测试阶段):date 供删前快照命名
+      { method: 'deleteBook', command: 'library_delete_book', payloadKeys: ['bookId', 'date'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

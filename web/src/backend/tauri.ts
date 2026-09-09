@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -174,6 +174,7 @@ const MAP_OPS = ['rename', 'renameModule', 'reorder', 'setSkipped', 'merge', 'sp
 const TASK_KINDS = ['new', 'weak_retest', 'review'] as const satisfies readonly TaskKind[]
 const TASK_STATUSES = ['pending', 'done', 'skipped'] as const
 
+const IMPORT_STATES = ['ready', 'staged', 'extracted', 'mapped'] as const satisfies readonly ImportState[]
 function decodeBook(value: unknown, path: string): Book {
   const wire = objectAt(value, path)
   return {
@@ -184,6 +185,7 @@ function decodeBook(value: unknown, path: string): Book {
     slug: stringAt(wire.slug, `${path}.slug`),
     status: enumAt(wire.status, `${path}.status`, BOOK_STATUSES),
     mapRevision: safeIntegerAt(wire.mapRevision, `${path}.mapRevision`),
+    importState: enumAt(wire.importState, `${path}.importState`, IMPORT_STATES),
   }
 }
 
@@ -1066,6 +1068,15 @@ export class TauriBackend implements Backend {
     } catch {
       /* 日志失败静默 */
     }
+  }
+
+  // ---- 删除书(测试阶段)----
+  deleteBook(bookId: number, date: string): Promise<void> {
+    return this.gated('deleteBook', async () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(date, 'date')
+      await this.decode('library_delete_book', { bookId, date }, value => unitAt(value, 'library_delete_book'))
+    })
   }
 
   // ---- codex 路径(M3 T6)----

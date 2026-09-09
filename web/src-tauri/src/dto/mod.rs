@@ -25,6 +25,8 @@ pub struct BookDto {
     pub slug: String,
     pub status: String,
     pub map_revision: i64,
+    /// ready | staged | extracted | mapped(导入未完成 = staged/extracted)
+    pub import_state: String,
 }
 
 impl From<Book> for BookDto {
@@ -42,6 +44,7 @@ impl From<Book> for BookDto {
             slug: book.slug,
             status: status.into(),
             map_revision: book.map_revision,
+            import_state: book.import_state,
         }
     }
 }
