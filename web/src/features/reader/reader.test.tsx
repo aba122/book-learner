@@ -9,6 +9,7 @@ import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import { READER_FONT_STEPS } from '../../config'
 import EpubView from './EpubView'
+import { READER_SELECTION_POLL_MS } from '../../config'
 import ReaderPage from './ReaderPage'
 
 const h = vi.hoisted(() => {
@@ -19,6 +20,8 @@ const h = vi.hoisted(() => {
     on: vi.fn(),
     themes: { register: vi.fn(), select: vi.fn(), fontSize: vi.fn() },
     annotations: { highlight: vi.fn(), underline: vi.fn(), remove: vi.fn() },
+    /** BL-006:选区轮询读取的 contents;测试里按需塞入 */
+    getContents: vi.fn((): unknown[] => []),
   }
   const book = {
     renderTo: vi.fn(() => rendition),
@@ -246,6 +249,28 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
     await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, undefined, 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
     expect(screen.queryByRole('toolbar')).toBeNull()
+  })
+
+  it('BL-006:iframe 不派发 selectionchange 时,轮询 getSelection 也能弹出选区工具条并高亮', async () => {
+    const user = userEvent.setup()
+    const add = vi.spyOn(backendModule.backend, 'readerMarkAdd')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    expect(screen.queryByRole('toolbar')).toBeNull()
+    const range = {} as Range
+    const selection = { isCollapsed: false, rangeCount: 1, getRangeAt: () => range, toString: () => ' 需求曲线 ' }
+    h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: (r: Range) => (r === range ? 'epubcfi(/6/8!/4/4,/1:0,/1:4)' : '') }])
+    const toolbar = await screen.findByRole('toolbar', { name: '选区操作' })
+    expect(toolbar).toHaveTextContent('需求曲线')
+    // 同一选区不重复上报;选区消失后再次选中会再报
+    await new Promise(r => setTimeout(r, READER_SELECTION_POLL_MS * 2))
+    await user.click(within(toolbar).getByRole('button', { name: '高亮:黄' }))
+    await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
+    expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/4,/1:0,/1:4)', text: '需求曲线', color: 'yellow' })
+    h.rendition.getContents.mockReturnValue([])
+    await new Promise(r => setTimeout(r, READER_SELECTION_POLL_MS * 2))
+    h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: () => 'epubcfi(/6/8!/4/4,/1:0,/1:4)' }])
+    expect(await screen.findByRole('toolbar', { name: '选区操作' })).toBeInTheDocument()
   })
 
   it('阅读位置节流写回,非学习模式重开从上次位置开始', async () => {

@@ -215,6 +215,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 - 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。
 - 系统通知只在 bundle 运行时可用;麦克风 TCC 只有经 LaunchServices(Finder/`open`)启动才弹框,从终端直接执行二进制会立即 NotAllowedError。
 - 扬声器回放会被 WebKit 回声消除压掉(录不到 TTS),真人说话不受影响。
+- WKWebView 不向 `sandbox="allow-same-origin"`(无 allow-scripts)的 iframe 派发 `selectionchange`:epub.js 的 `selected` 事件在原生里永不触发(BL-006),阅读器改为轮询 `getSelection()`;任何"依赖 iframe 内 DOM 事件"的功能在 Mac 上都要实测。
 - `tauri-plugin-dialog` 在 setup 阶段死锁 → 启动错误框用 rfd;文件选择器 rfd 必须经 `run_on_main_thread`(命令上下文可用)。
 - Homebrew cask/github 直连经代理很慢;Mac 上 github 走 socks5 代理配置。
 

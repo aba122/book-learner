@@ -562,3 +562,8 @@
 - **套件(PR #37)**:`docs/testing/BUGS.md` 缺陷台账(BL-001–005 预填)、`BUG_TEMPLATE.md`、`TEST_PLAN.md`(六大块清单 + 范围外)、`docs/smoke/scripts/diag-bundle.sh`(日志 + `app.db` 只读 `VACUUM INTO` 快照 + 16 张关键表导出 + 版本/系统信息 → 桌面 zip)、`CHANGELOG.md`(按批次发版)。
 - **BL-001**:代码地图 review 发现 App 从未调用 `resolveBlockAnchors`/`setAnchorSegments`(只有 Playwright 冒烟在用),原生环境所有块锚点都是壳层落库时的整章回退。修法:新增 `web/src/epub/anchorBlocks.ts`——导入向导在 `runMapJob` 返回后重开 EPUB,对每块 `listAnchors` 取小节标题,`resolveBlockAnchors` 解析成两点 CFI 后 `setAnchorSegments` 写回;已是 `exact` 的块跳过(重试幂等),单块失败只计数不阻塞导入,进度显示「正在定位原文 n/N」。单测 1 条(解析/跳过/失败隔离/进度)+ 向导用例 1 条(Mock 整章回退 → 回填后全为精确段)。**已导入的书不回填**(需删除重导);手动锚点校正 UI 仍在范围外。
 - 门禁:web 332/2、lint 0、build。
+
+## 2026-09-09 · BL-006 阅读器选区工具条不出现
+- **定位**:日志里 17:58 的阅读器会话只有 `reader_mark_add`(书签),没有任何前端异常;调试包探针:程序化选区与合成 mousedown/mouseup 后,iframe 文档上的 `selectionchange` 计数为 0,`[role=toolbar]` 不出现。根因:epub.js 用 `sandbox="allow-same-origin"`(我们 `allowScriptedContent:false`,不给 `allow-scripts`)的 srcdoc iframe 渲染正文,WKWebView 不向这种无脚本 iframe 派发 `selectionchange`,而 epub.js 的 `selected` 事件完全依赖它。开 `allow-scripts` 会让 EPUB 内脚本拿到 app 的 IPC,不可取。
+- **修法**:`EpubView` 保留 `selected` 监听的同时,每 `READER_SELECTION_POLL_MS=300` ms 轮询 `rendition.getContents()` 各 contents 的 `window.getSelection()`,非空则 `contents.cfiFromRange(range)` 得区间 CFI 上报;同一区间只报一次,选区消失后重置。用例 1 条(reader.test「BL-006」,含 mock `getContents`)。Mac 验证:调试包程序化选区后工具条出现。
+- 门禁:web 333/2、lint 0、build。

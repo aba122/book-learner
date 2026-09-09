@@ -1,6 +1,7 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { READER_SELECTION_POLL_MS } from '../../config'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -39,6 +40,12 @@ export interface SelectionInfo {
   cfiRange: string
   text: string
   href: string
+}
+
+/** epub.js Contents 在选区轮询里用到的子集 */
+interface SelectionContents {
+  window?: Window
+  cfiFromRange: (range: Range) => string
 }
 
 const EpubView = forwardRef<
@@ -109,11 +116,41 @@ const EpubView = forwardRef<
     rendition.themes.select(themeRef.current)
     rendition.display(initialHrefRef.current || undefined)
     book.loaded.navigation.then(nav => onTocRef.current?.(nav.toc))
+    // 选区:epub.js 的 selected 依赖 iframe 文档的 selectionchange,WKWebView 里 sandbox 无脚本的 iframe 不派发它
+    // (BL-006 实测 0 次),故保留该监听的同时按固定间隔轮询各 contents 的 getSelection(),算出区间 CFI 后上报。
+    const lastSelectionCfi = { current: null as string | null }
+    const emitSelection = (cfiRange: string, text: string, href: string) => {
+      if (cfiRange === lastSelectionCfi.current) return
+      lastSelectionCfi.current = cfiRange
+      onSelectedRef.current?.({ cfiRange, text, href })
+    }
     rendition.on('selected', (cfiRange: string, contents: { window?: Window; section?: { href?: string } }) => {
       const text = contents?.window?.getSelection?.()?.toString().trim() ?? ''
       const href = lastLocation.current?.href ?? contents?.section?.href ?? ''
-      onSelectedRef.current?.({ cfiRange, text, href })
+      emitSelection(cfiRange, text, href)
     })
+    const pollSelection = () => {
+      const contentsList = (rendition as unknown as { getContents?: () => unknown }).getContents?.()
+      const list = (Array.isArray(contentsList) ? contentsList : contentsList ? [contentsList] : []) as SelectionContents[]
+      let found = false
+      for (const contents of list) {
+        try {
+          const sel = contents.window?.getSelection?.()
+          if (!sel || sel.isCollapsed || sel.rangeCount === 0) continue
+          const text = sel.toString().trim()
+          if (!text) continue
+          const cfiRange = contents.cfiFromRange(sel.getRangeAt(0))
+          if (!cfiRange) continue
+          found = true
+          emitSelection(cfiRange, text, lastLocation.current?.href ?? '')
+          break
+        } catch {
+          /* 选区跨章或 iframe 已卸载时忽略 */
+        }
+      }
+      if (!found) lastSelectionCfi.current = null
+    }
+    const selectionTimer = setInterval(pollSelection, READER_SELECTION_POLL_MS)
     // 学习模式:该章渲染后把块锚点的两点 CFI 组合成区间并加下划线(多段块每段一条)
     rendition.on('rendered', (section: SectionLike, view: ViewLike) => {
       setReady(true)
@@ -161,6 +198,7 @@ const EpubView = forwardRef<
     }
     window.addEventListener('resize', onResize)
     return () => {
+      clearInterval(selectionTimer)
       window.removeEventListener('resize', onResize)
       book.destroy()
       bookRef.current = null
