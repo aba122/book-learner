@@ -80,7 +80,7 @@ describe('正文指针层(BL-011)', () => {
     ev('mousedown', 500); ev('mouseup', 500) // (500,300) 落在 rect 里
     expect(clicked).toHaveBeenCalledTimes(1)
     expect(onTurn).not.toHaveBeenCalled()
-    ev('mousedown', 300); ev('mouseup', 300) // rect 外:照常翻页
+    ev('mousedown', 200); ev('mouseup', 200) // rect 外:照常翻页(左半页)
     expect(onTurn).toHaveBeenCalledWith('prev')
     expect(layer.style.pointerEvents).toBe('')
     detach(); frame.remove()

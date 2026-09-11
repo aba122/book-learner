@@ -348,7 +348,6 @@ const EpubView = forwardRef<
           /* iframe 已卸载时忽略 */
         }
       }
-      lastSelectionCfi.current = null
     },
   }))
 
