@@ -575,5 +575,5 @@
 - **BL-010 翻页过渡**:`EpubView.next/prev` 先置 `data-turning`(下一 tick 用 `setTimeout(0)` 设,连续翻页可重触发;不用 rAF,后台窗口不派发帧)再翻页,CSS 关键帧让新页从翻页方向滑入 220 ms;`prefers-reduced-motion` 下不动。不做真实卷页。
 - 用例 +4(reader.test);旧高亮用例的注解第三参改为 `expect.any(Function)`。门禁:web 337/2、lint 0、build。
 - **Mac 实测**(debug bundle + 桥,`reader3/4-verify`):两侧翻页区点击后 `reader_position` 跨章前进/后退;`data-turning="next"` 出现并在 220 ms 后清除;点注解 SVG → 「高亮操作」→ 取消,SVG 与 `reader_mark` 行同时消失;勾选「双页显示」后 `rendition.spread('auto')`,仍是单个 iframe,分栏需视口 ≥ 800 px,故双页时阅读列放宽到 80em。
-- **一次误判**:bisect 四个提交(含 main)都出现"容器里没有 iframe、骨架常驻",查到根因是探针没先置前——epub.js `Queue.run()` 靠 rAF 驱动,被遮挡的 WKWebView 不派发帧,`display()` 永远排队(见 CODE_MAP §9)。不是回归,驱动脚本一律先 `front()` 再开阅读器。
+- **一次误判**:bisect 四个提交(含 main)都出现"容器里没有 iframe、骨架常驻",查到根因是探针没先置前——epub.js `Queue.run()` 靠 rAF 驱动,被遮挡的 WKWebView 不派发帧,`display()` 永远排队(见 CODE_MAP §9)。不是回归,驱动脚本一律先 `front()` 再开阅读器;且正式版同时运行时置前必须按 pid(按进程名会激活正式版),每步之前都置前(用户操作会把调试窗口盖住)。按此重跑 `reader5/6-verify` 于 208ddff:四项全部通过。
 - 双页的 `spread()` 只在 `ready` 之后调用(`renderTo` 固定 `spread:'none'`),`start()` 之前调用会让 epub.js 没有 manager(`this.manager.next` undefined)。

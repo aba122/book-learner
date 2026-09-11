@@ -68,7 +68,7 @@ select * from study_plan; select id,title,status,import_state,map_revision from 
 select * from setting;
 ```
 
-**桥驱动(debug 构建)**:`BOOK_LEARNER_AUTOMATION_SOCK=<sock>` 启动后用 `docs/smoke/scripts/bl-auto.py <sock> js|text|go|click|type|file|wait|waitgone|tray|quit`,标准脚本骨架见 `docs/smoke/scripts/gate-m3.sh`;驱动前先把窗口置前(后台 WebView 被节流)。
+**桥驱动(debug 构建)**:`BOOK_LEARNER_AUTOMATION_SOCK=<sock>` 启动后用 `docs/smoke/scripts/bl-auto.py <sock> js|text|go|click|type|file|wait|waitgone|tray|quit`,标准脚本骨架见 `docs/smoke/scripts/gate-m3.sh`;驱动前先把窗口置前(后台 WebView 被节流)。正式版 app 同时在跑时,`set frontmost of process "book-learner"` 会激活到正式版而不是调试实例,要按 pid:`set frontmost of (first process whose unix id is <pid>)`;用户在 Mac 上操作会随时把调试窗口盖住(`document.visibilityState` 变 `hidden`),所以每个依赖渲染/翻页的步骤前都置前一次并读 `visibilityState`。
 
 **受控日期**(DEV 构建):`localStorage['bookLearner.testDate']`(桥命令 `a set bookLearner.testDate 2026-09-10` 后 reload)。
 
