@@ -228,7 +228,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <AsyncError error={initError} onRetry={loadContent} />
           </div>
         ) : ready ? (
-          <div className="mx-auto h-full w-full max-w-[38em]">
+          <div className={`mx-auto h-full w-full ${spread ? 'max-w-[80em]' : 'max-w-[38em]'}`} data-testid="reader-column">
             <EpubView
               ref={epubRef}
               url={url}

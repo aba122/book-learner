@@ -301,6 +301,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(toggle).not.toBeChecked()
     await user.click(toggle)
     await waitFor(() => expect(h.rendition.spread).toHaveBeenLastCalledWith('auto'))
+    expect(screen.getByTestId('reader-column').className).toContain('max-w-[80em]')
     expect(JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}').spread).toBe(true)
     await user.click(toggle)
     await waitFor(() => expect(h.rendition.spread).toHaveBeenLastCalledWith('none'))
