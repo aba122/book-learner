@@ -2,7 +2,7 @@ import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { READER_PAGE_CURL_LIFT, READER_PAGE_CURL_MS, READER_PAGE_SNAPSHOT_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
-import { attachClickToTurn } from './clickToTurn'
+import { attachPointerLayer } from './pointerLayer'
 import { createCurlOverlay, snapshotVisiblePage, type CurlOverlay } from './pageCurlOverlay'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
@@ -85,9 +85,9 @@ const EpubView = forwardRef<
   const hostRef = useRef<HTMLDivElement>(null)
   const curlRef = useRef<CurlOverlay | null>(null)
   const onHighlightClickedRef = useRef(onHighlightClicked)
-  // 点正文半页翻页(BL-011):rendered 时给正文 document 挂监听;turn 经 ref 调用(声明在后面)
+  // 指针层(BL-011):正文 iframe 无脚本、监听器不会被调用,鼠标交互由父文档的这一层接管;turn 经 ref 调用(声明在后面)
   const turnRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
-  const clickDetachers = useRef<Map<Document, () => void>>(new Map())
+  const pointerRef = useRef<HTMLDivElement>(null)
   const spreadRef = useRef(spread)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
@@ -118,7 +118,6 @@ const EpubView = forwardRef<
 
   useEffect(() => {
     if (!containerRef.current) return
-    const detachers = clickDetachers.current // 清理时用同一个 Map(react-hooks/exhaustive-deps)
     const book = ePub(url)
     bookRef.current = book
     const rendition = book.renderTo(containerRef.current, {
@@ -174,14 +173,14 @@ const EpubView = forwardRef<
       if (!found) lastSelectionCfi.current = null
     }
     const selectionTimer = setInterval(pollSelection, READER_SELECTION_POLL_MS)
+    const detachPointer = pointerRef.current && containerRef.current
+      ? attachPointerLayer(pointerRef.current, { viewport: containerRef.current, getContents: () => rendition.getContents?.(), onTurn: side => turnRef.current(side) })
+      : () => {}
     // 学习模式:该章渲染后把块锚点的两点 CFI 组合成区间并加下划线(多段块每段一条)
     rendition.on('rendered', (section: SectionLike, view: ViewLike) => {
       setReady(true)
       const doc = view?.contents?.document
       if (!doc) return
-      if (typeof doc.addEventListener === 'function' && !detachers.has(doc) && containerRef.current) {
-        detachers.set(doc, attachClickToTurn(doc, containerRef.current, side => turnRef.current(side)))
-      }
       for (const seg of segmentsRef.current ?? []) {
         if (seg.spineHref !== section.href) continue
         const key = `${seg.spineHref}|${seg.cfiStart}|${seg.cfiEnd}`
@@ -225,8 +224,7 @@ const EpubView = forwardRef<
     window.addEventListener('resize', onResize)
     return () => {
       clearInterval(selectionTimer)
-      for (const detach of detachers.values()) detach()
-      detachers.clear()
+      detachPointer()
       window.removeEventListener('resize', onResize)
       book.destroy()
       bookRef.current = null
@@ -343,6 +341,7 @@ const EpubView = forwardRef<
   return (
     <div ref={hostRef} className="relative h-full w-full" data-testid="epub-book" data-turning={turning ?? undefined}>
       <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+      <div ref={pointerRef} className="bl-pointer" data-testid="pointer-layer" aria-hidden />
       {!ready && (
         <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
           <div className="h-5 w-1/3 animate-pulse rounded-s bg-paper-3" />

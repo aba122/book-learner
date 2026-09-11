@@ -22,9 +22,9 @@ export interface PageSnapshot {
 
 type ContentsLike = { document?: Document | null }
 
-export function snapshotVisiblePage(rendition: { getContents?: () => unknown }, viewport: HTMLElement): PageSnapshot | null {
-  const raw = rendition.getContents?.()
-  const list: ContentsLike[] = Array.isArray(raw) ? (raw as ContentsLike[]) : raw ? [raw as ContentsLike] : []
+/** rendition.getContents() 里落在可视区内的那个正文 iframe(分页模式通常只有一个) */
+export function findVisibleFrame(contents: unknown, viewport: HTMLElement): { doc: Document; win: Window; frame: HTMLElement } | null {
+  const list: ContentsLike[] = Array.isArray(contents) ? (contents as ContentsLike[]) : contents ? [contents as ContentsLike] : []
   const vr = viewport.getBoundingClientRect()
   if (vr.width <= 0 || vr.height <= 0) return null
   for (const c of list) {
@@ -34,25 +34,34 @@ export function snapshotVisiblePage(rendition: { getContents?: () => unknown }, 
     if (!doc || !win || !frame || !doc.documentElement) continue
     const r = frame.getBoundingClientRect()
     if (r.width <= 0 || r.right <= vr.left || r.left >= vr.right) continue
-    let sheet = ''
-    try {
-      const bg = win.getComputedStyle(doc.body).backgroundColor
-      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') sheet = bg
-    } catch {
-      /* 取不到就用默认纸色 */
-    }
-    return {
-      html: `<!DOCTYPE html>${doc.documentElement.outerHTML}`,
-      width: r.width,
-      height: r.height,
-      left: r.left - vr.left,
-      top: r.top - vr.top,
-      scrollX: win.scrollX || 0,
-      scrollY: win.scrollY || 0,
-      sheet,
-    }
+    return { doc, win, frame }
   }
   return null
+}
+
+export function snapshotVisiblePage(rendition: { getContents?: () => unknown }, viewport: HTMLElement): PageSnapshot | null {
+  const found = findVisibleFrame(rendition.getContents?.(), viewport)
+  if (!found) return null
+  const { doc, win, frame } = found
+  const vr = viewport.getBoundingClientRect()
+  const r = frame.getBoundingClientRect()
+  let sheet = ''
+  try {
+    const bg = win.getComputedStyle(doc.body).backgroundColor
+    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') sheet = bg
+  } catch {
+    /* 取不到就用默认纸色 */
+  }
+  return {
+    html: `<!DOCTYPE html>${doc.documentElement.outerHTML}`,
+    width: r.width,
+    height: r.height,
+    left: r.left - vr.left,
+    top: r.top - vr.top,
+    scrollX: win.scrollX || 0,
+    scrollY: win.scrollY || 0,
+    sheet,
+  }
 }
 
 export interface CurlOverlay {

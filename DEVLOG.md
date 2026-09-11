@@ -591,11 +591,12 @@
 - 门禁:web 342/2、tsc、oxlint 0、build;前端回退到已在 Mac 实测过的代码,不再跑调试包。
 
 ## 2026-09-11 · 第四批(BL-011 点半页翻页、BL-010 纸质卷页)
-- **BL-011**:`clickToTurn.ts` 把 mousedown/mouseup 挂在 epub.js 正文 iframe 的 document 上(WKWebView 会把鼠标事件派给沙箱 iframe,划选高亮就是证据;之前"点正文没反应"只是没人处理)。只认单击:位移 ≤ 8 px、松开时无选区、按下时也无选区(那一下是取消选区)、目标不在 `a[href]` 内、无修饰键。分页模式 iframe 比可视区宽且容器横滚,`clientX` 要加上 `frameElement.getBoundingClientRect().left` 才是父文档坐标,再和 `epub-container` 中线比。两侧 48 px 边条保留兜底。
+- **BL-011,先错后对**:第一版把 mousedown/mouseup 挂在正文 iframe 的 document 上,单测全过,Mac 上一点没反应。探针 `b4diag3` 定案:WebKit 对脚本被禁用的文档(sandbox 无 allow-scripts)不调用任何 JS 监听器,合成 `dispatchEvent` 也不行——这才是 BL-006/BL-009 的真根因。改为父文档**指针层** `pointerLayer.ts`(`.bl-pointer` 盖在正文与注解 SVG 之上):单击(位移 ≤ 4 px、按下时无选区、没点到高亮)按可视区中线分左右翻页;拖动用 `caretRangeFromPoint` + `setBaseAndExtent` 在 iframe 里造选区(探针确认工具条「选区操作」照常弹出);双击 `Range.expand('word')` 选词;按下时已有选区那一下只取消;点到 `epubjs-hl/ul` SVG 转发 click 给 epub.js(BL-007 不受影响);悬停在文字上显示 I 形光标。两侧 48 px 边条删掉。
 - **BL-010 第三次**:用户否掉滑入与整页硬翻后要的是"像翻书"。做法是纸质卷页:
   - 几何 `pageCurl.ts`:折线 = 被抓页角 C 与落点 P 的中垂线;`clipHalfPlane` 把页面矩形切成正面/折片两块;折片在屏幕上的位置是它关于折线的镜像(`matrix(a,b,c,d,e,f)`,transform-origin 0 0);轨迹 `curlTargetNext/Prev`:P 从页角出发,x 线性甩过去、y 按 `sin(πt)` 抬升再落下。单页终点在页外一整页(折线到达页缘),双页终点在对面页缘(折线到达书脊)。
   - DOM 层 `pageCurlOverlay.ts`:`snapshotVisiblePage` 从 `rendition.getContents()` 找可视区内的 iframe,克隆 `documentElement.outerHTML`(含 epub.js 注入的主题/分栏样式)和它相对可视区的位置、滚动量、body 背景色;`createCurlOverlay` 盖三层——正面(srcdoc 克隆,clip 未折区域)、纸背(同一克隆 opacity .16 盖在纸色上,clip 已折区域再套镜像矩阵)、沿折线的两条阴影带(折片侧靠折线最暗、正面侧一条柔和投影,随抬升加深)。两张快照 load(或 `READER_PAGE_SNAPSHOT_MAX_MS`=250 超时)后才调 `rendition.next/prev`,新页在纸下露出;rAF 驱动 `READER_PAGE_CURL_MS`=640、`easeInOut`,抬升 0.55。
   - 取舍:纸背是"薄纸透字"(同一页镜像很淡),不是下一页的内容;双页落下瞬间对面页从纸背切到新页,有一点跳;拿不到快照(未渲染、多视图)或减少动态效果时直接换页;正在卷时忽略连点。
   - 小样:先发了 artifact「攻书卷页小样」(同一套几何、真实经济学正文)让用户看动作和参数,再接进阅读器。
-- 门禁:web(见下)、Mac 实测待补(快照耗时要在 CFA 大章上量)。
+- Mac 探针:System Events `click at` 在这条 SSH 链上报 -609/-25208 不可用,真实鼠标点击只能靠用户;指针层在父文档,可用桥合成事件验证。快照耗时:合成 12 万字正文的 srcdoc 克隆 load 7 ms + 排版 50 ms(M 系列),快照方案成本可忽略。
+- 门禁:web 全量(见 PR)、Mac 桥验证见下。
 

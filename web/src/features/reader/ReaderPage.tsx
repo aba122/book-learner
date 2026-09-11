@@ -250,25 +250,9 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
           <p className="p-10 text-sm text-ink-3">正在打开书籍…</p>
         )}
 
-        {/* 翻页:两侧点击区(BL-009,正文 iframe 在 WKWebView 沙箱里收不到点击,父文档叠透明条)+ 按钮 */}
+        {/* 翻页按钮;点正文左右半页翻页由 EpubView 的指针层负责(BL-009/BL-011) */}
         {ready && (
           <>
-            <div
-              role="button"
-              tabIndex={-1}
-              aria-label="点击左侧翻上一页"
-              data-testid="page-zone-prev"
-              onClick={() => epubRef.current?.prev()}
-              className="absolute inset-y-0 left-0 z-10 w-12 cursor-w-resize bg-gradient-to-r from-ink-1/0 to-transparent opacity-0 transition-opacity hover:from-ink-1/5 hover:opacity-100"
-            />
-            <div
-              role="button"
-              tabIndex={-1}
-              aria-label="点击右侧翻下一页"
-              data-testid="page-zone-next"
-              onClick={() => epubRef.current?.next()}
-              className="absolute inset-y-0 right-0 z-10 w-12 cursor-e-resize bg-gradient-to-l from-ink-1/0 to-transparent opacity-0 transition-opacity hover:from-ink-1/5 hover:opacity-100"
-            />
             <button
               aria-label="上一页"
               onClick={() => epubRef.current?.prev()}

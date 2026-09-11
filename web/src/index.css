@@ -65,3 +65,6 @@ body {
 .bl-curl-flap iframe { opacity: 0.16; }
 .bl-curl-strip { position: absolute; left: 0; top: 0; pointer-events: none; }
 [data-turning] [data-testid="epub-container"] { pointer-events: none; }
+/* 正文指针层(BL-011):盖在正文 iframe 与注解 SVG 之上,接管单击翻页/拖动划选/双击选词 */
+.bl-pointer { position: absolute; inset: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
+[data-turning] .bl-pointer { pointer-events: none; }

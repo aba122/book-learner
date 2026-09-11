@@ -274,33 +274,24 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(await screen.findByRole('toolbar', { name: '选区操作' })).toBeInTheDocument()
   })
 
-  it('BL-009:点击正文两侧的翻页区也能翻页(iframe 内点击在 WKWebView 收不到)', async () => {
-    const user = userEvent.setup()
+  it('BL-009/BL-011:点正文右半页翻下一页、左半页翻上一页(父文档指针层接管,iframe 内监听器在 WKWebView 不会被调用)', async () => {
     renderReader('/reader/4')
     await screen.findByRole('button', { name: '书签' })
-    await user.click(screen.getByTestId('page-zone-next'))
-    expect(h.rendition.next).toHaveBeenCalledTimes(1)
-    await user.click(screen.getByTestId('page-zone-prev'))
-    expect(h.rendition.prev).toHaveBeenCalledTimes(1)
-  })
-
-  it('BL-011:点正文右半页翻下一页、左半页翻上一页(监听挂在正文 document 上,不经父文档)', async () => {
-    renderReader('/reader/4')
-    await screen.findByRole('button', { name: '书签' })
-    const doc = document.implementation.createHTMLDocument('x')
-    doc.body.innerHTML = '<p id="p">正文</p>'
-    vi.spyOn(screen.getByTestId('epub-container'), 'getBoundingClientRect').mockReturnValue({ left: 0, width: 600 } as DOMRect)
-    await act(async () => { handler('rendered')?.({ href: 'chap1.xhtml' }, { contents: { document: doc } }) })
-    const press = (x: number) => {
-      const p = doc.getElementById('p')!
-      p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: 200, button: 0 }))
-      p.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x, clientY: 200, button: 0 }))
+    vi.spyOn(screen.getByTestId('epub-container'), 'getBoundingClientRect').mockReturnValue({ left: 0, width: 600, top: 0, height: 800, right: 600, bottom: 800 } as DOMRect)
+    const layer = screen.getByTestId('pointer-layer')
+    const press = (x: number, upX = x) => {
+      layer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: 300, button: 0 }))
+      layer.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: upX, clientY: 300, button: 0 }))
     }
-    h.rendition.next.mockClear()
-    h.rendition.prev.mockClear()
     press(500)
     expect(h.rendition.next).toHaveBeenCalledTimes(1)
     press(100)
+    expect(h.rendition.prev).toHaveBeenCalledTimes(1)
+    // 拖动(超过阈值)不翻页
+    layer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 300, button: 0 }))
+    layer.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 340, clientY: 300, button: 0 }))
+    layer.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 340, clientY: 300, button: 0 }))
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
     expect(h.rendition.prev).toHaveBeenCalledTimes(1)
   })
 
