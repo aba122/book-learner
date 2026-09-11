@@ -1,7 +1,7 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
-import { READER_PAGE_TURN_MS, READER_SELECTION_POLL_MS } from '../../config'
+import { type CSSProperties, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { READER_PAGE_LIFT_MS, READER_PAGE_SETTLE_MS, READER_PAGE_SWAP_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -48,6 +48,10 @@ interface SelectionContents {
   cfiFromRange: (range: Range) => string
 }
 
+/** 系统「减少动态效果」:翻页不做 3D 动画,直接换页 */
+const prefersReducedMotion = () =>
+  typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 const EpubView = forwardRef<
   EpubHandle,
   {
@@ -74,8 +78,10 @@ const EpubView = forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   // 首屏骨架:rendition 首次 rendered 前显示,避免空白等待(T6.1)
   const [ready, setReady] = useState(false)
-  // 翻页过渡(BL-010):记录方向,给外层 data-turning 触发 CSS 动画
-  const [turning, setTurning] = useState<'next' | 'prev' | null>(null)
+  // 仿纸书翻页(BL-010):lift = 当前页绕书脊立起(内容未换);立到边缘才真正 next/prev;settle = 纸背落下盖住旧位置
+  type TurnState = { dir: 'next' | 'prev'; phase: 'lift' | 'settle' }
+  const [turning, setTurning] = useState<TurnState | null>(null)
+  const turnState = useRef<TurnState | null>(null)
   const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onHighlightClickedRef = useRef(onHighlightClicked)
   const spreadRef = useRef(spread)
@@ -277,15 +283,33 @@ const EpubView = forwardRef<
     }
   }, [highlights])
 
+  const setPhase = (state: TurnState | null) => {
+    turnState.current = state
+    setTurning(state)
+  }
+  const navigate = (direction: 'next' | 'prev') =>
+    Promise.resolve(direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev()).catch(() => undefined)
   const turn = (direction: 'next' | 'prev') => {
+    // 纸还立着(尚未换页)时的连点忽略:纸书也翻不了两页
+    if (turnState.current?.phase === 'lift') return
     if (turnTimer.current) clearTimeout(turnTimer.current)
-    setTurning(null)
-    // 下一 tick 再设方向,让连续翻页也能重新触发动画(不用 rAF:后台窗口不派发帧)
-    setTimeout(() => {
-      setTurning(direction)
-      turnTimer.current = setTimeout(() => setTurning(null), READER_PAGE_TURN_MS)
-    }, 0)
-    void (direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev())
+    if (prefersReducedMotion()) {
+      setPhase(null)
+      void navigate(direction)
+      return
+    }
+    setPhase({ dir: direction, phase: 'lift' })
+    turnTimer.current = setTimeout(() => {
+      // 立到边缘:内容此刻不可见,换页;跨章要加载新节,最多等 READER_PAGE_SWAP_MAX_MS 再落页
+      const swapped = navigate(direction)
+      const settle = () => {
+        const cur = turnState.current
+        if (!cur || cur.phase !== 'lift' || cur.dir !== direction) return
+        setPhase({ dir: direction, phase: 'settle' })
+        turnTimer.current = setTimeout(() => setPhase(null), READER_PAGE_SETTLE_MS)
+      }
+      void Promise.race([swapped, new Promise(resolve => setTimeout(resolve, READER_PAGE_SWAP_MAX_MS))]).then(settle)
+    }, READER_PAGE_LIFT_MS)
   }
   useEffect(() => () => { if (turnTimer.current) clearTimeout(turnTimer.current) }, [])
 
@@ -297,8 +321,18 @@ const EpubView = forwardRef<
   }))
 
   return (
-    <div className="relative h-full w-full" data-turning={turning ?? undefined}>
-      <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+    <div
+      className="bl-book relative h-full w-full"
+      data-testid="epub-book"
+      data-turning={turning?.dir}
+      data-turn-phase={turning?.phase}
+      style={{ '--bl-lift': `${READER_PAGE_LIFT_MS}ms`, '--bl-settle': `${READER_PAGE_SETTLE_MS}ms` } as CSSProperties}
+    >
+      <div className="bl-page h-full w-full">
+        <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+        <div className="bl-page-shade" aria-hidden />
+      </div>
+      {turning?.phase === 'settle' && <div className="bl-leaf" data-testid="page-leaf" data-dir={turning.dir} aria-hidden />}
       {!ready && (
         <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
           <div className="h-5 w-1/3 animate-pulse rounded-s bg-paper-3" />
