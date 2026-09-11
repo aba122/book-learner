@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { THEME_KEY } from './config'
 
 export type Theme = 'light' | 'dark'
 
@@ -15,16 +16,35 @@ interface SessionState {
   setTheme: (t: Theme) => void
 }
 
+/** 启动时从 localStorage 读回上次的模式(BL-003:夜读模式刷新/重开后失效);非法值回落 light。 */
+function readTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute('data-theme', theme)
+}
+const initialTheme = readTheme()
+applyTheme(initialTheme)
+
 export const useSession = create<SessionState>(set => ({
   activeBookId: null,
   currentTaskId: null,
-  theme: 'light',
+  theme: initialTheme,
   pendingNotice: null,
   setActiveBookId: activeBookId => set({ activeBookId }),
   setPendingNotice: pendingNotice => set({ pendingNotice }),
   setCurrentTaskId: currentTaskId => set({ currentTaskId }),
   setTheme: theme => {
-    document.documentElement.setAttribute('data-theme', theme)
+    applyTheme(theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch {
+      /* 无持久化时只在本次生效 */
+    }
     set({ theme })
   },
 }))

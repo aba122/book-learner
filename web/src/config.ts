@@ -19,12 +19,18 @@ export const READER_FONT_DEFAULT_IDX = 1
 export const READER_LINE_HEIGHTS = [1.5, 1.8, 2.1] as const
 export const READER_LINE_HEIGHT_DEFAULT_IDX = 1
 export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
+/** 夜读/日读模式持久化键(每台设备,localStorage;BL-003) */
+export const THEME_KEY = 'bookLearner.theme'
 /** 阅读位置写回节流(毫秒):relocated 很密,只记最后一次 */
 export const READER_POSITION_DEBOUNCE_MS = 800
 /** 选区轮询间隔(毫秒):WKWebView 里 sandbox(无 allow-scripts)的 iframe 不派发 selectionchange,epub.js 的 selected 永不触发(BL-006) */
 export const READER_SELECTION_POLL_MS = 300
-/** 翻页过渡动画时长(毫秒;BL-010,轻量滑入,非卷页) */
-export const READER_PAGE_TURN_MS = 220
+/** 仿纸书翻页(BL-010):当前页绕书脊立起的时长;立到边缘才真正换页(内容在不可见时替换) */
+export const READER_PAGE_LIFT_MS = 200
+/** 换页后纸背落下的时长 */
+export const READER_PAGE_SETTLE_MS = 260
+/** 跨章时 epub.js 要加载新节,最多等这么久再落页,免得纸立着不动 */
+export const READER_PAGE_SWAP_MAX_MS = 400
 /** 学生回复打字机渐显速度(毫秒/字) */
 export const TYPEWRITER_CHAR_MS = 28
 /** 快问会话(review/retest,M2 T1):core 回合协议要求用户先开口,前端以固定 id 自动提交开场回合(幂等,重进不重复) */
