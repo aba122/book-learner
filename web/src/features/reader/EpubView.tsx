@@ -121,7 +121,6 @@ const EpubView = forwardRef<
     rendRef.current = rendition
     appliedHighlights.current = new Set()
     appliedSegments.current = new Set()
-    spreadApplied.current = false
     setReady(false)
     for (const [name, styles] of Object.entries(readerThemes(typographyRef.current))) {
       rendition.themes.register(name, styles)
@@ -228,7 +227,11 @@ const EpubView = forwardRef<
   // 不挂视图(Mac 实测 iframe 为空、next() 报 manager undefined);运行时切换 epub.js 只重排现有视图,无需重显示。
   const spreadApplied = useRef(false)
   useEffect(() => {
-    if (!ready || spreadApplied.current === spread) return
+    if (!ready) {
+      spreadApplied.current = false // rendition 重建后从单页起
+      return
+    }
+    if (spreadApplied.current === spread) return
     spreadApplied.current = spread
     const rendition = rendRef.current as unknown as { spread?: (mode: string) => void } | null
     rendition?.spread?.(spread ? 'auto' : 'none')
