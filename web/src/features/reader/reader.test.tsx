@@ -279,36 +279,18 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     renderReader('/reader/4')
     await screen.findByRole('button', { name: '书签' })
     await user.click(screen.getByTestId('page-zone-next'))
-    // 仿纸书翻页(BL-010)先立起再换页:next() 在 lift 结束后才调用
-    await waitFor(() => expect(h.rendition.next).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(screen.getByTestId('epub-book')).not.toHaveAttribute('data-turning'), { timeout: 1500 })
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
     await user.click(screen.getByTestId('page-zone-prev'))
-    await waitFor(() => expect(h.rendition.prev).toHaveBeenCalledTimes(1))
+    expect(h.rendition.prev).toHaveBeenCalledTimes(1)
   })
 
-  it('BL-010:仿纸书翻页两拍——先立起(未换页),立到边缘才 next(),再由纸背落下后清除;立着时连点忽略', async () => {
+  it('BL-010:翻页时外层带 data-turning 触发过渡动画,随后清除', async () => {
     const user = userEvent.setup()
     renderReader('/reader/4')
     const next = await screen.findByRole('button', { name: '下一页' })
-    h.rendition.next.mockClear()
     await user.click(next)
-    const book = screen.getByTestId('epub-book')
-    expect(book).toHaveAttribute('data-turning', 'next')
-    expect(book).toHaveAttribute('data-turn-phase', 'lift')
-    expect(h.rendition.next).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('page-leaf')).toBeNull()
-    await user.click(next) // 纸还立着:忽略
-    await waitFor(() => expect(h.rendition.next).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(book).toHaveAttribute('data-turn-phase', 'settle'))
-    expect(screen.getByTestId('page-leaf')).toHaveAttribute('data-dir', 'next')
-    await waitFor(() => expect(book).not.toHaveAttribute('data-turning'), { timeout: 1500 })
-    expect(screen.queryByTestId('page-leaf')).toBeNull()
-    expect(h.rendition.next).toHaveBeenCalledTimes(1)
-    // 向前翻:镜像方向
-    await user.click(screen.getByRole('button', { name: '上一页' }))
-    expect(book).toHaveAttribute('data-turning', 'prev')
-    await waitFor(() => expect(h.rendition.prev).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(book).not.toHaveAttribute('data-turning'), { timeout: 1500 })
+    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).toHaveAttribute('data-turning', 'next'))
+    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).not.toHaveAttribute('data-turning'), { timeout: 1500 })
   })
 
   it('BL-008:阅读设置里的「双页显示」切换 epub.js spread 并持久化', async () => {
