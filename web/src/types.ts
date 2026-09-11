@@ -72,7 +72,10 @@ export type MapEditOp =
   | { op: 'reorder'; blockIds: number[] }
   | { op: 'setSkipped'; blockId: number; skipped: boolean }
   | { op: 'merge'; into: number; from: number[] }
-  | { op: 'split'; blockId: number }
+  /** 删除没有学习痕迹的块(BL-002:未学且未进计划);有痕迹的用 setSkipped */
+  | { op: 'delete'; blockId: number }
+  /** 拆成两块(BL-002):原块改名 titleA,其后插入 titleB(同模块/前置,复制全部锚点段) */
+  | { op: 'split'; blockId: number; titleA: string; titleB: string }
 export type SessionState = 'open' | 'evaluating' | 'evaluated' | 'confirmed' | 'abandoned'
 export type SessionKind = 'learn' | 'retest' | 'review' | 'final_exam'
 export interface TurnView {

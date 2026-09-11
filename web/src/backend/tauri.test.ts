@@ -764,7 +764,10 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
 
     await backend.storeSpine(1, chapters)
     expect(await backend.runMapJob(1, 'job-1')).toEqual([block])
-    expect(await backend.confirmMap(1, 1, [{ op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] }])).toEqual({ revision: 2 })
+    expect(await backend.confirmMap(1, 1, [
+      { op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] },
+      { op: 'delete', blockId: 3 }, { op: 'split', blockId: 2, titleA: '上', titleB: '下' }, // BL-002:出站校验放行
+    ])).toEqual({ revision: 2 })
     await backend.setAnchorSegments(2, [segment])
     expect(await backend.listAnchors(2)).toEqual([segment])
     expect(await backend.startOrResumeSession(3, 'req-1', '2026-09-05')).toEqual(sessionView)
@@ -780,7 +783,10 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
       command,
       payloadKeys: Object.keys(payload),
     }))).toEqual(expected)
-    expect(calls[2].payload).toEqual({ bookId: 1, expectedRevision: 1, ops: [{ op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] }] })
+    expect(calls[2].payload).toEqual({ bookId: 1, expectedRevision: 1, ops: [
+      { op: 'setSkipped', blockId: 2, skipped: true }, { op: 'reorder', blockIds: [2] },
+      { op: 'delete', blockId: 3 }, { op: 'split', blockId: 2, titleA: '上', titleB: '下' },
+    ] })
     expect(calls[5].payload).toEqual({ taskId: 3, clientRequestId: 'req-1', date: '2026-09-05' })
     expect(calls[8].payload).toEqual({ sessionId: 7, expectedVersion: 4, requestId: 'verdict', pass: true, date: '2026-09-05' })
   })
@@ -803,6 +809,7 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     ['date not string', (backend: TauriBackend) => backend.startOrResumeSession(1, 'req', 20260905 as never)],
     ['unknown map op', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'explode', blockId: 1 } as never])],
     ['reorder ids not integers', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'reorder', blockIds: [1.5] }])],
+    ['split titles not strings', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'split', blockId: 1, titleA: 1, titleB: '下' } as never])],
     ['expectedRevision not integer', (backend: TauriBackend) => backend.confirmMap(1, 1.5, [])],
   ])('rejects unsafe outbound v2 values before invoking: %s', async (_name, operation) => {
     let invoked = false

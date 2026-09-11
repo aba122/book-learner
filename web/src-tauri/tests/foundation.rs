@@ -318,6 +318,21 @@ fn map_group_commands_round_trip_and_expose_revision_and_skipped() {
     assert!(
         serde_json::from_value::<MapEditOpDto>(json!({"op": "explode", "blockId": 1})).is_err()
     );
+    // BL-002:删除 / 拆分的载荷形状(camelCase 字段)
+    let extra: Vec<MapEditOpDto> = serde_json::from_value(json!([
+        {"op": "delete", "blockId": 7},
+        {"op": "split", "blockId": 8, "titleA": "上", "titleB": "下"}
+    ]))
+    .unwrap();
+    assert_eq!(extra[0], MapEditOpDto::Delete { block_id: 7 });
+    assert_eq!(
+        extra[1],
+        MapEditOpDto::Split {
+            block_id: 8,
+            title_a: "上".into(),
+            title_b: "下".into()
+        }
+    );
     let confirmed = commands::map_confirm_inner(&state, second, 1, ops).unwrap();
     assert_eq!(confirmed.revision, 2);
     let blocks = commands::map_list_blocks_inner(&state, second).unwrap();

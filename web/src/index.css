@@ -56,9 +56,34 @@ body {
   outline-offset: 2px;
 }
 
-/* 阅读器翻页过渡(BL-010):新页从翻页方向滑入 */
-@keyframes bl-page-in-next { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-@keyframes bl-page-in-prev { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-[data-turning="next"] { animation: bl-page-in-next 220ms ease-out; }
-[data-turning="prev"] { animation: bl-page-in-prev 220ms ease-out; }
-@media (prefers-reduced-motion: reduce) { [data-turning] { animation: none; } }
+/* 阅读器仿纸书翻页(BL-010):向后翻 = 当前页以左缘(书脊)为轴立起(lift,正文随之转动),
+   立到边缘时换页,再由纸背(bl-leaf)落向左侧(settle);向前翻镜像。时长由 EpubView 用 --bl-lift/--bl-settle 注入。 */
+.bl-book { perspective: 2400px; perspective-origin: 50% 50%; }
+.bl-page { position: relative; transform-origin: left center; transform-style: flat; }
+.bl-page-shade, .bl-leaf { position: absolute; inset: 0; pointer-events: none; }
+.bl-page-shade { opacity: 0; background: linear-gradient(to right, rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.06) 45%, rgb(0 0 0 / 0) 75%); }
+[data-turning="prev"] .bl-page { transform-origin: right center; }
+[data-turning="prev"] .bl-page-shade { background: linear-gradient(to left, rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.06) 45%, rgb(0 0 0 / 0) 75%); }
+[data-turning] .bl-page { pointer-events: none; }
+[data-turning="next"][data-turn-phase="lift"] .bl-page { animation: bl-lift-next var(--bl-lift, 200ms) cubic-bezier(0.45, 0, 0.85, 0.4) forwards; }
+[data-turning="prev"][data-turn-phase="lift"] .bl-page { animation: bl-lift-prev var(--bl-lift, 200ms) cubic-bezier(0.45, 0, 0.85, 0.4) forwards; }
+[data-turn-phase="lift"] .bl-page-shade { animation: bl-shade-in var(--bl-lift, 200ms) ease-in forwards; }
+.bl-leaf {
+  transform-origin: left center;
+  background: linear-gradient(to right, var(--paper-3), var(--paper-2) 30%, var(--paper-1) 85%, var(--paper-3));
+  box-shadow: var(--shadow-pop);
+  border-right: 1px solid var(--line);
+}
+.bl-leaf[data-dir="next"] { animation: bl-settle-next var(--bl-settle, 260ms) cubic-bezier(0.2, 0.6, 0.3, 1) forwards; }
+.bl-leaf[data-dir="prev"] { transform-origin: right center; animation: bl-settle-prev var(--bl-settle, 260ms) cubic-bezier(0.2, 0.6, 0.3, 1) forwards; }
+[data-turn-phase="settle"] .bl-page-shade { animation: bl-shade-out var(--bl-settle, 260ms) ease-out forwards; }
+@keyframes bl-lift-next { from { transform: rotateY(0deg); } to { transform: rotateY(-89deg); } }
+@keyframes bl-lift-prev { from { transform: rotateY(0deg); } to { transform: rotateY(89deg); } }
+@keyframes bl-settle-next { from { transform: rotateY(-91deg); opacity: 1; } 80% { opacity: 1; } to { transform: rotateY(-180deg); opacity: 0; } }
+@keyframes bl-settle-prev { from { transform: rotateY(91deg); opacity: 1; } 80% { opacity: 1; } to { transform: rotateY(180deg); opacity: 0; } }
+@keyframes bl-shade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bl-shade-out { from { opacity: 0.55; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-turning] .bl-page, [data-turning] .bl-page-shade, .bl-leaf { animation: none; }
+  .bl-leaf { display: none; }
+}

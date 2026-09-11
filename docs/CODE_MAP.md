@@ -134,7 +134,7 @@ select * from setting;
 
 **导入向导(`features/library/ImportWizard.tsx`)**:选 `.pdf` → 只显示 Calibre 转换命令不导入;选类型时生成一次 `jobId`,`ImportAttempt{file,type,jobId,bookId?,chapters?}` 走四步:`importEpub`(4 MiB 分块 + finalize,title=文件名)→ `extractSpine`(`epub/extract.ts`:spine 去重、TOC/标题/href 三级取名、`chapterMarkdownText`、每 6 章让出主线程并汇报进度)→ `storeSpine` → `runMapJob`(进度文案 `importProgress.ts`)→ `navigate('/map/:id')`。重试用同一 attempt:已完成的导入/抽取不重跑,`storeSpine+runMapJob` 幂等重跑。EPUB 解析失败一律不可重试「无法解析这个 EPUB 文件」。
 
-**地图页(`features/map/MapPage.tsx` + `mapOps.ts`)**:编辑态可用操作只有上/下移、跳过/恢复、模块改名(「合并/拆分」硬禁用;无删除 UI);`finalize()` → `diffMapOps`(renameModule → setSkipped → reorder),ops 为空不调后端直接进目标设定;`confirmMap(bookId, book.mapRevision, ops)` 冲突不可重试但保留编辑可重发;成功 → 目标设定对话框(`dailyBlocks = ceil(未跳过块/(deadline−today+1))`,`dailyCap=4`)→ `setPlan` → `setActiveBook` → `/`。「整书终评」仅 `allPassed` 时显示。
+**地图页(`features/map/MapPage.tsx` + `mapOps.ts`)**:编辑态操作:上/下移、跳过/恢复、模块改名、并入上一块、拆分(两个标题)、删除(仅未学块;删除/并入可撤销;BL-002);`finalize()` → `diffMapOps`(renameModule → delete → merge → setSkipped → reorder → split),ops 为空不调后端直接进目标设定;`confirmMap(bookId, book.mapRevision, ops)` 冲突不可重试但保留编辑可重发;成功 → 目标设定对话框(`dailyBlocks = ceil(未跳过块/(deadline−today+1))`,`dailyCap=4`)→ `setPlan` → `setActiveBook` → `/`。「整书终评」仅 `allPassed` 时显示。
 
 **锚点(`epub/anchors.ts` + `epub/headings.ts`)**:`resolveBlockAnchors(book, hints)` 把 core 的 `source_section="{href}#{小节标题}"` 解析成 [标题文本节点, 下一同级标题) 的两点折叠 CFI(`exact`),未命中 → 整章 `chapter_fallback`。**回填(BL-001,2026-09-09)**:`epub/anchorBlocks.ts` 在导入向导 `runMapJob` 后对每块 `listAnchors` → `resolveBlockAnchors` → `setAnchorSegments`,已 `exact` 跳过、单块失败不阻塞(console.error 进日志 target=client);2026-09-09 之前导入的书仍是整章回退,删除重导即可。回读定位/块下划线不准时先看 `block_anchor.precision`(诊断包 `tables/anchors.txt`)。
 
@@ -160,7 +160,7 @@ select * from setting;
 | `planning.rs` | `set_plan`、`get_plan`、`today_queue` | study_plan |
 | `sched.rs` | `generate_daily`、`on_block_passed`、`on_review_result`、`on_weak_retest`、`insert_new_weak_points`(NOT EXISTS 去重)、`apply_eval_in_tx`、`check_behind` | daily_task, review_schedule, weak_point |
 | `mapgen.rs` | `store_spine`、两阶段 `run_map_job`(逐章 stage A 候选 → merge 草图;断点 `map_job.next_chapter`) | spine_item, map_job |
-| `map.rs` | `apply_draft_map`(落块 + 锚点,revision 0→1)、`confirm_map`(乐观并发 ops:merge/split/delete/skip/reorder/rename)、`set_anchor_segments`、`list_anchors` | knowledge_block, block_anchor |
+| `map.rs` | `apply_draft_map`(落块 + 锚点,revision 0→1)、`confirm_map`(乐观并发 ops:rename/renameModule/reorder/setSkipped/merge/delete(仅无学习痕迹的块)/split(原块改名+新块复制锚点))、`set_anchor_segments`、`list_anchors` | knowledge_block, block_anchor |
 | `session.rs` | `start_or_resume_session`、`fixed_context_for_block`(锚点文本 → 整章回退,≤ 60 KiB)、`submit_turn`(两阶段事务 + AI)、`abandon_session` | feynman_session, session_turn |
 | `verdict.rs` | `request_evaluation`(AI JSON)、`confirm_session_verdict`(单事务:块状态 + 排期 + 薄弱点 + outbox) | 多表 |
 | `extra.rs` / `final_exam.rs` | 附加环节 / 整书终评(`eligible`、`start`、`finish` 报告 + `finish_book_in`) | feynman_session, artifact |
@@ -185,7 +185,7 @@ select * from setting;
 
 ## 6. 契约六处同步(改任何命令都要同一提交)
 
-1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。原始体命令 payloadKeys 为 `[]`。
+1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。原始体命令 payloadKeys 为 `[]`。**载荷形状变了(命令名不变)也要动**:`tauri.ts` 的出站校验器(如 `MAP_OPS` + `validateMapOps`)、`tauri.test.ts` 的 payload 断言、壳层 DTO 与 foundation 的 DTO 形状断言——2026-09-11 BL-002 新增 delete/split 漏了出站校验器,Mac 上定稿被本地拦成「请求内容无法安全传输」(CI 全绿也测不出,只有调试包实测能发现)。
 
 ## 7. 构建、测试、CI
 
@@ -212,6 +212,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 
 **运行时 / macOS**
 - Finder 启动的 app 没有 shell PATH:codex 是 `#!/usr/bin/env node` 脚本,子进程 127「env: node: No such file」;`state::ensure_gui_path` 启动补全(PR #32)。**测试时若地图/回合失败,先查 `ai_request.error`。**
+- WKWebView 的 localStorage 落盘有约 1 s 延迟:改完偏好立刻退出 app 会丢(探针切夜读后 <1 s 退出即复现);用户正常使用不受影响,探针要等 2–3 s 再 quit。
 - 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。阅读器不渲染的具体链路:epub.js 的任务队列 `Queue.run()` 用 `requestAnimationFrame` 驱动,`rendition.display()` 只是入队,窗口不可见时 rAF 不派发 → 容器里连 iframe 都没有、骨架常驻、无 JS 错误、EPUB 资源请求正常;窗口一露出就自愈。所以驱动脚本 `go /reader/...` 之前必须 `front()`,否则会把"不渲染"误判成回归(2026-09-10 bisect 在 main 上也复现过)。
 - 系统通知只在 bundle 运行时可用;麦克风 TCC 只有经 LaunchServices(Finder/`open`)启动才弹框,从终端直接执行二进制会立即 NotAllowedError。
 - 扬声器回放会被 WebKit 回声消除压掉(录不到 TTS),真人说话不受影响。

@@ -158,6 +158,49 @@ describe('知识地图页', () => {
     expect(spy.mock.calls[1][1]).toBe(2)
   })
 
+  it('BL-002:编辑态可删除(可撤销)、并入上一块、拆分;定稿差分为 delete → merge → setSkipped → split 且后端落地', async () => {
+    const user = userEvent.setup()
+    const spy = vi.spyOn(backendModule.backend, 'confirmMap')
+    renderMap()
+    await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    const items = () => screen.getAllByTestId('block-item')
+    // 已通过的块不能删除;未学的块可以
+    expect(within(items()[0]).getByRole('button', { name: '删除' })).toBeDisabled()
+    expect(within(items()[0]).getByRole('button', { name: '并入上一块' })).toBeDisabled()
+    await user.click(within(items()[5]).getByRole('button', { name: '删除' }))
+    expect(within(items()[5]).getByText('将删除')).toBeInTheDocument()
+    expect(within(items()[5]).queryByRole('button', { name: '上移' })).toBeNull()
+    // 删了再撤销:不产生 delete
+    await user.click(within(items()[10]).getByRole('button', { name: '删除' }))
+    await user.click(within(items()[10]).getByRole('button', { name: '撤销' }))
+    expect(within(items()[10]).queryByText('将删除')).toBeNull()
+    // 块 8 并入上一块(块 7)
+    await user.click(within(items()[7]).getByRole('button', { name: '并入上一块' }))
+    expect(within(items()[7]).getByText('并入 #7')).toBeInTheDocument()
+    // 块 10 拆分,改后半标题
+    await user.click(within(items()[9]).getByRole('button', { name: '拆分' }))
+    const titleB = within(items()[9]).getByLabelText('拆分:后半标题')
+    expect(titleB).toHaveValue('短期成本曲线(下)')
+    await user.clear(titleB)
+    await user.type(titleB, '短期成本曲线 · 下')
+    await user.click(within(items()[11]).getByRole('button', { name: '跳过' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0]).toEqual([1, 1, [
+      { op: 'delete', blockId: 6 },
+      { op: 'merge', into: 7, from: [8] },
+      { op: 'setSkipped', blockId: 12, skipped: true },
+      { op: 'split', blockId: 10, titleA: '短期成本曲线(上)', titleB: '短期成本曲线 · 下' },
+    ]])
+    await screen.findByRole('dialog', { name: '目标设定' })
+    const blocks = await backendModule.backend.listBlocks(1)
+    expect(blocks.find(b => b.id === 6)).toBeUndefined()
+    expect(blocks.find(b => b.id === 8)?.skipped).toBe(true)
+    const half = blocks.find(b => b.title === '短期成本曲线 · 下')!
+    expect(half.seq).toBe(blocks.find(b => b.id === 10)!.seq + 1)
+  })
+
   it('改模块名差分为 renameModule 且排在首位', async () => {
     const user = userEvent.setup()
     const spy = vi.spyOn(backendModule.backend, 'confirmMap')

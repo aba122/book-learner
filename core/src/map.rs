@@ -80,9 +80,17 @@ pub enum MapEditOp {
         into: i64,
         from: Vec<i64>,
     },
-    /// 需要阅读器选区:core 返回 InvalidInput,Mac 阶段实现
+    /// 删除块(BL-002):只允许没有学习痕迹的块(status=unlearned 且无任务/会话/薄弱点/复习计划);
+    /// 锚点一并删除,其他块 prereq 中去掉它。有痕迹的块用 SetSkipped。
+    Delete {
+        block_id: i64,
+    },
+    /// 拆成两块(BL-002):原块改名 title_a,紧随其后插入新块 title_b(同模块、同 prereq、复制全部锚点段、unlearned)。
+    /// 两块暂共用同一段原文;按选区精确切分锚点属手动锚点校正(范围外)。
     Split {
         block_id: i64,
+        title_a: String,
+        title_b: String,
     },
 }
 
@@ -339,10 +347,83 @@ pub fn confirm_map(
                     }
                 }
             }
-            MapEditOp::Split { .. } => {
-                return Err(CoreError::InvalidInput(
-                    "split needs anchor segments from reader".into(),
-                ));
+            MapEditOp::Delete { block_id } => {
+                assert_in_book(&tx, book_id, *block_id)?;
+                let status: String = tx.query_row(
+                    "SELECT status FROM knowledge_block WHERE id=?1",
+                    [block_id],
+                    |r| r.get(0),
+                )?;
+                let traces: i64 = tx.query_row(
+                    "SELECT (SELECT count(*) FROM daily_task WHERE block_id=?1) \
+                          + (SELECT count(*) FROM feynman_session WHERE block_id=?1) \
+                          + (SELECT count(*) FROM weak_point WHERE block_id=?1) \
+                          + (SELECT count(*) FROM review_schedule WHERE block_id=?1)",
+                    [block_id],
+                    |r| r.get(0),
+                )?;
+                if status != "unlearned" || traces > 0 {
+                    return Err(CoreError::InvalidInput(format!(
+                        "block {block_id} has learning history; skip it instead of deleting"
+                    )));
+                }
+                tx.execute("DELETE FROM block_anchor WHERE block_id=?1", [block_id])?;
+                tx.execute(
+                    "UPDATE artifact SET block_id=NULL WHERE block_id=?1",
+                    [block_id],
+                )?;
+                tx.execute("DELETE FROM knowledge_block WHERE id=?1", [block_id])?;
+                for id in block_ids_of(&tx, book_id)? {
+                    let old = prereqs_of(&tx, id)?;
+                    let new: Vec<i64> = old.iter().copied().filter(|p| p != block_id).collect();
+                    if new != old {
+                        tx.execute(
+                            "UPDATE knowledge_block SET prereq_ids=?2 WHERE id=?1",
+                            rusqlite::params![id, serde_json::to_string(&new).unwrap()],
+                        )?;
+                    }
+                }
+            }
+            MapEditOp::Split {
+                block_id,
+                title_a,
+                title_b,
+            } => {
+                assert_in_book(&tx, book_id, *block_id)?;
+                let (title_a, title_b) = (title_a.trim(), title_b.trim());
+                if title_a.is_empty() || title_b.is_empty() {
+                    return Err(CoreError::InvalidInput(
+                        "split needs two non-empty titles".into(),
+                    ));
+                }
+                let (seq, module_name, prereq_ids): (i64, String, String) = tx.query_row(
+                    "SELECT seq, module_name, prereq_ids FROM knowledge_block WHERE id=?1",
+                    [block_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?;
+                tx.execute(
+                    "UPDATE knowledge_block SET title=?2 WHERE id=?1",
+                    rusqlite::params![block_id, title_a],
+                )?;
+                tx.execute(
+                    "UPDATE knowledge_block SET seq=seq+1 WHERE book_id=?1 AND seq>?2",
+                    rusqlite::params![book_id, seq],
+                )?;
+                let taken: HashSet<String> = {
+                    let mut st = tx.prepare("SELECT slug FROM knowledge_block")?;
+                    let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+                    rows.collect::<rusqlite::Result<_>>()?
+                };
+                let slug = slugify(title_b, seq + 1, &taken);
+                tx.execute(
+                    "INSERT INTO knowledge_block(book_id,module_name,seq,title,slug,prereq_ids) \
+                     VALUES(?1,?2,?3,?4,?5,?6)",
+                    rusqlite::params![book_id, module_name, seq + 1, title_b, slug, prereq_ids],
+                )?;
+                let new_id = tx.last_insert_rowid();
+                for (i, seg) in list_anchors(&tx, *block_id)?.iter().enumerate() {
+                    insert_anchor(&tx, new_id, (i + 1) as i64, seg)?;
+                }
             }
         }
     }
@@ -659,14 +740,92 @@ mod tests {
     }
 
     #[test]
-    fn split_is_rejected_and_reorder_must_be_permutation() {
+    fn split_inserts_second_block_after_original_sharing_anchors() {
         let (conn, book, b) = applied();
+        let rev = confirm_map(
+            &conn,
+            book,
+            1,
+            &[MapEditOp::Split {
+                block_id: b[1].id,
+                title_a: "C1 上".into(),
+                title_b: " C1 下 ".into(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(rev, 2);
+        let s = seqs(&conn, book);
+        assert_eq!(s.len(), 4);
+        assert_eq!((s[0].0, s[1].0, s[3].0), (b[0].id, b[1].id, b[2].id));
+        assert_eq!(s.iter().map(|x| x.1).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+        let new_id = s[2].0;
+        let k = crate::models::get_block(&conn, new_id).unwrap();
+        assert_eq!(k.title, "C1 下");
+        assert_eq!(k.module_name, "M1");
+        assert_eq!(k.prereq_ids, vec![b[0].id]);
+        assert_eq!(k.status, "unlearned");
+        assert_eq!(
+            crate::models::get_block(&conn, b[1].id).unwrap().title,
+            "C1 上"
+        );
+        let copied = list_anchors(&conn, new_id).unwrap();
+        assert_eq!(copied.len(), 2);
+        assert_eq!(copied, list_anchors(&conn, b[1].id).unwrap());
+        let err = confirm_map(
+            &conn,
+            book,
+            2,
+            &[MapEditOp::Split {
+                block_id: b[0].id,
+                title_a: "  ".into(),
+                title_b: "x".into(),
+            }],
+        )
+        .unwrap_err();
+        assert!(matches!(err, CoreError::InvalidInput(_)));
+        assert_eq!(seqs(&conn, book).len(), 4);
+    }
+
+    #[test]
+    fn delete_removes_untouched_block_and_prereq_refs_but_refuses_history() {
+        let (conn, book, b) = applied();
+        // C1 是 C2 的前置;删掉 C1 后 C2 的 prereq 清空,锚点随之删除
+        confirm_map(&conn, book, 1, &[MapEditOp::Delete { block_id: b[1].id }]).unwrap();
+        assert_eq!(seqs(&conn, book).len(), 2);
+        assert!(crate::models::get_block(&conn, b[1].id).is_err());
+        assert!(list_anchors(&conn, b[1].id).unwrap().is_empty());
+        assert_eq!(
+            crate::models::get_block(&conn, b[2].id).unwrap().prereq_ids,
+            Vec::<i64>::new()
+        );
+        // 状态不是 unlearned → 拒绝;进了今日计划(daily_task)也拒绝;都无变更
+        conn.execute(
+            "UPDATE knowledge_block SET status='learning' WHERE id=?1",
+            [b[0].id],
+        )
+        .unwrap();
         let err =
-            confirm_map(&conn, book, 1, &[MapEditOp::Split { block_id: b[0].id }]).unwrap_err();
+            confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[0].id }]).unwrap_err();
         assert!(
-            matches!(&err, CoreError::InvalidInput(m) if m.contains("split")),
+            matches!(&err, CoreError::InvalidInput(m) if m.contains("history")),
             "{err}"
         );
+        conn.execute(
+            "INSERT INTO daily_task(date,book_id,block_id,kind,seq,status,est_minutes) \
+             VALUES('2026-09-10',?1,?2,'new',1,'pending',25)",
+            [book, b[2].id],
+        )
+        .unwrap();
+        let err =
+            confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[2].id }]).unwrap_err();
+        assert!(matches!(err, CoreError::InvalidInput(_)));
+        assert_eq!(seqs(&conn, book).len(), 2);
+        assert_eq!(book_state(&conn, book).0, 2);
+    }
+
+    #[test]
+    fn reorder_must_be_permutation() {
+        let (conn, book, b) = applied();
         let err = confirm_map(
             &conn,
             book,

@@ -577,3 +577,12 @@
 - **Mac 实测**(debug bundle + 桥,`reader3/4-verify`):两侧翻页区点击后 `reader_position` 跨章前进/后退;`data-turning="next"` 出现并在 220 ms 后清除;点注解 SVG → 「高亮操作」→ 取消,SVG 与 `reader_mark` 行同时消失;勾选「双页显示」后 `rendition.spread('auto')`,仍是单个 iframe,分栏需视口 ≥ 800 px,故双页时阅读列放宽到 80em。
 - **一次误判**:bisect 四个提交(含 main)都出现"容器里没有 iframe、骨架常驻",查到根因是探针没先置前——epub.js `Queue.run()` 靠 rAF 驱动,被遮挡的 WKWebView 不派发帧,`display()` 永远排队(见 CODE_MAP §9)。不是回归,驱动脚本一律先 `front()` 再开阅读器;且正式版同时运行时置前必须按 pid(按进程名会激活正式版),每步之前都置前(用户操作会把调试窗口盖住)。按此重跑 `reader5/6-verify` 于 208ddff:四项全部通过。
 - 双页的 `spread()` 只在 `ready` 之后调用(`renderTo` 固定 `spread:'none'`),`start()` 之前调用会让 epub.js 没有 manager(`this.manager.next` undefined)。
+
+## 2026-09-11 · 第三批(BL-002 / BL-003 / BL-010 返工)
+- **BL-010 返工**:用户看过 PR #40 的滑入后说"我要的是纸质书翻页的那种特效"。改为两拍 3D 翻页:`EpubView.turn()` 先置 `lift`(`.bl-page` 以书脊侧为轴 `rotateY` 到 ±89°,正文随之转动,阴影渐深),`READER_PAGE_LIFT_MS` 后才调 `rendition.next/prev`(内容在边缘不可见时替换;跨章加载最多等 `READER_PAGE_SWAP_MAX_MS`),再置 `settle`(`.bl-leaf` 纸背从 ±91° 落到 ±180°,`READER_PAGE_SETTLE_MS`)。纸立着时连点忽略(纸书也翻不了两页);`prefers-reduced-motion` 直接换页。**取舍**:没有做页面快照,所以双页模式是整跨翻转、纸背是素纸;要单侧卷页/背面透字得克隆 iframe 文档做快照,大章(CFA 百 k 字)代价大,先不做。
+- **BL-003**:`store.theme` 落 `localStorage['bookLearner.theme']`,模块加载时读回并打 `data-theme`,非法值回落 light。
+- **BL-002**:core `MapEditOp` 新增 `Delete { block_id }`——只允许 `status='unlearned'` 且 daily_task/feynman_session/weak_point/review_schedule 都没有引用的块(有痕迹的用跳过),删 block_anchor、artifact.block_id 置空、其他块 prereq 去引用;`Split { block_id, title_a, title_b }`——原块改名 title_a,后续块 seq+1,插入 title_b(同模块、同 prereq、slug 全库去重、复制全部锚点段、unlearned)。**取舍**:两块暂共用同一段原文(按选区精确切分属手动锚点校正,范围外),UI 里明说。壳层 `MapEditOpDto` 与 TS `MapEditOp`、Mock 同步;命令名不变,foundation 补 DTO 形状断言。前端 `EditEntry` 增 `deleted/mergedInto/split`,`diffMapOps` 顺序 renameModule → delete → merge → setSkipped → reorder → split(delete 在 reorder 前,reorder 须恰好列出现存块;split 在 reorder 后,新块 id 未知);「并入上一块」找上一条在场行,已并入本块的行一并改指向新目标避免链式;删除/并入可撤销;已有学习记录的块删除钮禁用并 title 提示;定稿 invalid_request 且含删除时附一句"删除只对还没开始学的块有效"。
+- **Mac 实测教训**:第一轮调试包定稿报「请求内容无法安全传输」——不是壳层,是 `tauri.ts` 出站校验器 `MAP_OPS` 没加 delete/split,请求在本地就被拦(CI 全绿测不出)。补校验器 + `tauri.test` 断言。另:探针切夜读后不到 1 s 就退出,localStorage 还没落盘,误判 BL-003 未修;等 3 s 再退出即保留(CODE_MAP §9 已记)。
+- Mac 实测(调试包 ad89d46+校验器修复):壳层 cargo test 43、clippy 0;夜读切换 → 重开沿用;地图编辑态行内「上移|下移|跳过|并入上一块|拆分|删除」,拆分显示两个标题输入并可定稿;翻页采样 `lift:matrix3d`(0–180 ms)→ `settle`+纸背(240–430 ms)→ 清除,位置跨章前进。
+- 门禁:web 342/2(+5:store 2、map 1、contract 1、tauri 1)、tsc、oxlint 0、build;core 170。
+
