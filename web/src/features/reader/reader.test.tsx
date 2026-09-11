@@ -284,6 +284,26 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(h.rendition.prev).toHaveBeenCalledTimes(1)
   })
 
+  it('BL-011:点正文右半页翻下一页、左半页翻上一页(监听挂在正文 document 上,不经父文档)', async () => {
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    const doc = document.implementation.createHTMLDocument('x')
+    doc.body.innerHTML = '<p id="p">正文</p>'
+    vi.spyOn(screen.getByTestId('epub-container'), 'getBoundingClientRect').mockReturnValue({ left: 0, width: 600 } as DOMRect)
+    await act(async () => { handler('rendered')?.({ href: 'chap1.xhtml' }, { contents: { document: doc } }) })
+    const press = (x: number) => {
+      const p = doc.getElementById('p')!
+      p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: 200, button: 0 }))
+      p.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x, clientY: 200, button: 0 }))
+    }
+    h.rendition.next.mockClear()
+    h.rendition.prev.mockClear()
+    press(500)
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
+    press(100)
+    expect(h.rendition.prev).toHaveBeenCalledTimes(1)
+  })
+
   it('BL-010:翻页时外层带 data-turning 触发过渡动画,随后清除', async () => {
     const user = userEvent.setup()
     renderReader('/reader/4')

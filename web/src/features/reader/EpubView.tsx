@@ -2,6 +2,7 @@ import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { READER_PAGE_TURN_MS, READER_SELECTION_POLL_MS } from '../../config'
+import { attachClickToTurn } from './clickToTurn'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -78,6 +79,9 @@ const EpubView = forwardRef<
   const [turning, setTurning] = useState<'next' | 'prev' | null>(null)
   const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onHighlightClickedRef = useRef(onHighlightClicked)
+  // 点正文半页翻页(BL-011):rendered 时给正文 document 挂监听;turn 经 ref 调用(声明在后面)
+  const turnRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+  const clickDetachers = useRef<Map<Document, () => void>>(new Map())
   const spreadRef = useRef(spread)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
@@ -168,6 +172,9 @@ const EpubView = forwardRef<
       setReady(true)
       const doc = view?.contents?.document
       if (!doc) return
+      if (typeof doc.addEventListener === 'function' && !clickDetachers.current.has(doc) && containerRef.current) {
+        clickDetachers.current.set(doc, attachClickToTurn(doc, containerRef.current, side => turnRef.current(side)))
+      }
       for (const seg of segmentsRef.current ?? []) {
         if (seg.spineHref !== section.href) continue
         const key = `${seg.spineHref}|${seg.cfiStart}|${seg.cfiEnd}`
@@ -211,6 +218,8 @@ const EpubView = forwardRef<
     window.addEventListener('resize', onResize)
     return () => {
       clearInterval(selectionTimer)
+      for (const detach of clickDetachers.current.values()) detach()
+      clickDetachers.current.clear()
       window.removeEventListener('resize', onResize)
       book.destroy()
       bookRef.current = null
@@ -287,6 +296,9 @@ const EpubView = forwardRef<
     }, 0)
     void (direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev())
   }
+  useLayoutEffect(() => {
+    turnRef.current = turn
+  })
   useEffect(() => () => { if (turnTimer.current) clearTimeout(turnTimer.current) }, [])
 
   useImperativeHandle(ref, () => ({
