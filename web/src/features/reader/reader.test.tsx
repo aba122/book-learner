@@ -296,6 +296,10 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
   it('BL-008:阅读设置里的「双页显示」切换 epub.js spread 并持久化', async () => {
     const user = userEvent.setup()
     renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    // 首屏 rendered 后才会应用 spread(start 前调用会让 epub.js 不挂视图)
+    await act(async () => { handler('rendered')?.({ href: 'chap1.xhtml' }, { contents: { document: document.implementation.createHTMLDocument('x') } }) })
+    expect(h.rendition.spread).not.toHaveBeenCalled() // 默认单页,不必调用
     await user.click(await screen.findByRole('button', { name: '阅读设置' }))
     const toggle = screen.getByLabelText('双页显示')
     expect(toggle).not.toBeChecked()

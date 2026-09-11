@@ -114,12 +114,14 @@ const EpubView = forwardRef<
       width: '100%',
       height: '100%',
       flow: 'paginated',
-      spread: spreadRef.current ? 'auto' : 'none',
+      // 双页不在这里给:renderTo 用 'auto' 或 start 前调 rendition.spread() 都会让 epub.js 不挂视图(Mac 实测)
+      spread: 'none',
       allowScriptedContent: false,
     })
     rendRef.current = rendition
     appliedHighlights.current = new Set()
     appliedSegments.current = new Set()
+    spreadApplied.current = false
     setReady(false)
     for (const [name, styles] of Object.entries(readerThemes(typographyRef.current))) {
       rendition.themes.register(name, styles)
@@ -222,17 +224,15 @@ const EpubView = forwardRef<
     rendRef.current?.themes.fontSize(fontSizePct)
   }, [fontSizePct])
 
-  // 双页开关变化:epub.js 支持运行时切换 spread(BL-008)。挂载时不调用——rendition 尚未 start,
-  // 提前改 settings 会让 epub.js 不再挂视图(Mac 实测 iframe 为空、next() 报 manager undefined)。
-  const spreadApplied = useRef(spread)
+  // 双页(BL-008):只在首屏 rendered 之后按需调 rendition.spread('auto'|'none')——start 前调用会让 epub.js
+  // 不挂视图(Mac 实测 iframe 为空、next() 报 manager undefined);运行时切换 epub.js 只重排现有视图,无需重显示。
+  const spreadApplied = useRef(false)
   useEffect(() => {
-    if (spreadApplied.current === spread) return
+    if (!ready || spreadApplied.current === spread) return
     spreadApplied.current = spread
-    const rendition = rendRef.current as unknown as { spread?: (mode: string) => void; display?: (target: string) => Promise<unknown> } | null
+    const rendition = rendRef.current as unknown as { spread?: (mode: string) => void } | null
     rendition?.spread?.(spread ? 'auto' : 'none')
-    const cfi = lastLocation.current?.cfi
-    if (cfi) void rendition?.display?.(cfi)
-  }, [spread])
+  }, [spread, ready])
 
   // 主题或排版开关变化:重注册三套主题并重新选中(epub.js 会重新注入到 iframe)
   useEffect(() => {
