@@ -804,8 +804,8 @@ mod tests {
             [b[0].id],
         )
         .unwrap();
-        let err = confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[0].id }])
-            .unwrap_err();
+        let err =
+            confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[0].id }]).unwrap_err();
         assert!(
             matches!(&err, CoreError::InvalidInput(m) if m.contains("history")),
             "{err}"
@@ -816,8 +816,8 @@ mod tests {
             [book, b[2].id],
         )
         .unwrap();
-        let err = confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[2].id }])
-            .unwrap_err();
+        let err =
+            confirm_map(&conn, book, 2, &[MapEditOp::Delete { block_id: b[2].id }]).unwrap_err();
         assert!(matches!(err, CoreError::InvalidInput(_)));
         assert_eq!(seqs(&conn, book).len(), 2);
         assert_eq!(book_state(&conn, book).0, 2);

@@ -264,13 +264,33 @@ impl From<AnchorSegment> for AnchorSegmentDto {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum MapEditOpDto {
-    Rename { block_id: i64, title: String },
-    RenameModule { from: String, to: String },
-    Reorder { block_ids: Vec<i64> },
-    SetSkipped { block_id: i64, skipped: bool },
-    Merge { into: i64, from: Vec<i64> },
-    Delete { block_id: i64 },
-    Split { block_id: i64, title_a: String, title_b: String },
+    Rename {
+        block_id: i64,
+        title: String,
+    },
+    RenameModule {
+        from: String,
+        to: String,
+    },
+    Reorder {
+        block_ids: Vec<i64>,
+    },
+    SetSkipped {
+        block_id: i64,
+        skipped: bool,
+    },
+    Merge {
+        into: i64,
+        from: Vec<i64>,
+    },
+    Delete {
+        block_id: i64,
+    },
+    Split {
+        block_id: i64,
+        title_a: String,
+        title_b: String,
+    },
 }
 
 impl From<MapEditOpDto> for MapEditOp {
