@@ -185,7 +185,7 @@ select * from setting;
 
 ## 6. 契约六处同步(改任何命令都要同一提交)
 
-1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。原始体命令 payloadKeys 为 `[]`。
+1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。原始体命令 payloadKeys 为 `[]`。**载荷形状变了(命令名不变)也要动**:`tauri.ts` 的出站校验器(如 `MAP_OPS` + `validateMapOps`)、`tauri.test.ts` 的 payload 断言、壳层 DTO 与 foundation 的 DTO 形状断言——2026-09-11 BL-002 新增 delete/split 漏了出站校验器,Mac 上定稿被本地拦成「请求内容无法安全传输」(CI 全绿也测不出,只有调试包实测能发现)。
 
 ## 7. 构建、测试、CI
 
@@ -212,6 +212,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 
 **运行时 / macOS**
 - Finder 启动的 app 没有 shell PATH:codex 是 `#!/usr/bin/env node` 脚本,子进程 127「env: node: No such file」;`state::ensure_gui_path` 启动补全(PR #32)。**测试时若地图/回合失败,先查 `ai_request.error`。**
+- WKWebView 的 localStorage 落盘有约 1 s 延迟:改完偏好立刻退出 app 会丢(探针切夜读后 <1 s 退出即复现);用户正常使用不受影响,探针要等 2–3 s 再 quit。
 - 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。阅读器不渲染的具体链路:epub.js 的任务队列 `Queue.run()` 用 `requestAnimationFrame` 驱动,`rendition.display()` 只是入队,窗口不可见时 rAF 不派发 → 容器里连 iframe 都没有、骨架常驻、无 JS 错误、EPUB 资源请求正常;窗口一露出就自愈。所以驱动脚本 `go /reader/...` 之前必须 `front()`,否则会把"不渲染"误判成回归(2026-09-10 bisect 在 main 上也复现过)。
 - 系统通知只在 bundle 运行时可用;麦克风 TCC 只有经 LaunchServices(Finder/`open`)启动才弹框,从终端直接执行二进制会立即 NotAllowedError。
 - 扬声器回放会被 WebKit 回声消除压掉(录不到 TTS),真人说话不受影响。

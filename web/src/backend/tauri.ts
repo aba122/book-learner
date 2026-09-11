@@ -170,7 +170,7 @@ const TURN_ROLES = ['user', 'student'] as const
 const TURN_STATUSES = ['pending', 'done', 'failed'] as const
 const VERDICTS = ['pass_suggested', 'relearn_suggested'] as const satisfies readonly Verdict[]
 const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const satisfies readonly AnchorPrecision[]
-const MAP_OPS = ['rename', 'renameModule', 'reorder', 'setSkipped', 'merge', 'split'] as const
+const MAP_OPS = ['rename', 'renameModule', 'reorder', 'setSkipped', 'merge', 'delete', 'split'] as const
 const TASK_KINDS = ['new', 'weak_retest', 'review'] as const satisfies readonly TaskKind[]
 const TASK_STATUSES = ['pending', 'done', 'skipped'] as const
 
@@ -295,8 +295,13 @@ function outboundOps(value: unknown): void {
         if (!Array.isArray(wire.from)) invalidShape(`${path}.from`, 'array', wire.from, 'invalid_request')
         ;(wire.from as unknown[]).forEach((id, i) => outboundInteger(id, `${path}.from[${i}]`))
         break
+      case 'delete':
+        outboundInteger(wire.blockId, `${path}.blockId`)
+        break
       case 'split':
         outboundInteger(wire.blockId, `${path}.blockId`)
+        outboundString(wire.titleA, `${path}.titleA`)
+        outboundString(wire.titleB, `${path}.titleB`)
         break
       default:
         invalidShape(`${path}.op`, MAP_OPS.join(' | '), wire.op, 'invalid_request')
