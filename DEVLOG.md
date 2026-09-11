@@ -567,3 +567,13 @@
 - **定位**:日志里 17:58 的阅读器会话只有 `reader_mark_add`(书签),没有任何前端异常;调试包探针:程序化选区与合成 mousedown/mouseup 后,iframe 文档上的 `selectionchange` 计数为 0,`[role=toolbar]` 不出现。根因:epub.js 用 `sandbox="allow-same-origin"`(我们 `allowScriptedContent:false`,不给 `allow-scripts`)的 srcdoc iframe 渲染正文,WKWebView 不向这种无脚本 iframe 派发 `selectionchange`,而 epub.js 的 `selected` 事件完全依赖它。开 `allow-scripts` 会让 EPUB 内脚本拿到 app 的 IPC,不可取。
 - **修法**:`EpubView` 保留 `selected` 监听的同时,每 `READER_SELECTION_POLL_MS=300` ms 轮询 `rendition.getContents()` 各 contents 的 `window.getSelection()`,非空则 `contents.cfiFromRange(range)` 得区间 CFI 上报;同一区间只报一次,选区消失后重置。用例 1 条(reader.test「BL-006」,含 mock `getContents`)。Mac 验证:调试包程序化选区后工具条出现。
 - 门禁:web 333/2、lint 0、build。
+
+## 2026-09-10 · 阅读器一批(BL-007/008/009/010)
+- **BL-009 鼠标点击不翻页**:同 BL-006 根因——正文 iframe 在 WKWebView 沙箱里收不到鼠标事件。修法:父文档在正文左右各叠一条 48 px 透明翻页区(`page-zone-prev/next`,悬停显渐变),点击即 `prev()/next()`;原 ‹ › 按钮抬到 z-20,键盘照旧。
+- **BL-007 取消高亮**:epub.js 的注解 SVG 画在父文档,能收点击;`annotations.highlight` 第三参传回调 → `onHighlightClicked(cfi)` → 「高亮操作」条(换色 `readerMarkUpdate`、取消 `readerMarkRemove`、关闭);选区工具条与高亮操作条互斥。
+- **BL-008 双页**:阅读设置加「双页显示」,prefs 持久化 `spread`,`rendition.spread('auto'|'none')` 运行时切换。
+- **BL-010 翻页过渡**:`EpubView.next/prev` 先置 `data-turning`(下一 tick 用 `setTimeout(0)` 设,连续翻页可重触发;不用 rAF,后台窗口不派发帧)再翻页,CSS 关键帧让新页从翻页方向滑入 220 ms;`prefers-reduced-motion` 下不动。不做真实卷页。
+- 用例 +4(reader.test);旧高亮用例的注解第三参改为 `expect.any(Function)`。门禁:web 337/2、lint 0、build。
+- **Mac 实测**(debug bundle + 桥,`reader3/4-verify`):两侧翻页区点击后 `reader_position` 跨章前进/后退;`data-turning="next"` 出现并在 220 ms 后清除;点注解 SVG → 「高亮操作」→ 取消,SVG 与 `reader_mark` 行同时消失;勾选「双页显示」后 `rendition.spread('auto')`,仍是单个 iframe,分栏需视口 ≥ 800 px,故双页时阅读列放宽到 80em。
+- **一次误判**:bisect 四个提交(含 main)都出现"容器里没有 iframe、骨架常驻",查到根因是探针没先置前——epub.js `Queue.run()` 靠 rAF 驱动,被遮挡的 WKWebView 不派发帧,`display()` 永远排队(见 CODE_MAP §9)。不是回归,驱动脚本一律先 `front()` 再开阅读器;且正式版同时运行时置前必须按 pid(按进程名会激活正式版),每步之前都置前(用户操作会把调试窗口盖住)。按此重跑 `reader5/6-verify` 于 208ddff:四项全部通过。
+- 双页的 `spread()` 只在 `ready` 之后调用(`renderTo` 固定 `spread:'none'`),`start()` 之前调用会让 epub.js 没有 manager(`this.manager.next` undefined)。

@@ -36,9 +36,11 @@ interface ReaderPrefs {
   lineIdx: number
   indent: boolean
   overridePublisher: boolean
+  /** 双页(BL-008) */
+  spread: boolean
 }
 
-const DEFAULT_PREFS: ReaderPrefs = { fontIdx: READER_FONT_DEFAULT_IDX, theme: 'paper', lineIdx: READER_LINE_HEIGHT_DEFAULT_IDX, indent: true, overridePublisher: true }
+const DEFAULT_PREFS: ReaderPrefs = { fontIdx: READER_FONT_DEFAULT_IDX, theme: 'paper', lineIdx: READER_LINE_HEIGHT_DEFAULT_IDX, indent: true, overridePublisher: true, spread: false }
 
 function loadPrefs(): ReaderPrefs {
   try {
@@ -48,7 +50,7 @@ function loadPrefs(): ReaderPrefs {
     const fontIdx = Number.isInteger(parsed.fontIdx) && parsed.fontIdx! >= 0 && parsed.fontIdx! < READER_FONT_STEPS.length ? parsed.fontIdx! : DEFAULT_PREFS.fontIdx
     const lineIdx = Number.isInteger(parsed.lineIdx) && parsed.lineIdx! >= 0 && parsed.lineIdx! < READER_LINE_HEIGHTS.length ? parsed.lineIdx! : DEFAULT_PREFS.lineIdx
     const theme = parsed.theme === 'sepia' || parsed.theme === 'night' ? parsed.theme : 'paper'
-    return { fontIdx, lineIdx, theme, indent: parsed.indent ?? true, overridePublisher: parsed.overridePublisher ?? true }
+    return { fontIdx, lineIdx, theme, indent: parsed.indent ?? true, overridePublisher: parsed.overridePublisher ?? true, spread: parsed.spread === true }
   } catch {
     return DEFAULT_PREFS
   }
@@ -79,7 +81,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [prefs, setPrefs] = useState<ReaderPrefs>(loadPrefs)
-  const { fontIdx, theme, lineIdx, indent, overridePublisher } = prefs
+  const { fontIdx, theme, lineIdx, indent, overridePublisher, spread } = prefs
   const updatePrefs = (patch: Partial<ReaderPrefs>) => {
     setPrefs(cur => {
       const next = { ...cur, ...patch }
@@ -95,6 +97,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [marksOpen, setMarksOpen] = useState(false)
   const [marks, setMarks] = useState<ReaderMark[] | null>(null)
   const [selection, setSelection] = useState<SelectionInfo | null>(null)
+  /** 点击正文里已有高亮后弹出的操作条(BL-007):记区间 CFI */
+  const [activeHighlight, setActiveHighlight] = useState<string | null>(null)
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布
@@ -147,7 +151,12 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     await backend.readerMarkRemove(mark.id)
     setMarks(cur => (cur ?? initialMarks).filter(m => m.id !== mark.id))
   })
-  const markError = addMarkOp.errors.get('add') ?? removeMarkOp.errors.get('remove')
+  const recolorOp = useBackendOperation(async (mark: ReaderMark, color: HighlightColor) => {
+    const updated = await backend.readerMarkUpdate(mark.id, null, color)
+    setMarks(cur => (cur ?? initialMarks).map(m => (m.id === updated.id ? updated : m)))
+  })
+  const markError = addMarkOp.errors.get('add') ?? removeMarkOp.errors.get('remove') ?? recolorOp.errors.get('recolor')
+  const activeMark = activeHighlight ? (marks ?? initialMarks).find(m => m.kind === 'highlight' && m.cfiStart === activeHighlight) ?? null : null
 
   const addBookmark = () => {
     const loc = epubRef.current?.currentLocation()
@@ -219,7 +228,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <AsyncError error={initError} onRetry={loadContent} />
           </div>
         ) : ready ? (
-          <div className="mx-auto h-full w-full max-w-[38em]">
+          <div className={`mx-auto h-full w-full ${spread ? 'max-w-[80em]' : 'max-w-[38em]'}`} data-testid="reader-column">
             <EpubView
               ref={epubRef}
               url={url}
@@ -231,32 +240,75 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
               blockSegments={learning ? content.data?.segments : undefined}
               onToc={setToc}
               onProgress={setProgress}
-              onSelected={setSelection}
+              onSelected={sel => { setActiveHighlight(null); setSelection(sel) }}
               onRelocated={onRelocated}
+              spread={spread}
+              onHighlightClicked={cfi => { setSelection(null); setActiveHighlight(cfi) }}
             />
           </div>
         ) : (
           <p className="p-10 text-sm text-ink-3">正在打开书籍…</p>
         )}
 
-        {/* 翻页 */}
+        {/* 翻页:两侧点击区(BL-009,正文 iframe 在 WKWebView 沙箱里收不到点击,父文档叠透明条)+ 按钮 */}
         {ready && (
           <>
+            <div
+              role="button"
+              tabIndex={-1}
+              aria-label="点击左侧翻上一页"
+              data-testid="page-zone-prev"
+              onClick={() => epubRef.current?.prev()}
+              className="absolute inset-y-0 left-0 z-10 w-12 cursor-w-resize bg-gradient-to-r from-ink-1/0 to-transparent opacity-0 transition-opacity hover:from-ink-1/5 hover:opacity-100"
+            />
+            <div
+              role="button"
+              tabIndex={-1}
+              aria-label="点击右侧翻下一页"
+              data-testid="page-zone-next"
+              onClick={() => epubRef.current?.next()}
+              className="absolute inset-y-0 right-0 z-10 w-12 cursor-e-resize bg-gradient-to-l from-ink-1/0 to-transparent opacity-0 transition-opacity hover:from-ink-1/5 hover:opacity-100"
+            />
             <button
               aria-label="上一页"
               onClick={() => epubRef.current?.prev()}
-              className="absolute top-1/2 left-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
+              className="absolute top-1/2 left-2 z-20 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
             >
               ‹
             </button>
             <button
               aria-label="下一页"
               onClick={() => epubRef.current?.next()}
-              className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
+              className="absolute top-1/2 right-2 z-20 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
             >
               ›
             </button>
           </>
+        )}
+
+        {/* 已有高亮的操作条(BL-007):换色 / 取消高亮 */}
+        {activeMark && (
+          <div role="toolbar" aria-label="高亮操作" className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-m border border-line bg-paper-2 px-3 py-2 shadow-pop">
+            <span className="max-w-48 truncate text-xs text-ink-3">{activeMark.text || '高亮'}</span>
+            {HIGHLIGHT_COLORS.map(c => (
+              <button
+                key={c.color}
+                aria-label={`改为:${c.label}`}
+                aria-pressed={activeMark.color === c.color}
+                disabled={recolorOp.pending.size > 0}
+                onClick={() => { recolorOp.clearError('recolor'); void recolorOp.run('recolor', activeMark, c.color) }}
+                className={`h-5 w-5 cursor-pointer rounded-full border border-line ${c.swatch} ${activeMark.color === c.color ? 'ring-2 ring-ink-3' : ''}`}
+              />
+            ))}
+            <button
+              className="cursor-pointer text-xs text-weak hover:underline"
+              disabled={removeMarkOp.pending.size > 0}
+              onClick={() => { const m = activeMark; setActiveHighlight(null); removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', m) }}
+            >
+              取消高亮
+            </button>
+            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => setActiveHighlight(null)}>关闭</button>
+          </div>
         )}
 
         {/* 选区工具条:高亮四色 */}
@@ -372,6 +424,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <label className="mt-3 flex items-center justify-between text-xs text-ink-3">
               段首缩进
               <input type="checkbox" checked={indent} disabled={!overridePublisher} onChange={e => updatePrefs({ indent: e.target.checked })} />
+            </label>
+            <label className="mt-2 flex items-center justify-between text-xs text-ink-3">
+              双页显示
+              <input type="checkbox" checked={spread} onChange={e => updatePrefs({ spread: e.target.checked })} />
             </label>
             <label className="mt-2 flex items-center justify-between text-xs text-ink-3">
               覆盖出版方样式

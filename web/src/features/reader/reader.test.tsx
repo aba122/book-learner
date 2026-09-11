@@ -22,6 +22,7 @@ const h = vi.hoisted(() => {
     annotations: { highlight: vi.fn(), underline: vi.fn(), remove: vi.fn() },
     /** BL-006:选区轮询读取的 contents;测试里按需塞入 */
     getContents: vi.fn((): unknown[] => []),
+    spread: vi.fn(),
   }
   const book = {
     renderTo: vi.fn(() => rendition),
@@ -247,7 +248,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await user.click(within(toolbar).getByRole('button', { name: '高亮:绿' }))
     await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
-    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, undefined, 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
+    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, expect.any(Function), 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
     expect(screen.queryByRole('toolbar')).toBeNull()
   })
 
@@ -271,6 +272,64 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await new Promise(r => setTimeout(r, READER_SELECTION_POLL_MS * 2))
     h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: () => 'epubcfi(/6/8!/4/4,/1:0,/1:4)' }])
     expect(await screen.findByRole('toolbar', { name: '选区操作' })).toBeInTheDocument()
+  })
+
+  it('BL-009:点击正文两侧的翻页区也能翻页(iframe 内点击在 WKWebView 收不到)', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await user.click(screen.getByTestId('page-zone-next'))
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByTestId('page-zone-prev'))
+    expect(h.rendition.prev).toHaveBeenCalledTimes(1)
+  })
+
+  it('BL-010:翻页时外层带 data-turning 触发过渡动画,随后清除', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    const next = await screen.findByRole('button', { name: '下一页' })
+    await user.click(next)
+    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).toHaveAttribute('data-turning', 'next'))
+    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).not.toHaveAttribute('data-turning'), { timeout: 1500 })
+  })
+
+  it('BL-008:阅读设置里的「双页显示」切换 epub.js spread 并持久化', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    // 首屏 rendered 后才会应用 spread(start 前调用会让 epub.js 不挂视图)
+    await act(async () => { handler('rendered')?.({ href: 'chap1.xhtml' }, { contents: { document: document.implementation.createHTMLDocument('x') } }) })
+    expect(h.rendition.spread).not.toHaveBeenCalled() // 默认单页,不必调用
+    await user.click(await screen.findByRole('button', { name: '阅读设置' }))
+    const toggle = screen.getByLabelText('双页显示')
+    expect(toggle).not.toBeChecked()
+    await user.click(toggle)
+    await waitFor(() => expect(h.rendition.spread).toHaveBeenLastCalledWith('auto'))
+    expect(screen.getByTestId('reader-column').className).toContain('max-w-[80em]')
+    expect(JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}').spread).toBe(true)
+    await user.click(toggle)
+    await waitFor(() => expect(h.rendition.spread).toHaveBeenLastCalledWith('none'))
+  })
+
+  it('BL-007:点击正文里已有的高亮 → 操作条可换色或取消高亮', async () => {
+    const user = userEvent.setup()
+    const b = backendModule.backend
+    const created = await b.readerMarkAdd(1, { kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:5)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:5)', text: '需求定律', color: 'yellow' })
+    const remove = vi.spyOn(b, 'readerMarkRemove')
+    const update = vi.spyOn(b, 'readerMarkUpdate')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith(created.cfiStart, {}, expect.any(Function), 'bl-highlight', expect.anything()))
+    const call = h.rendition.annotations.highlight.mock.calls.find(c => c[0] === created.cfiStart)!
+    await act(async () => { (call[2] as () => void)() })
+    const toolbar = await screen.findByRole('toolbar', { name: '高亮操作' })
+    expect(toolbar).toHaveTextContent('需求定律')
+    await user.click(within(toolbar).getByRole('button', { name: '改为:绿' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith(created.id, null, 'green'))
+    await user.click(within(toolbar).getByRole('button', { name: '取消高亮' }))
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(created.id))
+    expect(screen.queryByRole('toolbar', { name: '高亮操作' })).toBeNull()
+    await waitFor(() => expect(h.rendition.annotations.remove).toHaveBeenCalledWith(created.cfiStart, 'highlight'))
   })
 
   it('阅读位置节流写回,非学习模式重开从上次位置开始', async () => {

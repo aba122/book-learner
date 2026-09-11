@@ -55,3 +55,10 @@ body {
   outline: 2px solid var(--c-new);
   outline-offset: 2px;
 }
+
+/* 阅读器翻页过渡(BL-010):新页从翻页方向滑入 */
+@keyframes bl-page-in-next { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
+@keyframes bl-page-in-prev { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
+[data-turning="next"] { animation: bl-page-in-next 220ms ease-out; }
+[data-turning="prev"] { animation: bl-page-in-prev 220ms ease-out; }
+@media (prefers-reduced-motion: reduce) { [data-turning] { animation: none; } }
