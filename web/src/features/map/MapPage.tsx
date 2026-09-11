@@ -12,7 +12,7 @@ import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
 import type { BlockStatus, KnowledgeBlock, MapEditOp, Scores } from '../../types'
-import { diffMapOps, type EditEntry } from './mapOps'
+import { diffMapOps, isLive, newEntry, type EditEntry } from './mapOps'
 
 const STATUS_LABEL: Record<BlockStatus, string> = {
   unlearned: '未学',
@@ -124,7 +124,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
   const startEdit = () => {
     if (!blocks) return
     confirmOp.clearError('confirm')
-    setEdits(blocks.map(b => ({ title: b.title, moduleName: b.moduleName, skipped: b.skipped, block: b })))
+    setEdits(blocks.map(newEntry))
   }
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -143,6 +143,37 @@ function MapPageContent({ bookId }: { bookId: number }) {
       cur ? cur.map((e, i) => (i === idx ? { ...e, skipped: !e.skipped } : e)) : cur,
     )
   }
+
+  // BL-002:删除(可撤销)、并入上一块(可撤销)、拆分(两个标题)
+  const toggleDelete = (idx: number) => {
+    setEdits(cur =>
+      cur ? cur.map((e, i) => (i === idx ? { ...e, deleted: !e.deleted, mergedInto: null, split: null } : e)) : cur,
+    )
+  }
+  const mergeIntoPrev = (idx: number) => {
+    setEdits(cur => {
+      if (!cur) return cur
+      const self = cur[idx]
+      let j = idx - 1
+      while (j >= 0 && !isLive(cur[j])) j -= 1
+      if (j < 0) return cur
+      const target = cur[j].block.id
+      // 已并入本块的行一并改指向新目标,避免链式合并
+      return cur.map((e, i) => {
+        if (i === idx) return { ...e, mergedInto: target, split: null }
+        if (e.mergedInto === self.block.id) return { ...e, mergedInto: target }
+        return e
+      })
+    })
+  }
+  const unmerge = (idx: number) => {
+    setEdits(cur => (cur ? cur.map((e, i) => (i === idx ? { ...e, mergedInto: null } : e)) : cur))
+  }
+  const setSplit = (idx: number, split: EditEntry['split']) => {
+    setEdits(cur => (cur ? cur.map((e, i) => (i === idx ? { ...e, split } : e)) : cur))
+  }
+  const hasPrevLive = (idx: number) => (edits ?? []).slice(0, idx).some(isLive)
+  const indexOfBlock = (id: number) => (edits ?? []).findIndex(e => e.block.id === id)
 
   const renameModule = (oldName: string, newName: string) => {
     setEdits(cur =>
@@ -231,6 +262,9 @@ function MapPageContent({ bookId }: { bookId: number }) {
             onRetry={() => void confirmOp.retry('confirm')}
             variant="compact"
           />
+          {confirmError.code === 'invalid_request' && edits?.some(e => e.deleted) && (
+            <p className="mt-1 text-xs text-ink-3">删除只对还没开始学的块有效(未学且未进今日计划);其余请改用「跳过」。</p>
+          )}
         </div>
       )}
 
@@ -272,18 +306,47 @@ function MapPageContent({ bookId }: { bookId: number }) {
                     </span>
                     <div className="min-w-0 flex-1">
                       <span
-                        className={`font-serif text-base text-ink-1 ${entry?.skipped ? 'line-through' : ''}`}
+                        className={`font-serif text-base text-ink-1 ${entry?.skipped || entry?.deleted ? 'line-through' : ''}`}
                       >
                         {entry?.title ?? block.title}
                       </span>
                       {block.prereqIds.length > 0 && (
                         <span className="ml-2 text-xs text-ink-4">依赖 #{block.prereqIds.join(' #')}</span>
                       )}
+                      {entry?.deleted && <Tag tone="weak">将删除</Tag>}
+                      {entry && entry.mergedInto !== null && (
+                        <Tag tone="review">并入 #{indexOfBlock(entry.mergedInto) + 1}</Tag>
+                      )}
+                      {entry?.split && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="split-editor">
+                          <input
+                            aria-label="拆分:前半标题"
+                            value={entry.split.titleA}
+                            disabled={confirming}
+                            onChange={e => setSplit(flatIdx, { titleA: e.target.value, titleB: entry.split?.titleB ?? '' })}
+                            className="w-56 rounded-s border border-line bg-paper-2 px-2 py-1 text-sm text-ink-1"
+                          />
+                          <span className="text-xs text-ink-4">+</span>
+                          <input
+                            aria-label="拆分:后半标题"
+                            value={entry.split.titleB}
+                            disabled={confirming}
+                            onChange={e => setSplit(flatIdx, { titleA: entry.split?.titleA ?? '', titleB: e.target.value })}
+                            className="w-56 rounded-s border border-line bg-paper-2 px-2 py-1 text-sm text-ink-1"
+                          />
+                          <span className="text-xs text-ink-4">两块先共用同一段原文,可分别改名</span>
+                        </div>
+                      )}
                     </div>
                     {block.scores && !editing && <Stars scores={block.scores} />}
                     {!editing && block.skipped && <Tag tone="neutral">已跳过</Tag>}
                     {!editing && <Tag tone={STATUS_TONE[block.status]}>{STATUS_LABEL[block.status]}</Tag>}
-                    {editing && (
+                    {editing && entry && (entry.deleted || entry.mergedInto !== null) && (
+                      <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => (entry.deleted ? toggleDelete(flatIdx) : unmerge(flatIdx))}>
+                        撤销
+                      </Button>
+                    )}
+                    {editing && entry && isLive(entry) && (
                       <div className="flex shrink-0 items-center gap-1.5">
                         <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => move(flatIdx, -1)}>
                           上移
@@ -292,14 +355,31 @@ function MapPageContent({ bookId }: { bookId: number }) {
                           下移
                         </Button>
                         <Button disabled={confirming} className="px-2.5 py-1 text-xs" onClick={() => toggleSkip(flatIdx)}>
-                          {entry?.skipped ? '恢复' : '跳过'}
+                          {entry.skipped ? '恢复' : '跳过'}
                         </Button>
                         <Button
+                          disabled={confirming || !hasPrevLive(flatIdx)}
                           className="px-2.5 py-1 text-xs"
-                          disabled
-                          title="合并/拆分暂未提供;可用删除、跳过与排序整理地图"
+                          title="本块标记为已跳过,原文段并入上一块;其他块对它的依赖改指上一块"
+                          onClick={() => mergeIntoPrev(flatIdx)}
                         >
-                          合并/拆分
+                          并入上一块
+                        </Button>
+                        <Button
+                          disabled={confirming}
+                          className="px-2.5 py-1 text-xs"
+                          title="拆成两块:本块改名为前半,后半紧随其后插入(同模块、同依赖,先共用原文段)"
+                          onClick={() => setSplit(flatIdx, entry.split ? null : { titleA: `${entry.title}(上)`, titleB: `${entry.title}(下)` })}
+                        >
+                          {entry.split ? '取消拆分' : '拆分'}
+                        </Button>
+                        <Button
+                          disabled={confirming || block.status !== 'unlearned'}
+                          className="px-2.5 py-1 text-xs"
+                          title={block.status === 'unlearned' ? '从地图删除这个块(未学且未进今日计划才能删)' : '已有学习记录的块不能删除,请用「跳过」'}
+                          onClick={() => toggleDelete(flatIdx)}
+                        >
+                          删除
                         </Button>
                       </div>
                     )}

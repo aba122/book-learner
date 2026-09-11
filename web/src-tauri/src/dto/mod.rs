@@ -269,7 +269,8 @@ pub enum MapEditOpDto {
     Reorder { block_ids: Vec<i64> },
     SetSkipped { block_id: i64, skipped: bool },
     Merge { into: i64, from: Vec<i64> },
-    Split { block_id: i64 },
+    Delete { block_id: i64 },
+    Split { block_id: i64, title_a: String, title_b: String },
 }
 
 impl From<MapEditOpDto> for MapEditOp {
@@ -282,7 +283,16 @@ impl From<MapEditOpDto> for MapEditOp {
                 Self::SetSkipped { block_id, skipped }
             }
             MapEditOpDto::Merge { into, from } => Self::Merge { into, from },
-            MapEditOpDto::Split { block_id } => Self::Split { block_id },
+            MapEditOpDto::Delete { block_id } => Self::Delete { block_id },
+            MapEditOpDto::Split {
+                block_id,
+                title_a,
+                title_b,
+            } => Self::Split {
+                block_id,
+                title_a,
+                title_b,
+            },
         }
     }
 }

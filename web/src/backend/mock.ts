@@ -188,6 +188,7 @@ export class MockBackend implements Backend {
     if (book.mapRevision !== expectedRevision) throw conflict()
     const working = this.blocks.filter(b => b.bookId === bookId).map(b => ({ ...b, prereqIds: [...b.prereqIds] }))
     const anchorsWorking = new Map<number, AnchorSegment[]>()
+    const deletedIds: number[] = []
     const inBook = (id: number) => {
       const b = working.find(k => k.id === id)
       if (!b) throw notFound()
@@ -239,14 +240,37 @@ export class MockBackend implements Backend {
           }
           break
         }
-        case 'split':
-          throw invalidRequest()
+        case 'delete': {
+          const b = inBook(op.blockId)
+          // 与 core 同语义:只删没有学习痕迹的块(未学且未进计划)
+          if (b.status !== 'unlearned' || this.tasks.some(t => t.blockId === op.blockId)) throw invalidRequest()
+          working.splice(working.indexOf(b), 1)
+          deletedIds.push(op.blockId)
+          for (const k of working) k.prereqIds = k.prereqIds.filter(p => p !== op.blockId)
+          break
+        }
+        case 'split': {
+          const titleA = op.titleA.trim()
+          const titleB = op.titleB.trim()
+          if (!titleA || !titleB) throw invalidRequest()
+          const b = inBook(op.blockId)
+          b.title = titleA
+          for (const k of working) if (k.seq > b.seq) k.seq += 1
+          const id = this.nextBlockId++
+          working.push({
+            id, bookId, moduleName: b.moduleName, seq: b.seq + 1, title: titleB, slug: `block-${bookId}-${id}`,
+            prereqIds: [...b.prereqIds], status: 'unlearned', skipped: false,
+          })
+          anchorsWorking.set(id, (anchorsWorking.get(op.blockId) ?? this.anchors.get(op.blockId) ?? []).map(s => ({ ...s })))
+          break
+        }
         default:
           throw invalidRequest()
       }
     }
     this.blocks = this.blocks.filter(b => b.bookId !== bookId).concat(working.sort((a, z) => a.seq - z.seq))
     for (const [id, segs] of anchorsWorking) this.anchors.set(id, segs)
+    for (const id of deletedIds) this.anchors.delete(id)
     book.mapRevision += 1
     return { revision: book.mapRevision }
   }

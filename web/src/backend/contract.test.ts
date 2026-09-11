@@ -351,12 +351,35 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     const b = new MockBackend()
     const before = JSON.stringify(await b.listBlocks(1))
     await expect(b.confirmMap(1, 1, [{ op: 'reorder', blockIds: [1, 2] }])).rejects.toMatchObject({ code: 'invalid_request' })
-    await expect(b.confirmMap(1, 1, [{ op: 'split', blockId: 1 }])).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.confirmMap(1, 1, [{ op: 'split', blockId: 1, titleA: '  ', titleB: 'x' }])).rejects.toMatchObject({ code: 'invalid_request' })
+    // delete:已通过的块、已进今日计划的未学块(块 4 有任务)都拒绝
+    await expect(b.confirmMap(1, 1, [{ op: 'delete', blockId: 1 }])).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.confirmMap(1, 1, [{ op: 'delete', blockId: 4 }])).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(b.confirmMap(1, 1, [{ op: 'rename', blockId: 1, title: '   ' }])).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(b.confirmMap(1, 1, [{ op: 'setSkipped', blockId: 999, skipped: true }])).rejects.toMatchObject({ code: 'not_found' })
     await expect(b.confirmMap(999, 0, [])).rejects.toMatchObject({ code: 'not_found' })
     expect(JSON.stringify(await b.listBlocks(1))).toBe(before)
     expect((await b.listBooks())[0].mapRevision).toBe(1)
+  })
+
+  it('delete:只删没学过的块并清掉别人的 prereq 引用;split:原块改名、新块紧随其后、同模块/前置并复制锚点(BL-002)', async () => {
+    const b = new MockBackend()
+    const seg = { spineHref: 'chap9.xhtml', cfiStart: 'a', cfiEnd: 'b', precision: 'exact' as const, hint: '短期成本', text: '成本原文' }
+    await b.setAnchorSegments(10, [seg])
+    expect(await b.confirmMap(1, 1, [
+      { op: 'delete', blockId: 6 },
+      { op: 'split', blockId: 10, titleA: '短期成本(上)', titleB: ' 短期成本(下) ' },
+    ])).toEqual({ revision: 2 })
+    const blocks = await b.listBlocks(1)
+    expect(blocks.find(k => k.id === 6)).toBeUndefined()
+    expect(blocks.find(k => k.id === 7)?.prereqIds).toEqual([])
+    const a = blocks.find(k => k.id === 10)!
+    const nb = blocks.find(k => k.title === '短期成本(下)')!
+    expect(a.title).toBe('短期成本(上)')
+    expect(nb).toMatchObject({ seq: a.seq + 1, moduleName: '生产与成本', prereqIds: [9], status: 'unlearned', skipped: false })
+    expect(blocks.find(k => k.id === 11)?.seq).toBe(a.seq + 2)
+    expect(await b.listAnchors(nb.id)).toEqual([seg])
+    await expect(b.listAnchors(6)).rejects.toMatchObject({ code: 'not_found' })
   })
 
   it('merge:来源块 skipped、锚点段复制到目标块、其他块 prereq 重映射', async () => {
