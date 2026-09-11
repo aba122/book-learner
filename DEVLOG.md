@@ -599,5 +599,6 @@
   - 小样:先发了 artifact「攻书卷页小样」(同一套几何、真实经济学正文)让用户看动作和参数,再接进阅读器。
 - Mac 探针:System Events `click at` 在这条 SSH 链上报 -609/-25208 不可用,真实鼠标点击只能靠用户;指针层在父文档,可用桥合成事件验证。快照耗时:合成 12 万字正文的 srcdoc 克隆 load 7 ms + 排版 50 ms(M 系列),快照方案成本可忽略。
 - Mac 桥验证(debug 41880a7+,正文最长的块、单页):拖 160 px → 选区"变化的百分比。弹性大"+「选区操作」条;有选区时单击只取消不翻;双击选到一个字(WebKit 中文 `expand('word')` 按字);划选→高亮入库;单击右半页 → `.bl-curl` 正面 clip 608→412→55 后撤掉、位置进到下一节,左半页回来。点高亮转发:注解 `<g>` 的类名是本 app 传的 `bl-highlight` 而非 `epubjs-hl`,改为"落在 svg 里就算注解"。
-- 门禁:web 全量(见 PR)。
+- **BL-007 的真相**:marks-pane 的 svg 是 `pointer-events="none"`,elementFromPoint 打到的是 iframe——真实点击从来打不到高亮,之前"通过"是探针直接 `g.click()`。指针层改为按每个 `<g>` 的 `<rect>` 几何命中再转发 click;另外高亮建好/取消后要 `clearSelection()`,否则正文里残留的选区让下一次单击只被当成"取消选区"。桥验证:划选→高亮→点高亮→「高亮操作」→取消高亮,SVG 与 reader_mark 同时消失,位置不动。
+- 门禁:web 全量 349/2、tsc、oxlint 0、build;CI 三项。
 
