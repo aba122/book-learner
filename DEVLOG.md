@@ -567,3 +567,10 @@
 - **定位**:日志里 17:58 的阅读器会话只有 `reader_mark_add`(书签),没有任何前端异常;调试包探针:程序化选区与合成 mousedown/mouseup 后,iframe 文档上的 `selectionchange` 计数为 0,`[role=toolbar]` 不出现。根因:epub.js 用 `sandbox="allow-same-origin"`(我们 `allowScriptedContent:false`,不给 `allow-scripts`)的 srcdoc iframe 渲染正文,WKWebView 不向这种无脚本 iframe 派发 `selectionchange`,而 epub.js 的 `selected` 事件完全依赖它。开 `allow-scripts` 会让 EPUB 内脚本拿到 app 的 IPC,不可取。
 - **修法**:`EpubView` 保留 `selected` 监听的同时,每 `READER_SELECTION_POLL_MS=300` ms 轮询 `rendition.getContents()` 各 contents 的 `window.getSelection()`,非空则 `contents.cfiFromRange(range)` 得区间 CFI 上报;同一区间只报一次,选区消失后重置。用例 1 条(reader.test「BL-006」,含 mock `getContents`)。Mac 验证:调试包程序化选区后工具条出现。
 - 门禁:web 333/2、lint 0、build。
+
+## 2026-09-10 · 阅读器一批(BL-007/008/009/010)
+- **BL-009 鼠标点击不翻页**:同 BL-006 根因——正文 iframe 在 WKWebView 沙箱里收不到鼠标事件。修法:父文档在正文左右各叠一条 48 px 透明翻页区(`page-zone-prev/next`,悬停显渐变),点击即 `prev()/next()`;原 ‹ › 按钮抬到 z-20,键盘照旧。
+- **BL-007 取消高亮**:epub.js 的注解 SVG 画在父文档,能收点击;`annotations.highlight` 第三参传回调 → `onHighlightClicked(cfi)` → 「高亮操作」条(换色 `readerMarkUpdate`、取消 `readerMarkRemove`、关闭);选区工具条与高亮操作条互斥。
+- **BL-008 双页**:阅读设置加「双页显示」,prefs 持久化 `spread`,`rendition.spread('auto'|'none')` 运行时切换。
+- **BL-010 翻页过渡**:`EpubView.next/prev` 先置 `data-turning`(下一帧设,连续翻页可重触发)再翻页,CSS 关键帧让新页从翻页方向滑入 220 ms;`prefers-reduced-motion` 下不动。不做真实卷页。
+- 用例 +4(reader.test);旧高亮用例的注解第三参改为 `expect.any(Function)`。门禁:web 337/2、lint 0、build。

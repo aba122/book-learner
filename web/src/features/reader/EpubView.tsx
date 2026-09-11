@@ -1,7 +1,7 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
-import { READER_SELECTION_POLL_MS } from '../../config'
+import { READER_PAGE_TURN_MS, READER_SELECTION_POLL_MS } from '../../config'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -62,14 +62,23 @@ const EpubView = forwardRef<
     onProgress?: (fraction: number) => void
     onSelected?: (selection: SelectionInfo) => void
     onRelocated?: (location: { cfi: string; href: string }) => void
+    /** 双页(BL-008):epub.js spread auto/none */
+    spread?: boolean
+    /** 点击正文里已有的高亮(注解 SVG 在父文档,可收到点击;BL-007) */
+    onHighlightClicked?: (cfiRange: string) => void
   }
 >(function EpubView(
-  { url, fontSizePct, theme, typography = DEFAULT_TYPOGRAPHY, initialHref, highlights, blockSegments, onToc, onProgress, onSelected, onRelocated },
+  { url, fontSizePct, theme, typography = DEFAULT_TYPOGRAPHY, initialHref, highlights, blockSegments, onToc, onProgress, onSelected, onRelocated, spread = false, onHighlightClicked },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 首屏骨架:rendition 首次 rendered 前显示,避免空白等待(T6.1)
   const [ready, setReady] = useState(false)
+  // 翻页过渡(BL-010):记录方向,给外层 data-turning 触发 CSS 动画
+  const [turning, setTurning] = useState<'next' | 'prev' | null>(null)
+  const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onHighlightClickedRef = useRef(onHighlightClicked)
+  const spreadRef = useRef(spread)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
   const appliedHighlights = useRef<Set<string>>(new Set())
@@ -93,6 +102,8 @@ const EpubView = forwardRef<
     typographyRef.current = typography
     themeRef.current = theme
     segmentsRef.current = blockSegments
+    onHighlightClickedRef.current = onHighlightClicked
+    spreadRef.current = spread
   })
 
   useEffect(() => {
@@ -103,7 +114,7 @@ const EpubView = forwardRef<
       width: '100%',
       height: '100%',
       flow: 'paginated',
-      spread: 'none',
+      spread: spreadRef.current ? 'auto' : 'none',
       allowScriptedContent: false,
     })
     rendRef.current = rendition
@@ -211,6 +222,12 @@ const EpubView = forwardRef<
     rendRef.current?.themes.fontSize(fontSizePct)
   }, [fontSizePct])
 
+  // 双页开关变化:epub.js 支持运行时切换 spread(BL-008)
+  useEffect(() => {
+    const rendition = rendRef.current as unknown as { spread?: (mode: string) => void } | null
+    rendition?.spread?.(spread ? 'auto' : 'none')
+  }, [spread])
+
   // 主题或排版开关变化:重注册三套主题并重新选中(epub.js 会重新注入到 iframe)
   useEffect(() => {
     const rendition = rendRef.current
@@ -239,7 +256,7 @@ const EpubView = forwardRef<
     for (const [cfi, h] of wanted) {
       if (appliedHighlights.current.has(cfi)) continue
       try {
-        rendition.annotations.highlight(cfi, {}, undefined, 'bl-highlight', {
+        rendition.annotations.highlight(cfi, {}, () => onHighlightClickedRef.current?.(cfi), 'bl-highlight', {
           fill: HIGHLIGHT_FILL[h.color] ?? HIGHLIGHT_FILL.yellow,
           'fill-opacity': '1',
           'mix-blend-mode': 'multiply',
@@ -251,15 +268,27 @@ const EpubView = forwardRef<
     }
   }, [highlights])
 
+  const turn = (direction: 'next' | 'prev') => {
+    if (turnTimer.current) clearTimeout(turnTimer.current)
+    setTurning(null)
+    // 下一帧再设方向,让连续翻页也能重新触发动画
+    requestAnimationFrame(() => {
+      setTurning(direction)
+      turnTimer.current = setTimeout(() => setTurning(null), READER_PAGE_TURN_MS)
+    })
+    void (direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev())
+  }
+  useEffect(() => () => { if (turnTimer.current) clearTimeout(turnTimer.current) }, [])
+
   useImperativeHandle(ref, () => ({
-    next: () => void rendRef.current?.next(),
-    prev: () => void rendRef.current?.prev(),
+    next: () => turn('next'),
+    prev: () => turn('prev'),
     display: target => void rendRef.current?.display(target),
     currentLocation: () => lastLocation.current,
   }))
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full" data-turning={turning ?? undefined}>
       <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
       {!ready && (
         <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
