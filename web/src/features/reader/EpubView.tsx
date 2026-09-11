@@ -222,10 +222,16 @@ const EpubView = forwardRef<
     rendRef.current?.themes.fontSize(fontSizePct)
   }, [fontSizePct])
 
-  // 双页开关变化:epub.js 支持运行时切换 spread(BL-008)
+  // 双页开关变化:epub.js 支持运行时切换 spread(BL-008)。挂载时不调用——rendition 尚未 start,
+  // 提前改 settings 会让 epub.js 不再挂视图(Mac 实测 iframe 为空、next() 报 manager undefined)。
+  const spreadApplied = useRef(spread)
   useEffect(() => {
-    const rendition = rendRef.current as unknown as { spread?: (mode: string) => void } | null
+    if (spreadApplied.current === spread) return
+    spreadApplied.current = spread
+    const rendition = rendRef.current as unknown as { spread?: (mode: string) => void; display?: (target: string) => Promise<unknown> } | null
     rendition?.spread?.(spread ? 'auto' : 'none')
+    const cfi = lastLocation.current?.cfi
+    if (cfi) void rendition?.display?.(cfi)
   }, [spread])
 
   // 主题或排版开关变化:重注册三套主题并重新选中(epub.js 会重新注入到 iframe)
@@ -271,11 +277,11 @@ const EpubView = forwardRef<
   const turn = (direction: 'next' | 'prev') => {
     if (turnTimer.current) clearTimeout(turnTimer.current)
     setTurning(null)
-    // 下一帧再设方向,让连续翻页也能重新触发动画
-    requestAnimationFrame(() => {
+    // 下一 tick 再设方向,让连续翻页也能重新触发动画(不用 rAF:后台窗口不派发帧)
+    setTimeout(() => {
       setTurning(direction)
       turnTimer.current = setTimeout(() => setTurning(null), READER_PAGE_TURN_MS)
-    })
+    }, 0)
     void (direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev())
   }
   useEffect(() => () => { if (turnTimer.current) clearTimeout(turnTimer.current) }, [])
