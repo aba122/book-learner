@@ -36,6 +36,9 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 🎙 报权限/无模型/转写空 | TCC(从 Finder/`open` 启动)、设置页模型是否已导入(`setting.voiceModel`、`models/`) | `web/src/audio/pcm.ts`、`web/src/features/feynman/VoiceInput.tsx`;壳层 `voice.rs` |
 | 导出 Obsidian 目录不存在/文件不对 | 设置 `obsidianVault` 必须是已存在的绝对目录 | `core/src/export.rs` `plan/write`;壳层 `application::expand_home` |
 | 快照/恢复不生效 | `snapshots/`、`restore-pending.json`;恢复在**下次启动前**应用 | `core/src/backup.rs`;壳层 `lib.rs` `initialize_state` |
+| 翻页没有卷页动画、直接换页 | 拿不到快照:`rendition.getContents()` 为空/多视图,或系统开了减少动态效果;看 `epub-book` 是否短暂带 `data-turning` | `web/src/features/reader/pageCurlOverlay.ts` `snapshotVisiblePage`、`EpubView.turn` |
+| 翻页时纸面内容错位/空白 | 快照 iframe 的位置/尺寸与原 iframe 不一致,或大章克隆超过 250 ms 超时先开卷 | `pageCurlOverlay.ts`(`READER_PAGE_SNAPSHOT_MAX_MS`) |
+| 点正文不翻页 | 单击被判成拖动/划选/链接;或事件没到 iframe document | `web/src/features/reader/clickToTurn.ts` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
@@ -216,7 +219,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 - 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。阅读器不渲染的具体链路:epub.js 的任务队列 `Queue.run()` 用 `requestAnimationFrame` 驱动,`rendition.display()` 只是入队,窗口不可见时 rAF 不派发 → 容器里连 iframe 都没有、骨架常驻、无 JS 错误、EPUB 资源请求正常;窗口一露出就自愈。所以驱动脚本 `go /reader/...` 之前必须 `front()`,否则会把"不渲染"误判成回归(2026-09-10 bisect 在 main 上也复现过)。
 - 系统通知只在 bundle 运行时可用;麦克风 TCC 只有经 LaunchServices(Finder/`open`)启动才弹框,从终端直接执行二进制会立即 NotAllowedError。
 - 扬声器回放会被 WebKit 回声消除压掉(录不到 TTS),真人说话不受影响。
-- WKWebView 不向 `sandbox="allow-same-origin"`(无 allow-scripts)的 iframe 派发 `selectionchange`,鼠标点击同样收不到:epub.js 的 `selected` 在原生里永不触发(BL-006),点正文翻页无反应(BL-009)。对策:选区靠轮询 `getSelection()`;翻页靠父文档两侧透明点击区;能收点击的是 epub.js 画在父文档的注解 SVG(BL-007 借此做取消高亮)。任何"依赖 iframe 内 DOM 事件"的功能在 Mac 上都要实测。
+- WKWebView 不向 `sandbox="allow-same-origin"`(无 allow-scripts)的 iframe 派发 `selectionchange`,鼠标点击同样收不到:epub.js 的 `selected` 在原生里永不触发(BL-006),点正文翻页无反应(BL-009)。对策:选区靠轮询 `getSelection()`;能收点击的是 epub.js 画在父文档的注解 SVG(BL-007 借此做取消高亮)。**更正(BL-011)**:鼠标 mousedown/mouseup 其实会派给 iframe 的 document(划选能工作就是证据),只是 `selectionchange`/epub.js 的 `selected` 不触发;点正文翻页现在就挂在 iframe document 上(`clickToTurn.ts`),两侧透明边条只是兜底。任何"依赖 iframe 内 DOM 事件"的功能在 Mac 上都要用真实鼠标事件(System Events `click at`)实测。
 - `tauri-plugin-dialog` 在 setup 阶段死锁 → 启动错误框用 rfd;文件选择器 rfd 必须经 `run_on_main_thread`(命令上下文可用)。
 - Homebrew cask/github 直连经代理很慢;Mac 上 github 走 socks5 代理配置。
 

@@ -304,13 +304,38 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(h.rendition.prev).toHaveBeenCalledTimes(1)
   })
 
-  it('BL-010:翻页时外层带 data-turning 触发过渡动画,随后清除', async () => {
+  it('BL-010:卷页翻页——克隆当前正文 iframe 做正面/纸背两层快照盖在上面,快照就绪后才换页,卷完撤掉;正在卷时连点忽略', async () => {
     const user = userEvent.setup()
     renderReader('/reader/4')
     const next = await screen.findByRole('button', { name: '下一页' })
+    // 造一个真的 iframe 充当 epub.js 的正文视图:有 defaultView.frameElement,才能算出它在可视区里的位置
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const doc = frame.contentDocument!
+    doc.body.innerHTML = '<p>当需求量等于供给量时,市场处于均衡。</p>'
+    const rect = (left: number, width: number) => ({ left, width, right: left + width, top: 0, bottom: 800, height: 800, x: left, y: 0, toJSON: () => ({}) }) as DOMRect
+    vi.spyOn(frame, 'getBoundingClientRect').mockReturnValue(rect(-600, 1800)) // 分页 iframe 比可视区宽,已横滚一页
+    vi.spyOn(screen.getByTestId('epub-container'), 'getBoundingClientRect').mockReturnValue(rect(0, 600))
+    h.rendition.getContents.mockReturnValue([{ document: doc }])
+    h.rendition.next.mockClear()
+    // 动画帧:每帧直接跳到结束时刻,只验证流程不验证时长(全量跑时 jsdom 的 rAF 会拖慢)
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => setTimeout(() => cb(performance.now() + 10_000), 0) as unknown as number)
     await user.click(next)
-    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).toHaveAttribute('data-turning', 'next'))
-    await waitFor(() => expect(screen.getByTestId('epub-container').parentElement).not.toHaveAttribute('data-turning'), { timeout: 1500 })
+    const book = screen.getByTestId('epub-book')
+    expect(book).toHaveAttribute('data-turning', 'next')
+    const overlay = screen.getByTestId('page-curl')
+    const clones = overlay.querySelectorAll('iframe')
+    expect(clones).toHaveLength(2)
+    expect(clones[0].getAttribute('srcdoc')).toContain('市场处于均衡')
+    expect(clones[0].style.left).toBe('-600px')
+    expect(clones[0].style.width).toBe('1800px')
+    expect(h.rendition.next).not.toHaveBeenCalled() // 快照没就绪前不换页
+    await user.click(next) // 正在卷:忽略
+    await waitFor(() => expect(h.rendition.next).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByTestId('page-curl')).toBeNull(), { timeout: 4000 })
+    expect(book).not.toHaveAttribute('data-turning')
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
+    frame.remove()
   })
 
   it('BL-008:阅读设置里的「双页显示」切换 epub.js spread 并持久化', async () => {
