@@ -69,8 +69,8 @@ describe('正文指针层(BL-011)', () => {
     ev('mousedown', 500, { button: 2 }); ev('mouseup', 500, { button: 2 })
     expect(onTurn).not.toHaveBeenCalled()
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    svg.setAttribute('class', 'epubjs-hl')
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    g.setAttribute('class', 'bl-highlight') // 本 app 给 annotations.highlight 传的 className
     svg.appendChild(g); document.body.appendChild(svg)
     const clicked = vi.fn(); g.addEventListener('click', clicked)
     Object.defineProperty(document, 'elementFromPoint', { value: vi.fn(() => g), configurable: true, writable: true })

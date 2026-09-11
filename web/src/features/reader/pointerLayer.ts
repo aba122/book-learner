@@ -48,9 +48,9 @@ function markUnder(layer: HTMLElement, x: number, y: number): Element | null {
   layer.style.pointerEvents = 'none'
   try {
     const el = doc.elementFromPoint(x, y)
-    // epub.js 的注解 SVG 类名 epubjs-hl / epubjs-ul(SVG 的 class 用 getAttribute 读,closest 选择器在部分环境对 SVG 不可靠)
+    // 本层下面唯一的 SVG 就是 epub.js 的注解画板(marks-pane,<g class="bl-highlight"> 等):落在 svg 里就算点到注解
     for (let node: Element | null = el; node && node !== doc.body; node = node.parentElement) {
-      if (/(^|\s)epubjs-/.test(node.getAttribute('class') ?? '')) return el
+      if (node.tagName.toLowerCase() === 'svg') return el
     }
     return null
   } catch {
