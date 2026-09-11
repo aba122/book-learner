@@ -212,7 +212,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 
 **运行时 / macOS**
 - Finder 启动的 app 没有 shell PATH:codex 是 `#!/usr/bin/env node` 脚本,子进程 127「env: node: No such file」;`state::ensure_gui_path` 启动补全(PR #32)。**测试时若地图/回合失败,先查 `ai_request.error`。**
-- 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。
+- 后台/被遮挡的 WebView 被 macOS 节流:IPC 回调可延迟数分钟、阅读器不渲染;驱动脚本先置前;用户侧表现为"切到别的 app 再回来才更新"。阅读器不渲染的具体链路:epub.js 的任务队列 `Queue.run()` 用 `requestAnimationFrame` 驱动,`rendition.display()` 只是入队,窗口不可见时 rAF 不派发 → 容器里连 iframe 都没有、骨架常驻、无 JS 错误、EPUB 资源请求正常;窗口一露出就自愈。所以驱动脚本 `go /reader/...` 之前必须 `front()`,否则会把"不渲染"误判成回归(2026-09-10 bisect 在 main 上也复现过)。
 - 系统通知只在 bundle 运行时可用;麦克风 TCC 只有经 LaunchServices(Finder/`open`)启动才弹框,从终端直接执行二进制会立即 NotAllowedError。
 - 扬声器回放会被 WebKit 回声消除压掉(录不到 TTS),真人说话不受影响。
 - WKWebView 不向 `sandbox="allow-same-origin"`(无 allow-scripts)的 iframe 派发 `selectionchange`,鼠标点击同样收不到:epub.js 的 `selected` 在原生里永不触发(BL-006),点正文翻页无反应(BL-009)。对策:选区靠轮询 `getSelection()`;翻页靠父文档两侧透明点击区;能收点击的是 epub.js 画在父文档的注解 SVG(BL-007 借此做取消高亮)。任何"依赖 iframe 内 DOM 事件"的功能在 Mac 上都要实测。
