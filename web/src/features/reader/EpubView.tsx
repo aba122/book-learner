@@ -1,7 +1,9 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
-import { READER_PAGE_TURN_MS, READER_SELECTION_POLL_MS } from '../../config'
+import { READER_PAGE_CURL_LIFT, READER_PAGE_CURL_MS, READER_PAGE_SNAPSHOT_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
+import { attachPointerLayer } from './pointerLayer'
+import { createCurlOverlay, snapshotVisiblePage, type CurlOverlay } from './pageCurlOverlay'
 import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
@@ -11,6 +13,8 @@ export interface EpubHandle {
   display: (target: string) => void
   /** 当前页起点 CFI 与章节 href(未定位时为 null) */
   currentLocation: () => { cfi: string; href: string } | null
+  /** 清掉正文里的选区(高亮已建/工具条取消后;不清的话下一次单击只会被当成取消选区) */
+  clearSelection: () => void
 }
 
 export type ReaderTheme = 'paper' | 'sepia' | 'night'
@@ -48,6 +52,10 @@ interface SelectionContents {
   cfiFromRange: (range: Range) => string
 }
 
+/** 系统「减少动态效果」:不卷页,直接换页 */
+const prefersReducedMotion = () =>
+  typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 const EpubView = forwardRef<
   EpubHandle,
   {
@@ -74,10 +82,14 @@ const EpubView = forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   // 首屏骨架:rendition 首次 rendered 前显示,避免空白等待(T6.1)
   const [ready, setReady] = useState(false)
-  // 翻页过渡(BL-010):记录方向,给外层 data-turning 触发 CSS 动画
+  // 卷页翻页(BL-010):正在卷时 data-turning 标方向;快照层由 pageCurlOverlay 管
   const [turning, setTurning] = useState<'next' | 'prev' | null>(null)
-  const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const curlRef = useRef<CurlOverlay | null>(null)
   const onHighlightClickedRef = useRef(onHighlightClicked)
+  // 指针层(BL-011):正文 iframe 无脚本、监听器不会被调用,鼠标交互由父文档的这一层接管;turn 经 ref 调用(声明在后面)
+  const turnRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+  const pointerRef = useRef<HTMLDivElement>(null)
   const spreadRef = useRef(spread)
   const bookRef = useRef<Book | null>(null)
   const rendRef = useRef<Rendition | null>(null)
@@ -163,6 +175,9 @@ const EpubView = forwardRef<
       if (!found) lastSelectionCfi.current = null
     }
     const selectionTimer = setInterval(pollSelection, READER_SELECTION_POLL_MS)
+    const detachPointer = pointerRef.current && containerRef.current
+      ? attachPointerLayer(pointerRef.current, { viewport: containerRef.current, getContents: () => rendition.getContents?.(), onTurn: side => turnRef.current(side) })
+      : () => {}
     // 学习模式:该章渲染后把块锚点的两点 CFI 组合成区间并加下划线(多段块每段一条)
     rendition.on('rendered', (section: SectionLike, view: ViewLike) => {
       setReady(true)
@@ -211,6 +226,7 @@ const EpubView = forwardRef<
     window.addEventListener('resize', onResize)
     return () => {
       clearInterval(selectionTimer)
+      detachPointer()
       window.removeEventListener('resize', onResize)
       book.destroy()
       bookRef.current = null
@@ -277,28 +293,68 @@ const EpubView = forwardRef<
     }
   }, [highlights])
 
+  const navigate = (direction: 'next' | 'prev') =>
+    Promise.resolve(direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev()).catch(() => undefined)
   const turn = (direction: 'next' | 'prev') => {
-    if (turnTimer.current) clearTimeout(turnTimer.current)
-    setTurning(null)
-    // 下一 tick 再设方向,让连续翻页也能重新触发动画(不用 rAF:后台窗口不派发帧)
-    setTimeout(() => {
-      setTurning(direction)
-      turnTimer.current = setTimeout(() => setTurning(null), READER_PAGE_TURN_MS)
-    }, 0)
-    void (direction === 'next' ? rendRef.current?.next() : rendRef.current?.prev())
+    // 正在卷:忽略连点(纸书也翻不了两页)
+    if (curlRef.current) return
+    const rendition = rendRef.current
+    const host = hostRef.current
+    const viewport = containerRef.current
+    if (!rendition || !host || !viewport || prefersReducedMotion()) {
+      void navigate(direction)
+      return
+    }
+    // 拿不到当前页快照(还没渲染/多视图)就直接换页,不卷
+    const snap = snapshotVisiblePage(rendition, viewport)
+    if (!snap) {
+      void navigate(direction)
+      return
+    }
+    const overlay = createCurlOverlay(host, snap, READER_PAGE_SNAPSHOT_MAX_MS)
+    curlRef.current = overlay
+    setTurning(direction)
+    void overlay.ready
+      .then(() => {
+        // 快照已盖在上面,此刻换页不可见;新页在纸下露出
+        void navigate(direction)
+        return overlay.animate(direction, spreadRef.current ? 'spread' : 'single', READER_PAGE_CURL_MS, READER_PAGE_CURL_LIFT)
+      })
+      .finally(() => {
+        overlay.destroy()
+        if (curlRef.current === overlay) {
+          curlRef.current = null
+          setTurning(null)
+        }
+      })
   }
-  useEffect(() => () => { if (turnTimer.current) clearTimeout(turnTimer.current) }, [])
+  useLayoutEffect(() => {
+    turnRef.current = turn
+  })
+  useEffect(() => () => { curlRef.current?.destroy() }, [])
 
   useImperativeHandle(ref, () => ({
     next: () => turn('next'),
     prev: () => turn('prev'),
     display: target => void rendRef.current?.display(target),
     currentLocation: () => lastLocation.current,
+    clearSelection: () => {
+      const raw = rendRef.current?.getContents?.() as unknown
+      const list = Array.isArray(raw) ? raw : raw ? [raw] : []
+      for (const c of list as { window?: Window; document?: Document }[]) {
+        try {
+          ;(c.window ?? c.document?.defaultView)?.getSelection()?.removeAllRanges()
+        } catch {
+          /* iframe 已卸载时忽略 */
+        }
+      }
+    },
   }))
 
   return (
-    <div className="relative h-full w-full" data-turning={turning ?? undefined}>
+    <div ref={hostRef} className="relative h-full w-full" data-testid="epub-book" data-turning={turning ?? undefined}>
       <div ref={containerRef} className="h-full w-full" data-testid="epub-container" />
+      <div ref={pointerRef} className="bl-pointer" data-testid="pointer-layer" aria-hidden />
       {!ready && (
         <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
           <div className="h-5 w-1/3 animate-pulse rounded-s bg-paper-3" />

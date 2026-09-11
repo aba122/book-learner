@@ -25,8 +25,12 @@ export const THEME_KEY = 'bookLearner.theme'
 export const READER_POSITION_DEBOUNCE_MS = 800
 /** 选区轮询间隔(毫秒):WKWebView 里 sandbox(无 allow-scripts)的 iframe 不派发 selectionchange,epub.js 的 selected 永不触发(BL-006) */
 export const READER_SELECTION_POLL_MS = 300
-/** 翻页过渡动画时长(毫秒;BL-010,轻量滑入。3D 两拍翻页在 PR #41 试过,用户觉得不好,已退回) */
-export const READER_PAGE_TURN_MS = 220
+/** 卷页翻页(BL-010):纸角抓起→沿折线卷过去→纸背落下的时长(毫秒)。滑入(PR #40)与整页 3D 硬翻(PR #41)用户都不认 */
+export const READER_PAGE_CURL_MS = 640
+/** 页角抬升幅度(页高的比例),决定折线倾斜程度 */
+export const READER_PAGE_CURL_LIFT = 0.55
+/** 当前页快照(克隆正文 iframe)最多等这么久再开始卷,免得大章排版慢时卡住 */
+export const READER_PAGE_SNAPSHOT_MAX_MS = 250
 /** 学生回复打字机渐显速度(毫秒/字) */
 export const TYPEWRITER_CHAR_MS = 28
 /** 快问会话(review/retest,M2 T1):core 回合协议要求用户先开口,前端以固定 id 自动提交开场回合(幂等,重进不重复) */

@@ -56,9 +56,15 @@ body {
   outline-offset: 2px;
 }
 
-/* 阅读器翻页过渡(BL-010):新页从翻页方向滑入 */
-@keyframes bl-page-in-next { from { transform: translateX(28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-@keyframes bl-page-in-prev { from { transform: translateX(-28px); opacity: 0.35; } to { transform: none; opacity: 1; } }
-[data-turning="next"] { animation: bl-page-in-next 220ms ease-out; }
-[data-turning="prev"] { animation: bl-page-in-prev 220ms ease-out; }
-@media (prefers-reduced-motion: reduce) { [data-turning] { animation: none; } }
+/* 阅读器卷页翻页(BL-010):正面/纸背两层快照 + 沿折线的阴影带,几何见 features/reader/pageCurl.ts */
+.bl-curl { position: absolute; inset: 0; overflow: hidden; z-index: 15; pointer-events: none; }
+.bl-curl-layer { position: absolute; inset: 0; will-change: transform, clip-path; }
+.bl-curl-flap { transform-origin: 0 0; }
+.bl-curl-sheet { position: absolute; inset: 0; }
+.bl-curl-layer iframe { position: absolute; border: 0; display: block; pointer-events: none; }
+.bl-curl-flap iframe { opacity: 0.16; }
+.bl-curl-strip { position: absolute; left: 0; top: 0; pointer-events: none; }
+[data-turning] [data-testid="epub-container"] { pointer-events: none; }
+/* 正文指针层(BL-011):盖在正文 iframe 与注解 SVG 之上,接管单击翻页/拖动划选/双击选词 */
+.bl-pointer { position: absolute; inset: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
+[data-turning] .bl-pointer { pointer-events: none; }
