@@ -259,7 +259,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await screen.findByRole('button', { name: '书签' })
     expect(screen.queryByRole('toolbar')).toBeNull()
     const range = {} as Range
-    const selection = { isCollapsed: false, rangeCount: 1, getRangeAt: () => range, toString: () => ' 需求曲线 ' }
+    const selection = { isCollapsed: false, rangeCount: 1, getRangeAt: () => range, toString: () => ' 需求曲线 ', removeAllRanges: vi.fn() }
     h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: (r: Range) => (r === range ? 'epubcfi(/6/8!/4/4,/1:0,/1:4)' : '') }])
     const toolbar = await screen.findByRole('toolbar', { name: '选区操作' })
     expect(toolbar).toHaveTextContent('需求曲线')
@@ -268,6 +268,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await user.click(within(toolbar).getByRole('button', { name: '高亮:黄' }))
     await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/4,/1:0,/1:4)', text: '需求曲线', color: 'yellow' })
+    expect(selection.removeAllRanges).toHaveBeenCalled() // 高亮后清掉正文选区,下一次单击不会只被当成取消选区
     h.rendition.getContents.mockReturnValue([])
     await new Promise(r => setTimeout(r, READER_SELECTION_POLL_MS * 2))
     h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: () => 'epubcfi(/6/8!/4/4,/1:0,/1:4)' }])

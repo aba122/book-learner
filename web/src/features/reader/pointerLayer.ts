@@ -5,7 +5,7 @@
  * - 拖动:用 caretRangeFromPoint + setBaseAndExtent 在正文里造选区(高亮工具条靠轮询 getSelection 出现,BL-006);
  * - 双击:选中一个词(WebKit Range.expand('word'));
  * - 按下时已有选区:这一下只是取消选区;
- * - 点到 epub.js 画在父文档的高亮 SVG:把 click 转发给它(BL-007 取消/换色)。
+ * - 点到 epub.js 画在父文档的高亮 SVG(它是 pointer-events:none,真实点击本来就打不到):按几何命中后把 click 转发给它(BL-007 取消/换色)。
  */
 import { findVisibleFrame } from './pageCurlOverlay'
 
@@ -40,24 +40,20 @@ function caretAt(doc: CaretDoc, x: number, y: number): Range | null {
   }
 }
 
-/** 指针下方是不是 epub.js 的注解 SVG(高亮/下划线):临时让本层放行点击再取元素 */
-function markUnder(layer: HTMLElement, x: number, y: number): Element | null {
-  const doc = layer.ownerDocument
-  if (typeof doc.elementFromPoint !== 'function') return null
-  const prev = layer.style.pointerEvents
-  layer.style.pointerEvents = 'none'
-  try {
-    const el = doc.elementFromPoint(x, y)
-    // 本层下面唯一的 SVG 就是 epub.js 的注解画板(marks-pane,<g class="bl-highlight"> 等):落在 svg 里就算点到注解
-    for (let node: Element | null = el; node && node !== doc.body; node = node.parentElement) {
-      if (node.tagName.toLowerCase() === 'svg') return el
+/**
+ * 指针下方是不是 epub.js 的注解(高亮/下划线):marks-pane 的 svg 是 pointer-events=none,
+ * elementFromPoint 永远打不到它,所以按每个 <g> 里 <rect> 的几何范围自己判定;命中就把 click 转发给 <g>(epub.js 在它上面挂了回调)。
+ */
+function markUnder(viewport: HTMLElement, x: number, y: number): Element | null {
+  for (const g of Array.from(viewport.querySelectorAll('svg g'))) {
+    const boxes = g.querySelectorAll('rect')
+    const targets: Element[] = boxes.length ? Array.from(boxes) : [g]
+    for (const t of targets) {
+      const r = t.getBoundingClientRect()
+      if (r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return g
     }
-    return null
-  } catch {
-    return null
-  } finally {
-    layer.style.pointerEvents = prev
   }
+  return null
 }
 
 export function attachPointerLayer(layer: HTMLElement, options: PointerLayerOptions): () => void {
@@ -88,7 +84,7 @@ export function attachPointerLayer(layer: HTMLElement, options: PointerLayerOpti
       frameTop: loc?.frameTop ?? 0,
       anchor: doc && loc ? caretAt(doc, e.clientX - loc.frameLeft, e.clientY - loc.frameTop) : null,
       hadSelection,
-      mark: markUnder(layer, e.clientX, e.clientY),
+      mark: markUnder(options.viewport, e.clientX, e.clientY),
       dragging: false,
     }
     e.preventDefault() // 不让父文档自己起选区

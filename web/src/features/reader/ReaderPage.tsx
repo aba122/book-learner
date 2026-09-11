@@ -168,6 +168,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     if (!selection || bookId === null) return
     const sel = selection
     setSelection(null)
+    epubRef.current?.clearSelection()
     addMarkOp.clearError('add')
     // 区间 CFI 存在 cfiEnd;cfiStart 记同一区间起点(epub.js annotations 按区间工作)
     void addMarkOp.run('add', { kind: 'highlight', spineHref: sel.href, cfiStart: sel.cfiRange, cfiEnd: sel.cfiRange, text: sel.text.slice(0, 400), color })
@@ -307,7 +308,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 onClick={() => addHighlight(c.color)}
               />
             ))}
-            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => setSelection(null)}>取消</button>
+            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => { setSelection(null); epubRef.current?.clearSelection() }}>取消</button>
           </div>
         )}
         {markError && (

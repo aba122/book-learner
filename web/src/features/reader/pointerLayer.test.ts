@@ -29,7 +29,7 @@ function setup() {
   const onTurn = vi.fn()
   const detach = attachPointerLayer(layer, { viewport, getContents: () => [{ document: doc }], onTurn })
   const ev = (type: string, x: number, init: MouseEventInit = {}) => layer.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: 300, button: 0, ...init }))
-  return { doc, sel, setBase, removeAll, onTurn, detach, ev, layer, frame }
+  return { doc, sel, setBase, removeAll, onTurn, detach, ev, layer, frame, viewport }
 }
 
 describe('正文指针层(BL-011)', () => {
@@ -61,24 +61,28 @@ describe('正文指针层(BL-011)', () => {
   })
 
   it('双击选词(Range.expand);修饰键/右键不翻页;点到 epub.js 高亮 SVG 时转发 click', () => {
-    const { ev, onTurn, setBase, layer, detach, frame, sel } = setup()
+    const { ev, onTurn, setBase, layer, detach, frame, sel, viewport } = setup()
     ev('dblclick', 100)
     expect(setBase).toHaveBeenLastCalledWith(expect.anything(), 0, expect.anything(), 3)
     sel.removeAllRanges() // 选词后清掉,后面的单击才不会被当成"取消选区"
     ev('mousedown', 500, { metaKey: true }); ev('mouseup', 500, { metaKey: true })
     ev('mousedown', 500, { button: 2 }); ev('mouseup', 500, { button: 2 })
     expect(onTurn).not.toHaveBeenCalled()
+    // epub.js 的注解画板 svg 是 pointer-events:none,elementFromPoint 打不到;按 <rect> 几何命中
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('pointer-events', 'none')
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-    g.setAttribute('class', 'bl-highlight') // 本 app 给 annotations.highlight 传的 className
-    svg.appendChild(g); document.body.appendChild(svg)
+    g.setAttribute('class', 'bl-highlight')
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    vi.spyOn(rect, 'getBoundingClientRect').mockReturnValue({ left: 480, right: 560, top: 290, bottom: 310, width: 80, height: 20 } as DOMRect)
+    g.appendChild(rect); svg.appendChild(g); viewport.appendChild(svg)
     const clicked = vi.fn(); g.addEventListener('click', clicked)
-    Object.defineProperty(document, 'elementFromPoint', { value: vi.fn(() => g), configurable: true, writable: true })
-    ev('mousedown', 500); ev('mouseup', 500)
+    ev('mousedown', 500); ev('mouseup', 500) // (500,300) 落在 rect 里
     expect(clicked).toHaveBeenCalledTimes(1)
     expect(onTurn).not.toHaveBeenCalled()
+    ev('mousedown', 300); ev('mouseup', 300) // rect 外:照常翻页
+    expect(onTurn).toHaveBeenCalledWith('prev')
     expect(layer.style.pointerEvents).toBe('')
-    detach(); frame.remove(); svg.remove()
-    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
+    detach(); frame.remove()
   })
 })

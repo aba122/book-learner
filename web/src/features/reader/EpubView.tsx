@@ -13,6 +13,8 @@ export interface EpubHandle {
   display: (target: string) => void
   /** 当前页起点 CFI 与章节 href(未定位时为 null) */
   currentLocation: () => { cfi: string; href: string } | null
+  /** 清掉正文里的选区(高亮已建/工具条取消后;不清的话下一次单击只会被当成取消选区) */
+  clearSelection: () => void
 }
 
 export type ReaderTheme = 'paper' | 'sepia' | 'night'
@@ -336,6 +338,18 @@ const EpubView = forwardRef<
     prev: () => turn('prev'),
     display: target => void rendRef.current?.display(target),
     currentLocation: () => lastLocation.current,
+    clearSelection: () => {
+      const raw = rendRef.current?.getContents?.() as unknown
+      const list = Array.isArray(raw) ? raw : raw ? [raw] : []
+      for (const c of list as { window?: Window; document?: Document }[]) {
+        try {
+          ;(c.window ?? c.document?.defaultView)?.getSelection()?.removeAllRanges()
+        } catch {
+          /* iframe 已卸载时忽略 */
+        }
+      }
+      lastSelectionCfi.current = null
+    },
   }))
 
   return (
