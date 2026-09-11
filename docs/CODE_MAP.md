@@ -134,7 +134,7 @@ select * from setting;
 
 **导入向导(`features/library/ImportWizard.tsx`)**:选 `.pdf` → 只显示 Calibre 转换命令不导入;选类型时生成一次 `jobId`,`ImportAttempt{file,type,jobId,bookId?,chapters?}` 走四步:`importEpub`(4 MiB 分块 + finalize,title=文件名)→ `extractSpine`(`epub/extract.ts`:spine 去重、TOC/标题/href 三级取名、`chapterMarkdownText`、每 6 章让出主线程并汇报进度)→ `storeSpine` → `runMapJob`(进度文案 `importProgress.ts`)→ `navigate('/map/:id')`。重试用同一 attempt:已完成的导入/抽取不重跑,`storeSpine+runMapJob` 幂等重跑。EPUB 解析失败一律不可重试「无法解析这个 EPUB 文件」。
 
-**地图页(`features/map/MapPage.tsx` + `mapOps.ts`)**:编辑态可用操作只有上/下移、跳过/恢复、模块改名(「合并/拆分」硬禁用;无删除 UI);`finalize()` → `diffMapOps`(renameModule → setSkipped → reorder),ops 为空不调后端直接进目标设定;`confirmMap(bookId, book.mapRevision, ops)` 冲突不可重试但保留编辑可重发;成功 → 目标设定对话框(`dailyBlocks = ceil(未跳过块/(deadline−today+1))`,`dailyCap=4`)→ `setPlan` → `setActiveBook` → `/`。「整书终评」仅 `allPassed` 时显示。
+**地图页(`features/map/MapPage.tsx` + `mapOps.ts`)**:编辑态操作:上/下移、跳过/恢复、模块改名、并入上一块、拆分(两个标题)、删除(仅未学块;删除/并入可撤销;BL-002);`finalize()` → `diffMapOps`(renameModule → delete → merge → setSkipped → reorder → split),ops 为空不调后端直接进目标设定;`confirmMap(bookId, book.mapRevision, ops)` 冲突不可重试但保留编辑可重发;成功 → 目标设定对话框(`dailyBlocks = ceil(未跳过块/(deadline−today+1))`,`dailyCap=4`)→ `setPlan` → `setActiveBook` → `/`。「整书终评」仅 `allPassed` 时显示。
 
 **锚点(`epub/anchors.ts` + `epub/headings.ts`)**:`resolveBlockAnchors(book, hints)` 把 core 的 `source_section="{href}#{小节标题}"` 解析成 [标题文本节点, 下一同级标题) 的两点折叠 CFI(`exact`),未命中 → 整章 `chapter_fallback`。**回填(BL-001,2026-09-09)**:`epub/anchorBlocks.ts` 在导入向导 `runMapJob` 后对每块 `listAnchors` → `resolveBlockAnchors` → `setAnchorSegments`,已 `exact` 跳过、单块失败不阻塞(console.error 进日志 target=client);2026-09-09 之前导入的书仍是整章回退,删除重导即可。回读定位/块下划线不准时先看 `block_anchor.precision`(诊断包 `tables/anchors.txt`)。
 
@@ -160,7 +160,7 @@ select * from setting;
 | `planning.rs` | `set_plan`、`get_plan`、`today_queue` | study_plan |
 | `sched.rs` | `generate_daily`、`on_block_passed`、`on_review_result`、`on_weak_retest`、`insert_new_weak_points`(NOT EXISTS 去重)、`apply_eval_in_tx`、`check_behind` | daily_task, review_schedule, weak_point |
 | `mapgen.rs` | `store_spine`、两阶段 `run_map_job`(逐章 stage A 候选 → merge 草图;断点 `map_job.next_chapter`) | spine_item, map_job |
-| `map.rs` | `apply_draft_map`(落块 + 锚点,revision 0→1)、`confirm_map`(乐观并发 ops:merge/split/delete/skip/reorder/rename)、`set_anchor_segments`、`list_anchors` | knowledge_block, block_anchor |
+| `map.rs` | `apply_draft_map`(落块 + 锚点,revision 0→1)、`confirm_map`(乐观并发 ops:rename/renameModule/reorder/setSkipped/merge/delete(仅无学习痕迹的块)/split(原块改名+新块复制锚点))、`set_anchor_segments`、`list_anchors` | knowledge_block, block_anchor |
 | `session.rs` | `start_or_resume_session`、`fixed_context_for_block`(锚点文本 → 整章回退,≤ 60 KiB)、`submit_turn`(两阶段事务 + AI)、`abandon_session` | feynman_session, session_turn |
 | `verdict.rs` | `request_evaluation`(AI JSON)、`confirm_session_verdict`(单事务:块状态 + 排期 + 薄弱点 + outbox) | 多表 |
 | `extra.rs` / `final_exam.rs` | 附加环节 / 整书终评(`eligible`、`start`、`finish` 报告 + `finish_book_in`) | feynman_session, artifact |
