@@ -3005,9 +3005,10 @@ fn reading_chat_roundtrip_through_commands() {
         commands::reading_send_inner(&state, input(Some(sent.topic_id), "q1", "什么是需求定律"))
             .unwrap();
     assert_eq!(again.assistant_message.unwrap().id, reply.id);
-    // 另起话题 → 结束;第一批不提炼
+    // 另起话题 → 结束并提炼(EngineMock 返回 distill JSON)
     let ended = commands::reading_topic_end_inner(&state, sent.topic_id).unwrap();
-    assert!(!ended.distilled);
+    assert!(ended.distilled);
+    assert!(!commands::reading_topics_inner(&state, first).unwrap()[0].needs_distill);
     assert!(commands::reading_topics_inner(&state, first).unwrap()[0]
         .ended_at
         .is_some());
