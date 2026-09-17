@@ -102,6 +102,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [panelOpen, setPanelOpen] = useState(true)
   /** 右栏标签(spec 2026-09-16):有任务默认学习模式,否则只有「问书」 */
   const [sideTab, setSideTab] = useState<'learn' | 'chat'>(taskId !== null ? 'learn' : 'chat')
+  /** BL-014:问书面板加宽切换 */
+  const [chatWide, setChatWide] = useState(false)
   const [quoteDraft, setQuoteDraft] = useState<string | null>(null)
   const [currentHref, setCurrentHref] = useState('')
   const [marksOpen, setMarksOpen] = useState(false)
@@ -480,7 +482,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
         {ready && (
           <div className="flex shrink-0 items-stretch border-l border-line bg-paper-1">
             {panelOpen ? (
-              <Card className="m-3 flex w-72 flex-col gap-3 overflow-hidden p-5">
+              <Card className={`m-3 flex flex-col gap-3 overflow-hidden p-5 ${sideTab === 'chat' ? (chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96') : 'w-72'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1" role="tablist" aria-label="侧栏">
                     {learning && (
@@ -502,12 +504,23 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                       问书
                     </button>
                   </div>
-                  <button
-                    className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-                    onClick={() => setPanelOpen(false)}
-                  >
-                    收起 ›
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {sideTab === 'chat' && (
+                      <button
+                        className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
+                        aria-label={chatWide ? '收窄对话' : '放大对话'}
+                        onClick={() => setChatWide(w => !w)}
+                      >
+                        {chatWide ? '⇥ 收窄' : '⇤ 放大'}
+                      </button>
+                    )}
+                    <button
+                      className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
+                      onClick={() => setPanelOpen(false)}
+                    >
+                      收起 ›
+                    </button>
+                  </div>
                 </div>
                 {learning && (
                   <div hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" data-testid="learn-panel">

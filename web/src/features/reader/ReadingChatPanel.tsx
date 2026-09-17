@@ -4,6 +4,7 @@ import { BackendError } from '../../backend/errors'
 import Button from '../../components/Button'
 import { READING_POLL_MAX_MS, READING_POLL_MS, READING_QUOTE_MAX_CHARS, READING_TEXT_MAX_CHARS } from '../../config'
 import type { ReadingMessage, ReadingTopic } from '../../types'
+import Markdown from './markdown'
 
 /** clientMsgId:过 outboundClientId(字母数字 . _ -,≤ 64) */
 function newClientMsgId(): string {
@@ -286,10 +287,10 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
             data-testid="reading-msg"
             data-role={m.role}
             data-status={m.status}
-            className={`max-w-[92%] rounded-m px-3 py-2 text-xs leading-relaxed ${m.role === 'user' ? 'self-end bg-paper-3 text-ink-1' : 'self-start border border-line bg-paper-2 text-ink-1'}`}
+            className={`max-w-[88%] rounded-m px-3.5 py-2.5 text-sm leading-relaxed ${m.role === 'user' ? 'self-end bg-paper-3 text-ink-1' : 'self-start border border-line bg-paper-2 text-ink-1'}`}
           >
-            {m.quote && <blockquote className="mb-1 border-l-2 border-line pl-2 text-[11px] text-ink-3 line-clamp-4">{m.quote}</blockquote>}
-            <div className="whitespace-pre-wrap">{m.text}</div>
+            {m.quote && <blockquote className="mb-1.5 border-l-2 border-line pl-2 text-xs text-ink-3 line-clamp-4">{m.quote}</blockquote>}
+            {m.role === 'assistant' ? <Markdown text={m.text} /> : <div className="whitespace-pre-wrap">{m.text}</div>}
             {m.role === 'user' && m.status === 'failed' && (
               <div className="mt-1 flex items-center gap-2 text-[11px] text-weak">
                 <span>没有得到回复</span>

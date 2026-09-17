@@ -204,6 +204,29 @@ describe('问书面板(spec 2026-09-16)', () => {
     expect(screen.getByTestId('topic-state')).toHaveTextContent('已记入记忆')
   })
 
+  it('BL-015/BL-014:AI 回复渲染 Markdown(**加粗** 不再是星号),面板可放大/收窄', async () => {
+    const user = userEvent.setup()
+    const spy = vi.spyOn(backendModule.backend, 'readingSend')
+    spy.mockImplementationOnce(async () => ({
+      topicId: 1,
+      userMessage: { id: 1, topicId: 1, role: 'user', text: '问', quote: '', spineHref: 'chap1.xhtml', blockId: null, status: 'done', clientMsgId: 'q1', createdAt: '2026-09-17T00:00:00Z' },
+      assistantMessage: { id: 2, topicId: 1, role: 'assistant', text: '核心是:**贫穷是一种处境**。\n\n- 第一点\n- 第二点', quote: '', spineHref: 'chap1.xhtml', blockId: null, status: 'done', clientMsgId: null, createdAt: '2026-09-17T00:00:01Z' },
+    }))
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await typeAndSend(user, '问')
+    await waitFor(() => expect(msgs()).toHaveLength(2))
+    const ai = msgs()[1]
+    // 加粗渲染成 <strong>,正文里无原始星号
+    expect(within(ai).getByText('贫穷是一种处境').tagName).toBe('STRONG')
+    expect(ai.textContent).not.toContain('**')
+    // 列表渲染
+    expect(within(ai).getAllByRole('listitem')).toHaveLength(2)
+    // 放大 / 收窄
+    await user.click(screen.getByRole('button', { name: '放大对话' }))
+    expect(screen.getByRole('button', { name: '收窄对话' })).toBeInTheDocument()
+  })
+
   it('取消 = 停止等待:输入恢复、该条显示等待中;轮询到后端结果后补上回复', async () => {
     const user = userEvent.setup()
     const real = backendModule.backend
