@@ -41,6 +41,8 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 点正文不翻页 / 划不了选区 / 点高亮没反应 | 指针层 `.bl-pointer` 是否盖在正文上(z-index 5)且未被别的层遮住;单击被判成拖动(>4 px)/取消选区;`findVisibleFrame` 找不到可视 iframe | `web/src/features/reader/pointerLayer.ts` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
+| 问书没回复 / 一直"思考中" | `ai_request` 表 `reading:<topic>:<clientMsgId>` 行的 status/error;用户消息 `reading_message.status`(failed → 气泡有「重试」);「取消」只是停止等待,后端照常落库 | `core/src/reading_chat.rs::send_message`;`web/src/features/reader/ReadingChatPanel.tsx` |
+| 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
@@ -120,7 +122,7 @@ select * from setting;
 | `/` | `features/today/TodayPage` | `listBooks` → `checkBehind`(先)→ `todayQueue` → 每书 `listBlocks`;`stats`;`pomodoroState` | `completeTask`(Tauri 下有意 unsupported)、`pomodoroStart` |
 | `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`;`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
-| `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默) |
+| `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession` | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
 | `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试) | — |
@@ -171,6 +173,7 @@ select * from setting;
 | `ai.rs` | `CodexCliProvider`:`codex exec --skip-git-repo-check -C <memory/> --sandbox read-only|workspace-write --output-last-message <tmp> <prompt>`;prompt ≤ 100 KiB(argv)、输出 ≤ 1 MiB、进程组超时杀 | — |
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
+| `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system,`reading:<topic>:<clientMsgId>`)、`end_topic`、`chapter_window`;提炼与 `reading_notes`(第二批) | reading_topic, reading_message |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
 | `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt` | — |
 

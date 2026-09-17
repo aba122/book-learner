@@ -602,3 +602,10 @@
 - **BL-007 的真相**:marks-pane 的 svg 是 `pointer-events="none"`,elementFromPoint 打到的是 iframe——真实点击从来打不到高亮,之前"通过"是探针直接 `g.click()`。指针层改为按每个 `<g>` 的 `<rect>` 几何命中再转发 click;另外高亮建好/取消后要 `clearSelection()`,否则正文里残留的选区让下一次单击只被当成"取消选区"。桥验证:划选→高亮→点高亮→「高亮操作」→取消高亮,SVG 与 reader_mark 同时消失,位置不动。
 - 门禁:web 全量 349/2、tsc、oxlint 0、build;CI 三项。
 
+## 2026-09-16 · 问书第一批(阅读辅助对话:面板 + 契约 + core)
+- 设计与计划:`docs/superpowers/specs/2026-09-16-reading-chat-design.md`(三轮独立审阅)、`docs/superpowers/plans/2026-09-16-reading-chat.md`(三轮审阅)。四个决策与用户逐一确认:只塑造理解画像、章节原文做上下文、一书一线默认续聊可另起、话题结束时提炼。
+- core `reading_chat.rs`:v9 两张表;`send_message` = 事务 A 落 pending 用户消息 → 无事务 `run_ai_request`(`reading:<topic>:<clientMsgId>`,同 id done 重放/failed 续跑)→ 事务 B 写回复。**AI 失败不是错误**:返回成功载荷、用户消息 `failed`(否则首条消息失败时客户端拿不到 topicId/messageId 没法重试)。历史回合渲染进 system(`ai::render_prompt` 会把 Assistant 标成"学生:"),`messages` 只放本条提问。章节原文超 6000 字时以带入文字为中心截 ±3000。
+- 壳层:5 条命令六处同步;同一话题按 `reading_busy` 互斥(忙 → conflict);`reading_topic_end`/`reading_distill` 第一批只写 `ended_at`/校验,返回 `{distilled:false}`,命令层已挂投影重放,第二批接提炼即可。
+- 前端 `ReadingChatPanel`:右栏标签(无任务只有「问书」;有任务默认「学习模式」,切换不卸载);选区工具条「问 AI」把选文带进引用区;Enter 发送 / Shift+Enter 换行;「取消」= 停止等待(后端照常完成,每 3 s 轮询 `readingMessages` 补上,2 分钟后给「刷新」);「另起话题」先清本地再调后端;历史下拉可回看并续聊旧话题。**取舍**:AI 回复按纯文本 `whitespace-pre-wrap` 显示(spec 写 Markdown 渲染,不引第三方库,后续按需加);第一批所有有回复的话题都显示"待整理",是分批的预期。
+- 门禁:core 177(+7)、web 359/2(+6 面板、+1 契约、+2 传输)、tsc、oxlint 0、build;壳层 foundation(wire 5 项 + roundtrip)在 Mac 上跑。
+
