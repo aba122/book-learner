@@ -65,7 +65,12 @@
     { "method": "appInfo", "command": "app_info", "payloadKeys": [] },
     { "method": "appRevealLogs", "command": "app_reveal_logs", "payloadKeys": [] },
     { "method": "logClientEvent", "command": "log_client_event", "payloadKeys": ["level", "message", "context"] },
-    { "method": "deleteBook", "command": "library_delete_book", "payloadKeys": ["bookId", "date"] }
+    { "method": "deleteBook", "command": "library_delete_book", "payloadKeys": ["bookId", "date"] },
+    { "method": "readingTopics", "command": "reading_topics", "payloadKeys": ["bookId"] },
+    { "method": "readingMessages", "command": "reading_messages", "payloadKeys": ["topicId"] },
+    { "method": "readingSend", "command": "reading_send", "payloadKeys": ["bookId", "topicId", "clientMsgId", "text", "quote", "spineHref", "blockId"] },
+    { "method": "readingTopicEnd", "command": "reading_topic_end", "payloadKeys": ["topicId"] },
+    { "method": "readingDistill", "command": "reading_distill", "payloadKeys": ["topicId"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

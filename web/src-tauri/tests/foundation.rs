@@ -1342,6 +1342,12 @@ impl AiProvider for EngineMock {
         if id.starts_with("eval:") {
             return Ok(EVAL_JSON.into());
         }
+        if id.starts_with("reading:") {
+            return Ok("需求定律说的是价格与需求量反向变动。".into());
+        }
+        if id.starts_with("reading_distill:") {
+            return Ok(r#"{"focus":[{"blockId":null,"href":"ch0.xhtml","note":"问需求定律"}],"understanding":[{"blockId":null,"kind":"clarified","note":"价格与需求量反向"}],"habits":["先要结论"]}"#.into());
+        }
         if id.starts_with("final:") {
             return Ok("<!-- overall:4 strongest:供给与需求 weakest:供给与需求 -->\n## 总体掌握度\n扎实\n## 最强模块\n供给与需求\n## 最弱模块\n供给与需求\n## 薄弱点修复历程\n略\n## 建议重读章节\n无\n## 终评对话要点\n略".into());
         }
@@ -2432,6 +2438,28 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "settings_codex_set" => json!({"path": null}),
             // 契约最后一条:删掉 second(之前的条目都已用过它)
             "library_delete_book" => json!({"bookId": second, "date": DAY}),
+            "reading_topics" => json!({"bookId": first}),
+            "reading_send" => json!({
+                "bookId": first, "topicId": null, "clientMsgId": "wire-q0", "text": "第一问",
+                "quote": "", "spineHref": "ch0.xhtml", "blockId": null
+            }),
+            "reading_messages" | "reading_topic_end" | "reading_distill" => {
+                let state = app.state::<AppState>();
+                let sent = commands::reading_send_inner(
+                    &state,
+                    book_learner_core::reading_chat::SendInput {
+                        book_id: first,
+                        topic_id: None,
+                        client_msg_id: format!("wire-{command}"),
+                        text: "什么是需求定律".into(),
+                        quote: "需求定律".into(),
+                        spine_href: "ch0.xhtml".into(),
+                        block_id: None,
+                    },
+                )
+                .unwrap();
+                json!({"topicId": sent.topic_id})
+            }
             "voice_models" => json!({}),
             "voice_import_model" => {
                 // 无模型文件:校验失败 invalid_request(不会弹原生选择器,因为 path 非空)
@@ -2936,6 +2964,68 @@ fn delete_book_snapshots_then_removes_rows_file_and_memory_dir() {
     assert!(String::from_utf8_lossy(&log.stdout).contains("remove: 删除书 first"));
     assert_eq!(
         commands::library_delete_book_inner(&state, first, DAY)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn reading_chat_roundtrip_through_commands() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _mock) = state_with_mock(&directory.path().join("reading.db"));
+    let (first, _second, block) = seed_books(&state);
+    let input =
+        |topic: Option<i64>, id: &str, text: &str| book_learner_core::reading_chat::SendInput {
+            book_id: first,
+            topic_id: topic,
+            client_msg_id: id.into(),
+            text: text.into(),
+            quote: "需求定律".into(),
+            spine_href: "ch0.xhtml".into(),
+            block_id: Some(block),
+        };
+    let sent = commands::reading_send_inner(&state, input(None, "q1", "什么是需求定律")).unwrap();
+    assert_eq!(sent.user_message.status, "done");
+    let reply = sent.assistant_message.expect("assistant reply");
+    assert!(reply.text.contains("需求定律"));
+    assert_eq!(reply.block_id, Some(block));
+    let topics = commands::reading_topics_inner(&state, first).unwrap();
+    assert_eq!(topics.len(), 1);
+    assert!(topics[0].needs_distill);
+    assert_eq!(topics[0].first_question, "什么是需求定律");
+    assert_eq!(
+        commands::reading_messages_inner(&state, sent.topic_id)
+            .unwrap()
+            .len(),
+        2
+    );
+    // 同 id 重放
+    let again =
+        commands::reading_send_inner(&state, input(Some(sent.topic_id), "q1", "什么是需求定律"))
+            .unwrap();
+    assert_eq!(again.assistant_message.unwrap().id, reply.id);
+    // 另起话题 → 结束;第一批不提炼
+    let ended = commands::reading_topic_end_inner(&state, sent.topic_id).unwrap();
+    assert!(!ended.distilled);
+    assert!(commands::reading_topics_inner(&state, first).unwrap()[0]
+        .ended_at
+        .is_some());
+    let next = commands::reading_send_inner(&state, input(None, "q2", "再问")).unwrap();
+    assert_ne!(next.topic_id, sent.topic_id);
+    assert_eq!(
+        commands::reading_topics_inner(&state, first).unwrap().len(),
+        2
+    );
+    // 坏 client id / 不存在的话题
+    assert_eq!(
+        commands::reading_send_inner(&state, input(None, "a:b", "x"))
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::reading_messages_inner(&state, 999)
             .unwrap_err()
             .code,
         ErrorCode::NotFound

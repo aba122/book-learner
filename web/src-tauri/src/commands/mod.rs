@@ -3,10 +3,11 @@ use tauri::{Emitter, Manager, State};
 use crate::application;
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, CodexBinDto,
-    DailyTaskDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto,
-    FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, NewReaderMarkDto, PomodoroSnapshotDto, ProfileDto,
-    PushResultDto, ReaderMarkDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto,
+    DailyTaskDto, DistillResultDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto,
+    ExtraOutcomeDto, FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto,
+    KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, NewReaderMarkDto,
+    PomodoroSnapshotDto, ProfileDto, PushResultDto, ReaderMarkDto, ReadingMessageDto,
+    ReadingSendResultDto, ReadingTopicDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto,
     StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
@@ -124,6 +125,22 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("log_client_event", &["level", "message", "context"]),
     // 删除书(测试阶段补功能):date 供删前快照命名
     ("library_delete_book", &["bookId", "date"]),
+    ("reading_topics", &["bookId"]),
+    ("reading_messages", &["topicId"]),
+    (
+        "reading_send",
+        &[
+            "bookId",
+            "topicId",
+            "clientMsgId",
+            "text",
+            "quote",
+            "spineHref",
+            "blockId",
+        ],
+    ),
+    ("reading_topic_end", &["topicId"]),
+    ("reading_distill", &["topicId"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1386,4 +1403,130 @@ pub async fn voice_transcribe(
         }
     };
     voice_transcribe_inner(&state, bytes, &lang, &hint)
+}
+
+// ---- 问书(阅读辅助对话,spec 2026-09-16)----
+
+pub fn reading_topics_inner(
+    state: &AppState,
+    book_id: i64,
+) -> Result<Vec<ReadingTopicDto>, IpcError> {
+    run_command(state, "reading_topics", || {
+        application::reading_topics(state, book_id)
+    })
+}
+
+pub fn reading_messages_inner(
+    state: &AppState,
+    topic_id: i64,
+) -> Result<Vec<ReadingMessageDto>, IpcError> {
+    run_command(state, "reading_messages", || {
+        application::reading_messages(state, topic_id)
+    })
+}
+
+pub fn reading_send_inner(
+    state: &AppState,
+    input: book_learner_core::reading_chat::SendInput,
+) -> Result<ReadingSendResultDto, IpcError> {
+    run_command(state, "reading_send", || {
+        application::reading_send(state, input)
+    })
+}
+
+pub fn reading_topic_end_inner(
+    state: &AppState,
+    topic_id: i64,
+) -> Result<DistillResultDto, IpcError> {
+    run_command(state, "reading_topic_end", || {
+        application::reading_topic_end(state, topic_id)
+    })
+}
+
+pub fn reading_distill_inner(
+    state: &AppState,
+    topic_id: i64,
+) -> Result<DistillResultDto, IpcError> {
+    run_command(state, "reading_distill", || {
+        application::reading_distill(state, topic_id)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn reading_topics(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<Vec<ReadingTopicDto>, IpcError> {
+    reading_topics_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn reading_messages(
+    state: State<'_, AppState>,
+    topic_id: i64,
+) -> Result<Vec<ReadingMessageDto>, IpcError> {
+    reading_messages_inner(&state, topic_id)
+}
+
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+pub async fn reading_send(
+    state: State<'_, AppState>,
+    book_id: i64,
+    topic_id: Option<i64>,
+    client_msg_id: String,
+    text: String,
+    quote: String,
+    spine_href: String,
+    block_id: Option<i64>,
+) -> Result<ReadingSendResultDto, IpcError> {
+    reading_send_inner(
+        &state,
+        book_learner_core::reading_chat::SendInput {
+            book_id,
+            topic_id,
+            client_msg_id,
+            text,
+            quote,
+            spine_href,
+            block_id,
+        },
+    )
+}
+
+/// 结束/提炼后在后台重放投影(第二批提炼会入队 sync_reading);失败只记日志,启动恢复会补跑
+fn replay_projection_after<R: tauri::Runtime>(app: tauri::AppHandle<R>, what: &'static str) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match crate::run_startup_recovery(&state) {
+            Ok(processed) => tracing::info!(processed, "{what}后投影重放完成"),
+            Err(error) => tracing::error!(
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "{what}后投影重放失败"
+            ),
+        }
+    });
+}
+
+#[tauri::command(async)]
+pub async fn reading_topic_end<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    topic_id: i64,
+) -> Result<DistillResultDto, IpcError> {
+    let result = reading_topic_end_inner(&state, topic_id)?;
+    replay_projection_after(app, "另起话题");
+    Ok(result)
+}
+
+#[tauri::command(async)]
+pub async fn reading_distill<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    topic_id: i64,
+) -> Result<DistillResultDto, IpcError> {
+    let result = reading_distill_inner(&state, topic_id)?;
+    replay_projection_after(app, "阅读提炼");
+    Ok(result)
 }
