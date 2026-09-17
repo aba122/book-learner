@@ -130,18 +130,19 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 | `reading_topic_end` | `topicId` | `{ distilled: boolean }`(写 `ended_at`,再对需要提炼的跑提炼;第一批只写 `ended_at` 返回 false) |
 | `reading_distill` | `topicId` | `{ distilled: boolean }`(不结束话题,只对"需要提炼"的跑;第一批返回 false) |
 
-重试 = 用同一 `clientMsgId` 再调 `reading_send`(ADR-0002:重试即同 id 重发;`run_ai_request` 对 failed 行重跑),不单设 `reading_retry`;客户端从 `reading_messages` 拿回 text/quote 即可重发。
+重试 = 用同一 `clientMsgId` **和原 `topicId`** 再调 `reading_send`(ADR-0002:重试即同 id 重发;`run_ai_request` 对 failed 行重跑;幂等索引按 `(topic_id, client_msg_id)`,不带原 topicId 会落到别的话题),不单设 `reading_retry`;客户端从 `reading_messages` 拿回 text/quote 即可重发。
+`run_ai_request` 不能在事务里跑:实现上"落 user 消息(pending)"与"写 assistant 消息 + user 置 done/failed"是围绕 codex 调用的两个独立事务(与 `session.rs` 的回合一致)。
 
 - `reading_send` 先落 user 消息(status pending),调 codex(`ai_request` id `reading:{topic_id}:{client_msg_id}`,`client_msg_id` 须过 `orchestrate::validate_client_id`),成功写 assistant 消息并把 user 置 done;失败置 failed,按上表返回成功载荷,气泡上显示「重试」。
 - **取消**:只有"停止等待"没有真正的取消命令。前端点取消后不再等 `reading_send` 返回,该条显示"等待中";后端照常完成并落库;面板每 3 s 拉一次 `reading_messages` 直到该条变 done/failed(最多 2 分钟;到时仍 pending 就停止轮询,气泡保持"等待中"并给一个「刷新」按钮,窗口重新获得焦点时也再拉一次)。同一话题的发送在壳层串行(按 topicId 互斥),等待期间输入框禁用。
-- **第一批**只让 `reading_topic_end` 写 `ended_at` 并返回 `{distilled:false}`(提炼在第二批接上),契约六处同步只做一次。
+- **第一批**只让 `reading_topic_end` 写 `ended_at` 并返回 `{distilled:false}`(提炼在第二批接上),契约六处同步只做一次。第一批里所有有回复的话题都会一直显示"待整理",这是分批的预期,不是缺陷。
 - 壳层 `commands/mod.rs::WIRE_COMMANDS`、`lib.rs::register_commands`、`tests/foundation.rs` payload、`contract.test.ts`、`tauri.test.ts::NATIVE_METHODS`、`shared/tauri-wire-contract.json`;`Backend` 接口、`TauriBackend`(含出站校验)、`MockBackend`(AI 回复用固定模板"关于「{quote 前 12 字}」:…")。
 - 阅读器现有 `reader_position` 与锚点段接口不变。
 
 ## 6. 界面
 
 - 右侧栏在正文就绪后总是渲染:没有任务(不带 `?task=`)时只有「问书」一个标签,默认展开;带任务时「学习模式」「问书」两个标签互斥切换,默认「学习模式」,学习模式面板切走时不卸载只隐藏。列宽与学习模式一致,不遮翻页。
-- 面板结构:顶栏(当前话题起始章节 · 「历史」下拉 · 「另起话题」)→ 消息流(用户右、AI 左;AI 回复 Markdown 渲染;用户消息顶部以引用块显示 quote)→ 输入区(顶部可删的引用区 + 文本框;Enter 发送、Shift+Enter 换行;发送后显示"思考中…";「取消」= 停止等待(见 §5),该条转为"等待中",后端结果到了自动补上)。
+- 面板结构:顶栏(当前话题起始章节 · 「历史」下拉 · 「另起话题」,当前话题没有消息时禁用,免得历史里堆空话题)→ 消息流(用户右、AI 左;AI 回复 Markdown 渲染;用户消息顶部以引用块显示 quote)→ 输入区(顶部可删的引用区 + 文本框;Enter 发送、Shift+Enter 换行;发送后显示"思考中…";「取消」= 停止等待(见 §5),该条转为"等待中",后端结果到了自动补上)。
 - 「问 AI」:选区工具条新增按钮,把选文填进引用区并切到「问书」;`spineHref`/`blockId` 随之带上。
 - 历史:下拉列出该书全部话题(起始时间 + 首问前 20 字),选中即加载;在旧话题上继续发送 = 续该话题。
 - 提炼触发:「另起话题」调 `reading_topic_end`(结束 + 提炼);离开阅读器页面调 `reading_distill[topicId]`(只提炼不结束);app 退出不做事,启动时补跑。都在后台,不阻塞界面;话题旁显示状态点(已记入记忆 / 待整理 = 需要提炼)。
