@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -61,6 +61,12 @@ export interface Backend {
   /** 阅读器标记(M3 T4):书签同点幂等;position 每书一行 upsert */
   readerMarkList(bookId: number): Promise<ReaderMark[]>
   readerMarkAdd(bookId: number, mark: NewReaderMark): Promise<ReaderMark>
+  /** 问书(spec 2026-09-16):按书的话题列表(新→旧)、话题消息、发送(幂等按 topicId+clientMsgId;AI 失败也返回成功载荷)、另起话题(写 ended_at 并提炼)、离开阅读器时的提炼 */
+  readingTopics(bookId: number): Promise<ReadingTopic[]>
+  readingMessages(topicId: number): Promise<ReadingMessage[]>
+  readingSend(input: ReadingSendInput): Promise<ReadingSendResult>
+  readingTopicEnd(topicId: number): Promise<{ distilled: boolean }>
+  readingDistill(topicId: number): Promise<{ distilled: boolean }>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>

@@ -85,7 +85,7 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 
 ### 3.3 提炼结果落库与投影
 
-提炼 JSON 原文存 `reading_topic.distilled_json`(SQLite 是真相源,ADR-0001)。投影 outbox 入队 `sync_reading`(payload `{"book_id"}`,op_id `reading:{book_id}:t{topic_id}:sync_reading`),`memory::sync_reading` 读该书全部 `distilled_json` 重生成 `_reading.md`(与 `sync_map`、`sync_weakpoints` 同一"整文件重生成"风格,天然幂等)。
+提炼 JSON 原文存 `reading_topic.distilled_json`(SQLite 是真相源,ADR-0001)。投影 outbox 入队 `sync_reading`(payload `{"book_id"}`,op_id `reading:{book_id}:t{topic_id}:m{distilled_up_to}:sync_reading`(带消息水位:outbox 按 op_id 去重且 done 行保留,固定 op_id 会让二次提炼不再投影)),`memory::sync_reading` 读该书全部 `distilled_json` 重生成 `_reading.md`(与 `sync_map`、`sync_weakpoints` 同一"整文件重生成"风格,天然幂等)。
 
 ## 4. AI 调用
 

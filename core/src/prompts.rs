@@ -27,6 +27,64 @@ fn context_block(ctx: &FixedContext) -> String {
         ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status)
 }
 
+/// 问书(阅读辅助对话,spec 2026-09-16)的固定注入
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReadingContext {
+    pub book_title: String,
+    pub book_type: String,
+    pub chapter_title: String,
+    pub chapter_text: String,
+    /// 章节原文被窗口截断
+    pub truncated: bool,
+    pub block_title: String,
+    pub quote: String,
+    /// 已提炼的理解状态条目(每条一行)
+    pub understanding: Vec<String>,
+    /// 本话题此前的回合(“用户:…”/“助手:…”,已渲染成行)
+    pub history: Vec<String>,
+}
+
+/// 阅读助手 system prompt:直答、不出题不评估;书是上下文,答案靠模型自身知识
+pub fn reading_system(ctx: &ReadingContext) -> String {
+    let chapter = if ctx.chapter_text.is_empty() {
+        "(本章原文不可用)".to_string()
+    } else if ctx.truncated {
+        format!("(已截断,只保留用户带入文字附近)\n{}", ctx.chapter_text)
+    } else {
+        ctx.chapter_text.clone()
+    };
+    let block = if ctx.block_title.is_empty() {
+        String::new()
+    } else {
+        format!(" · 知识块:{}", ctx.block_title)
+    };
+    let quote = if ctx.quote.is_empty() {
+        "(无)".to_string()
+    } else {
+        ctx.quote.clone()
+    };
+    let state = if ctx.understanding.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n=== 用户读这本书时已暴露的理解状态(别重复解释已澄清的,别和之前的解释矛盾)===\n{}",
+            ctx.understanding.join("\n")
+        )
+    };
+    let history = if ctx.history.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n=== 本话题此前的问答 ===\n{}", ctx.history.join("\n"))
+    };
+    format!(
+        "你是一位阅读助手,陪用户读《{}》({})。用户读到不理解的地方会把原文贴给你提问。\
+用中文回答;先直接回答问题,再按需要展开;不出题、不评估、不引导复述;引用书里的话时注明“书里说”;不确定就说不确定。\
+书的内容只是上下文,解释靠你自己的知识。\n\n=== 当前章节:{}{} ===\n{}\n\n=== 用户带入的原文 ===\n{}{}{}\n\n\
+提示:你的工作目录即记忆库,可自主阅读 profile.md 了解用户背景。",
+        ctx.book_title, ctx.book_type, ctx.chapter_title, block, chapter, quote, state, history
+    )
+}
+
 /// 费曼学生扮演 system prompt(TECH_DESIGN §6.2)。
 pub fn feynman_system(ty: BookType, ctx: &FixedContext) -> String {
     format!(

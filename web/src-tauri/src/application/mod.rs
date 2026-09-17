@@ -7,9 +7,10 @@ use rusqlite::OptionalExtension;
 
 use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, CodexBinDto,
-    DailyTaskDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto, ExtraOutcomeDto,
-    FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, MapRevisionDto, NewReaderMarkDto, ProfileDto, PushResultDto, ReaderMarkDto,
+    DailyTaskDto, DistillResultDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto,
+    ExtraOutcomeDto, FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto,
+    KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, NewReaderMarkDto, ProfileDto,
+    PushResultDto, ReaderMarkDto, ReadingMessageDto, ReadingSendResultDto, ReadingTopicDto,
     ReplanDto, SessionViewDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto,
     StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
 };
@@ -870,4 +871,92 @@ pub fn reader_position_set(
             book_learner_core::reader_marks::set_position(connection, book_id, spine_href, cfi)
         })
         .map(Into::into)
+}
+
+// ---- 问书(阅读辅助对话,spec 2026-09-16)----
+
+/// 同一话题串行:发送/提炼/结束互斥(spec §7);忙则 conflict,前端在等待期间本就禁用输入。
+/// topic_id 为 None(首条消息)不上锁:前端拿到首条回复后总带 topicId,并发首条只影响锚点归属,可接受。
+pub(crate) fn lock_topic(
+    state: &AppState,
+    topic_id: Option<i64>,
+) -> Result<Option<TopicGuard>, IpcError> {
+    let Some(id) = topic_id else {
+        return Ok(None);
+    };
+    let busy = state.reading_busy().clone();
+    {
+        let mut set = busy
+            .lock()
+            .map_err(|_| IpcError::internal("reading_busy mutex poisoned"))?;
+        if !set.insert(id) {
+            return Err(IpcError::conflict(
+                "这个话题正在处理,请稍等",
+                format!("reading topic {id} busy"),
+            ));
+        }
+    }
+    Ok(Some(TopicGuard { busy, id }))
+}
+
+pub(crate) struct TopicGuard {
+    busy: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<i64>>>,
+    id: i64,
+}
+
+impl Drop for TopicGuard {
+    fn drop(&mut self) {
+        if let Ok(mut set) = self.busy.lock() {
+            set.remove(&self.id);
+        }
+    }
+}
+
+pub fn reading_topics(state: &AppState, book_id: i64) -> Result<Vec<ReadingTopicDto>, IpcError> {
+    state
+        .with_connection(|c| book_learner_core::reading_chat::list_topics(c, book_id))
+        .map(|v| v.into_iter().map(Into::into).collect())
+}
+
+pub fn reading_messages(
+    state: &AppState,
+    topic_id: i64,
+) -> Result<Vec<ReadingMessageDto>, IpcError> {
+    state
+        .with_connection(|c| book_learner_core::reading_chat::list_messages(c, topic_id))
+        .map(|v| v.into_iter().map(Into::into).collect())
+}
+
+pub fn reading_send(
+    state: &AppState,
+    input: book_learner_core::reading_chat::SendInput,
+) -> Result<ReadingSendResultDto, IpcError> {
+    let _guard = lock_topic(state, input.topic_id)?;
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::reading_chat::send_message(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        &input,
+    )
+    .map(Into::into)
+    .map_err(Into::into)
+}
+
+/// 「另起话题」:写 ended_at;提炼第二批接上(此处恒 false)
+pub fn reading_topic_end(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
+    let _guard = lock_topic(state, Some(topic_id))?;
+    state.with_connection(|c| book_learner_core::reading_chat::end_topic(c, topic_id))?;
+    Ok(DistillResultDto { distilled: false })
+}
+
+/// 离开阅读器时的提炼触发;第二批接上(此处只校验话题存在)
+pub fn reading_distill(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
+    let _guard = lock_topic(state, Some(topic_id))?;
+    state
+        .with_connection(|c| book_learner_core::reading_chat::get_topic(c, topic_id).map(|_| ()))?;
+    Ok(DistillResultDto { distilled: false })
 }

@@ -128,6 +128,15 @@ pub fn delete_book(conn: &Connection, book_id: i64) -> Result<DeletedBook> {
         .execute("DELETE FROM study_plan WHERE book_id=?1", [book_id])
         .map_err(write_error)?;
     transaction
+        .execute(
+            "DELETE FROM reading_message WHERE topic_id IN (SELECT id FROM reading_topic WHERE book_id=?1)",
+            [book_id],
+        )
+        .map_err(write_error)?;
+    transaction
+        .execute("DELETE FROM reading_topic WHERE book_id=?1", [book_id])
+        .map_err(write_error)?;
+    transaction
         .execute("DELETE FROM knowledge_block WHERE book_id=?1", [book_id])
         .map_err(write_error)?;
     transaction

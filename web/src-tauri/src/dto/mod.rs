@@ -5,6 +5,7 @@ use book_learner_core::memory::ProfileSections;
 use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
 use book_learner_core::pomodoro::Snapshot;
+use book_learner_core::reading_chat::{ReadingMessage, ReadingTopic, SendResult};
 use book_learner_core::sched::{DailyTask, Replan, ReplanReport};
 use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
@@ -982,4 +983,92 @@ impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
             note: m.note,
         }
     }
+}
+
+// ---- 问书(阅读辅助对话,spec 2026-09-16)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingTopicDto {
+    pub id: i64,
+    pub book_id: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub distilled_at: Option<String>,
+    pub needs_distill: bool,
+    pub anchor_href: String,
+    pub anchor_block_id: Option<i64>,
+    pub first_question: String,
+}
+
+impl From<ReadingTopic> for ReadingTopicDto {
+    fn from(t: ReadingTopic) -> Self {
+        Self {
+            id: t.id,
+            book_id: t.book_id,
+            started_at: t.started_at,
+            ended_at: t.ended_at,
+            distilled_at: t.distilled_at,
+            needs_distill: t.needs_distill,
+            anchor_href: t.anchor_href,
+            anchor_block_id: t.anchor_block_id,
+            first_question: t.first_question,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingMessageDto {
+    pub id: i64,
+    pub topic_id: i64,
+    pub role: String,
+    pub text: String,
+    pub quote: String,
+    pub spine_href: String,
+    pub block_id: Option<i64>,
+    pub status: String,
+    pub client_msg_id: Option<String>,
+    pub created_at: String,
+}
+
+impl From<ReadingMessage> for ReadingMessageDto {
+    fn from(m: ReadingMessage) -> Self {
+        Self {
+            id: m.id,
+            topic_id: m.topic_id,
+            role: m.role,
+            text: m.text,
+            quote: m.quote,
+            spine_href: m.spine_href,
+            block_id: m.block_id,
+            status: m.status,
+            client_msg_id: m.client_msg_id,
+            created_at: m.created_at,
+        }
+    }
+}
+
+/// AI 失败不是错误:user_message.status='failed'、assistant_message=None
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingSendResultDto {
+    pub topic_id: i64,
+    pub user_message: ReadingMessageDto,
+    pub assistant_message: Option<ReadingMessageDto>,
+}
+
+impl From<SendResult> for ReadingSendResultDto {
+    fn from(r: SendResult) -> Self {
+        Self {
+            topic_id: r.topic_id,
+            user_message: r.user_message.into(),
+            assistant_message: r.assistant_message.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DistillResultDto {
+    pub distilled: bool,
 }

@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -123,6 +123,10 @@ export class MockBackend implements Backend {
   private nextArtifactId = 1
   private nextBookId = 2
   private nextBlockId = 13
+  /** 问书:字段名避开同名方法 */
+  private readingTopicRows: ReadingTopic[] = []
+  private readingMessageRows: ReadingMessage[] = []
+  private nextReadingId = 1
   private settings: AppSettings = { ...APP_DEFAULTS }
   private profile: Profile = {
     background: '经济学本科,读过曼昆《经济学原理》', mastered: '- 供需曲线与均衡', pitfalls: '- 容易把弹性和斜率混为一谈', context: '在做平台定价的研究,想把弹性分析用到实验设计上',
@@ -286,6 +290,9 @@ export class MockBackend implements Backend {
     this.tasks = this.tasks.filter(t => t.bookId !== bookId)
     this.plans = this.plans.filter(p => p.bookId !== bookId)
     this.marks = this.marks.filter(m => m.bookId !== bookId)
+    const topicIds = new Set(this.readingTopicRows.filter(t => t.bookId === bookId).map(t => t.id))
+    this.readingTopicRows = this.readingTopicRows.filter(t => t.bookId !== bookId)
+    this.readingMessageRows = this.readingMessageRows.filter(m => !topicIds.has(m.topicId))
     this.spines.delete(bookId)
     for (const [id, s] of this.v2Sessions) if (blockIds.has(s.blockId) || s.bookId === bookId) this.v2Sessions.delete(id)
     this.snapshots = [{ name: `app-${date}.db`, date, bytes: 204800 }, ...this.snapshots.filter(s => s.date !== date)]
@@ -691,6 +698,75 @@ export class MockBackend implements Backend {
       this.marks.push(m)
     }
     return { ...m }
+  }
+
+  // ---- 问书(spec 2026-09-16):与 core reading_chat 同语义;AI 回复用固定模板 ----
+  private readingNeedsDistill(t: ReadingTopic): boolean {
+    const last = this.readingMessageRows.filter(m => m.topicId === t.id && m.role === 'assistant' && m.status === 'done').at(-1)
+    return !!last && (t.distilledAt === null || last.createdAt > t.distilledAt)
+  }
+  private readingTopicView(t: ReadingTopic): ReadingTopic {
+    const first = this.readingMessageRows.find(m => m.topicId === t.id && m.role === 'user')
+    return { ...t, needsDistill: this.readingNeedsDistill(t), firstQuestion: (first?.text ?? '').slice(0, 20) }
+  }
+  async readingTopics(bookId: number): Promise<ReadingTopic[]> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    return this.readingTopicRows.filter(t => t.bookId === bookId).sort((a, z) => z.id - a.id).map(t => this.readingTopicView(t))
+  }
+  async readingMessages(topicId: number): Promise<ReadingMessage[]> {
+    if (!this.readingTopicRows.some(t => t.id === topicId)) throw notFound()
+    return this.readingMessageRows.filter(m => m.topicId === topicId).map(m => ({ ...m }))
+  }
+  async readingSend(input: ReadingSendInput): Promise<ReadingSendResult> {
+    requireClientId(input.clientMsgId)
+    const text = input.text.trim().slice(0, 4000)
+    if (!text) throw invalidRequest()
+    if (!this.books.some(b => b.id === input.bookId)) throw notFound()
+    let topic: ReadingTopic | undefined
+    if (input.topicId !== null) {
+      topic = this.readingTopicRows.find(t => t.id === input.topicId)
+      if (!topic) throw notFound()
+      if (topic.bookId !== input.bookId) throw invalidRequest()
+    } else {
+      topic = this.readingTopicRows.filter(t => t.bookId === input.bookId && t.endedAt === null).sort((a, z) => z.id - a.id)[0]
+      if (!topic) {
+        topic = {
+          id: this.nextReadingId++, bookId: input.bookId, startedAt: new Date().toISOString(), endedAt: null, distilledAt: null,
+          needsDistill: false, anchorHref: input.spineHref, anchorBlockId: input.blockId, firstQuestion: '',
+        }
+        this.readingTopicRows.push(topic)
+      }
+    }
+    const existing = this.readingMessageRows.find(m => m.topicId === topic.id && m.role === 'user' && m.clientMsgId === input.clientMsgId)
+    if (existing?.status === 'done') {
+      const reply = this.readingMessageRows.find(m => m.topicId === topic.id && m.role === 'assistant' && m.id > existing.id) ?? null
+      return { topicId: topic.id, userMessage: { ...existing }, assistantMessage: reply ? { ...reply } : null }
+    }
+    const quote = input.quote.trim().slice(0, 8000)
+    const user: ReadingMessage = existing ?? {
+      id: this.nextReadingId++, topicId: topic.id, role: 'user', text, quote, spineHref: input.spineHref, blockId: input.blockId,
+      status: 'pending', clientMsgId: input.clientMsgId, createdAt: new Date().toISOString(),
+    }
+    if (!existing) this.readingMessageRows.push(user)
+    user.status = 'done'
+    const head = (quote || text).slice(0, 12)
+    const reply: ReadingMessage = {
+      id: this.nextReadingId++, topicId: topic.id, role: 'assistant', quote: '', spineHref: input.spineHref, blockId: input.blockId,
+      text: `关于「${head}」:这句话在说需求定律——价格上升,需求量下降。(Mock 回复)`, status: 'done', clientMsgId: null,
+      createdAt: new Date(Date.now() + 1).toISOString(),
+    }
+    this.readingMessageRows.push(reply)
+    return { topicId: topic.id, userMessage: { ...user }, assistantMessage: { ...reply } }
+  }
+  async readingTopicEnd(topicId: number): Promise<{ distilled: boolean }> {
+    const topic = this.readingTopicRows.find(t => t.id === topicId)
+    if (!topic) throw notFound()
+    topic.endedAt = topic.endedAt ?? new Date().toISOString()
+    return { distilled: false }
+  }
+  async readingDistill(topicId: number): Promise<{ distilled: boolean }> {
+    if (!this.readingTopicRows.some(t => t.id === topicId)) throw notFound()
+    return { distilled: false }
   }
 
   // ---- 诊断:固定信息;前端事件记录在内存供用例断言 ----

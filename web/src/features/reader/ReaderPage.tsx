@@ -5,7 +5,6 @@ import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
-import Tag from '../../components/Tag'
 import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
 import { useBackendOperation } from '../../lib/useBackendOperation'
@@ -13,6 +12,7 @@ import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import type { HighlightColor, KnowledgeBlock, ReaderMark } from '../../types'
 import EpubView, { type EpubHandle, type ReaderTheme, type ReaderTypography, type SelectionInfo } from './EpubView'
 import MarksPanel from './MarksPanel'
+import ReadingChatPanel from './ReadingChatPanel'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
   { name: 'paper', label: '纸白', swatchClass: 'bg-paper-2 border-line' },
@@ -28,6 +28,8 @@ interface ReaderContent {
   readerMarksInit: ReaderMark[]
   /** 块锚点段(学习模式下画下划线;chapter_fallback 段无区间,跳过) */
   segments: { spineHref: string; cfiStart: string; cfiEnd: string }[]
+  /** 本块锚点覆盖的章节 href(问书按它判定发问是否落在本块) */
+  anchorHrefs: string[]
 }
 
 interface ReaderPrefs {
@@ -94,6 +96,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const typography: ReaderTypography = { lineHeight: READER_LINE_HEIGHTS[lineIdx], indent, overridePublisher }
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
+  /** 右栏标签(spec 2026-09-16):有任务默认学习模式,否则只有「问书」 */
+  const [sideTab, setSideTab] = useState<'learn' | 'chat'>(taskId !== null ? 'learn' : 'chat')
+  const [quoteDraft, setQuoteDraft] = useState<string | null>(null)
+  const [currentHref, setCurrentHref] = useState('')
   const [marksOpen, setMarksOpen] = useState(false)
   const [marks, setMarks] = useState<ReaderMark[] | null>(null)
   const [selection, setSelection] = useState<SelectionInfo | null>(null)
@@ -115,7 +121,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     const segments = anchors
       .filter(a => a.precision === 'exact')
       .map(a => ({ spineHref: a.spineHref, cfiStart: a.cfiStart, cfiEnd: a.cfiEnd }))
-    return { block, source, url, readerMarksInit, segments }
+    const anchorHrefs = [...new Set(anchors.map(a => a.spineHref))]
+    return { block, source, url, readerMarksInit, segments, anchorHrefs }
   }, [blockId]))
   const block = content.data?.block ?? null
   const source = content.data?.source ?? null
@@ -174,6 +181,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     void addMarkOp.run('add', { kind: 'highlight', spineHref: sel.href, cfiStart: sel.cfiRange, cfiEnd: sel.cfiRange, text: sel.text.slice(0, 400), color })
   }
   const onRelocated = (loc: { cfi: string; href: string }) => {
+    setCurrentHref(loc.href)
     if (bookId === null) return
     if (positionTimer.current) clearTimeout(positionTimer.current)
     positionTimer.current = setTimeout(() => {
@@ -308,6 +316,19 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 onClick={() => addHighlight(c.color)}
               />
             ))}
+            <button
+              className="cursor-pointer text-xs text-ink-2 hover:text-ink-1"
+              aria-label="问 AI"
+              onClick={() => {
+                setQuoteDraft(selection.text)
+                setSideTab('chat')
+                setPanelOpen(true)
+                setSelection(null)
+                epubRef.current?.clearSelection()
+              }}
+            >
+              问 AI
+            </button>
             <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => { setSelection(null); epubRef.current?.clearSelection() }}>取消</button>
           </div>
         )}
@@ -424,13 +445,32 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
 
         </div>
 
-        {/* 学习模式侧栏(分栏,不遮翻页) */}
-        {learning && ready && (
+        {/* 右侧栏(分栏,不遮翻页):有任务 →「学习模式」「问书」两个标签;无任务 → 只有「问书」 */}
+        {ready && (
           <div className="flex shrink-0 items-stretch border-l border-line bg-paper-1">
             {panelOpen ? (
-              <Card className="m-3 flex w-72 flex-col gap-3 overflow-y-auto p-5">
+              <Card className="m-3 flex w-72 flex-col gap-3 overflow-hidden p-5">
                 <div className="flex items-center justify-between">
-                  <Tag tone="new">学习模式</Tag>
+                  <div className="flex items-center gap-1" role="tablist" aria-label="侧栏">
+                    {learning && (
+                      <button
+                        role="tab"
+                        aria-selected={sideTab === 'learn'}
+                        className={`cursor-pointer rounded-s px-2 py-0.5 text-xs ${sideTab === 'learn' ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
+                        onClick={() => setSideTab('learn')}
+                      >
+                        学习模式
+                      </button>
+                    )}
+                    <button
+                      role="tab"
+                      aria-selected={sideTab === 'chat'}
+                      className={`cursor-pointer rounded-s px-2 py-0.5 text-xs ${sideTab === 'chat' ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
+                      onClick={() => setSideTab('chat')}
+                    >
+                      问书
+                    </button>
+                  </div>
                   <button
                     className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
                     onClick={() => setPanelOpen(false)}
@@ -438,32 +478,45 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     收起 ›
                   </button>
                 </div>
-                <h2 className="font-serif text-lg font-semibold text-ink-1">{block.title}</h2>
-                <p className="text-xs text-ink-3">
-                  {block.moduleName} · 原文 {source?.href ?? '…'}
-                </p>
-                {source && (
-                  <p className="line-clamp-6 border-l-2 border-line pl-3 text-xs leading-relaxed text-ink-2">
-                    {source.text}
-                  </p>
+                {learning && (
+                  <div hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" data-testid="learn-panel">
+                    <h2 className="font-serif text-lg font-semibold text-ink-1">{block.title}</h2>
+                    <p className="text-xs text-ink-3">
+                      {block.moduleName} · 原文 {source?.href ?? '…'}
+                    </p>
+                    {source && (
+                      <p className="line-clamp-6 border-l-2 border-line pl-3 text-xs leading-relaxed text-ink-2">
+                        {source.text}
+                      </p>
+                    )}
+                    <p className="text-xs leading-relaxed text-ink-3">
+                      读透之后,把书合上——用自己的话讲给学生听,讲不清的地方就是漏洞。
+                    </p>
+                    <Button
+                      variant="primary"
+                      className="mt-auto"
+                      onClick={() => navigate(`/feynman/${taskId}`)}
+                    >
+                      开始费曼讲授
+                    </Button>
+                  </div>
                 )}
-                <p className="text-xs leading-relaxed text-ink-3">
-                  读透之后,把书合上——用自己的话讲给学生听,讲不清的地方就是漏洞。
-                </p>
-                <Button
-                  variant="primary"
-                  className="mt-auto"
-                  onClick={() => navigate(`/feynman/${taskId}`)}
-                >
-                  开始费曼讲授
-                </Button>
+                <div hidden={sideTab !== 'chat'} className="flex min-h-0 flex-1 flex-col" data-testid="chat-panel">
+                  <ReadingChatPanel
+                    bookId={block.bookId}
+                    currentHref={currentHref || position?.spineHref || source.href}
+                    blockIdForHref={href => (content.data?.anchorHrefs.includes(href) ? blockId : null)}
+                    quoteDraft={quoteDraft}
+                    onQuoteConsumed={() => setQuoteDraft(null)}
+                  />
+                </div>
               </Card>
             ) : (
               <button
                 className="my-auto mr-0 cursor-pointer rounded-l-m border border-line bg-paper-2 px-1.5 py-6 text-xs text-ink-3 shadow-card hover:text-ink-1"
                 onClick={() => setPanelOpen(true)}
               >
-                学习模式
+                {learning && sideTab === 'learn' ? '学习模式' : '问书'}
               </button>
             )}
           </div>
