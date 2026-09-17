@@ -12,7 +12,7 @@
 |---|---|
 | 对话如何影响学习 | 只塑造"这本书的理解画像"(记忆条目);不直接生成薄弱点,不改计划 |
 | AI 看到的上下文 | 用户带入的文字 + 当前章节全文(截断)+ 本话题近 8 轮 + `_reading.md` 理解状态;书是上下文,回答靠 AI 自身知识 |
-| 对话组织 | 一本书一条时间线,默认续聊,可「另起话题」;历史按话题回看,旧话题可续 |
+| 对话组织 | 一本书一条时间线,默认续聊(跨次打开阅读器也续,直到用户点「另起话题」);历史按话题回看,旧话题可续 |
 | 提炼时机 | 话题结束时一次(另起话题 / 离开阅读器 / 退出 app);未提炼的下次补 |
 
 不做:语音、图片、多书串聊、导出原始对话、从对话直接生成薄弱点、影响每日计划。
@@ -40,7 +40,8 @@ prompts::FixedContext.reading_notes ← memory::reading_notes_for(block)
 CREATE TABLE reading_topic(
   id INTEGER PRIMARY KEY,
   book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
-  started_at TEXT NOT NULL, ended_at TEXT, distilled_at TEXT,
+  started_at TEXT NOT NULL, ended_at TEXT,
+  distilled_at TEXT, distilled_json TEXT, distilled_up_to INTEGER NOT NULL DEFAULT 0,
   anchor_href TEXT NOT NULL DEFAULT '', anchor_block_id INTEGER REFERENCES knowledge_block(id) ON DELETE SET NULL);
 CREATE TABLE reading_message(
   id INTEGER PRIMARY KEY,
@@ -53,7 +54,8 @@ CREATE TABLE reading_message(
 CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_msg_id) WHERE client_msg_id IS NOT NULL;
 ```
 
-- `quote` 是用户带入的选文/贴文;`spine_href`/`block_id` 记发问时所在章节与块(块按当前阅读位置命中的锚点段判定,命不中为 NULL)。
+- `quote` 是用户带入的选文/贴文(上限 8000 字,前端截断并提示);`text` 上限 4000 字。`spine_href` 记发问时所在章节;`block_id` 由前端给:阅读器路由带着的 `blockId`,且当前 `spineHref` 属于该块锚点段(`map_list_anchors[blockId]` 已加载)的 href 之一时传该 id,否则传 null;不做全书范围的块查找。
+- **话题生命周期**:`ended_at` 只由「另起话题」写入;"需要提炼" = 存在 assistant 消息且 `max(message.id) > distilled_up_to`。提炼成功写 `distilled_json`、`distilled_at`、`distilled_up_to = 当时的 max(message.id)`;无 assistant 消息的话题永远不提炼(`distilled_up_to` 保持 0 也不满足条件)。往旧话题(`ended_at` 非空)继续发消息不改 `ended_at`,只是新增消息,靠 `distilled_up_to` 触发再提炼。"续聊"的定义:`reading_send` 不带 `topicId` 时续该书 `ended_at` 为空的最新话题,没有则新建。
 - 删书:`library::delete_book` 顺带删两表(外键级联 + 显式删除,与现有删书路径一致);记忆库 `remove_book` 已删整个目录。
 
 ### 3.2 记忆文件 `books/<slug>/_reading.md`
@@ -77,12 +79,12 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 - …(AI 观察,只增不删)
 ```
 
-- 每条以 `[日期] ` 开头,块号取 `knowledge_block.id`,便于按块检索;同一话题重复提炼时按 `(topic_id)` 去重——投影时以 `distilled_json` 为准整节重生成(存于 `reading_topic` 的提炼结果,见 3.3),不做文本级 diff。
-- `INDEX.md` 模板加一行:`_reading.md` 是用户读这本书时与 AI 的问答提炼(关注点、理解状态、表述习惯),费曼与评估前请读。
+- 每条以 `[日期] ` 开头,块号取 `knowledge_block.id`,便于按块检索;投影时以各话题最新的 `distilled_json` 为准整文件重生成(同一话题再提炼即覆盖旧结果),不做文本级 diff。
+- `INDEX.md` 模板加一行:`_reading.md` 是用户读这本书时与 AI 的问答提炼(关注点、理解状态、表述习惯),费曼与评估前请读。已存在的记忆库在 `ensure_book` 时幂等追加这一行(缺才加)。
 
-### 3.3 提炼结果落库
+### 3.3 提炼结果落库与投影
 
-`reading_topic` 加列 `distilled_json TEXT`(提炼 JSON 原文)。投影 `sync_reading` 读该书全部 `distilled_json` 重生成 `_reading.md`(与 `sync_map`、`sync_weakpoints` 同一"整文件重生成"风格,天然幂等)。
+提炼 JSON 原文存 `reading_topic.distilled_json`(SQLite 是真相源,ADR-0001)。投影 outbox 入队 `sync_reading`(payload `{"book_id"}`,op_id `reading:{book_id}:t{topic_id}:sync_reading`),`memory::sync_reading` 读该书全部 `distilled_json` 重生成 `_reading.md`(与 `sync_map`、`sync_weakpoints` 同一"整文件重生成"风格,天然幂等)。
 
 ## 4. AI 调用
 
@@ -108,13 +110,14 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
  "habits":["偏好先要一句话结论"]}
 ```
 
-- 无 assistant 消息的话题不提炼(直接标 `ended_at`,`distilled_at` 置空且不再重试)。
-- 解析失败或 codex 失败:话题保持 `ended_at` 非空、`distilled_at` 空;下次启动(`orchestrate` 启动扫描)与下次任一话题结束时补跑;失败记 `ai_request` 日志,界面不报错。
-- 成功:写 `distilled_json`、`distilled_at`,入队 `sync_reading`。
+- 只对"需要提炼"的话题跑(定义见 3.1);无 assistant 消息的话题不提炼。
+- 触发:①「另起话题」(先写 `ended_at`,再提炼当前话题);②离开阅读器页面(组件卸载)时提炼当前话题但不结束它(默认续聊跨次打开);③app 启动时 `lib.rs::run_startup_recovery` 扫描全部需要提炼的话题补跑(覆盖"退出 app"场景——退出时不做任何提炼,`SHUTDOWN_GRACE` 10 s 装不下一次 codex 往返)。②③都在后台,不阻塞界面。
+- 解析失败或 codex 失败:`distilled_up_to` 不变,仍满足"需要提炼",下次触发再跑;`ai_request` 记日志(namespace `reading_distill:{topic_id}:{attempt}`),界面不报错。
+- 成功:写 `distilled_json`、`distilled_at`、`distilled_up_to`,入队 `sync_reading`。
 
 ### 4.3 反哺学习与评估
 
-`prompts::FixedContext` 新增 `reading_notes: String`:`memory::reading_notes_for(slug, block_id)` 从 `_reading.md` 取该块的关注点与理解状态(按 `块 #id` 匹配,最新 10 条;无则空串)。注入点:费曼系统提示、评估 prompt、复习快问系统提示、附加环节系统提示;终评的画像摘要后追加「理解状态」节前 20 条。提示语固定:"以下是用户读这块时的提问与困惑;追问和出题优先覆盖这些点,标为已澄清的不要再纠缠。" 为空时整段省略。
+`prompts::FixedContext` 新增 `reading_notes: String`,在 `fixed_context_for_block(conn, …)` 里直接从 SQLite 派生(不解析 md,投影可能滞后):读该书各话题 `distilled_json` 的 `focus`/`understanding` 中 `blockId` 等于当前块的条目,按话题时间倒序取最新 10 条,格式化为 `- [日期] 关注:…` / `- [日期] 误解|未澄清|已澄清:…`;无则空串。现有五处 `FixedContext` 测试构造器同步补该字段。注入点:费曼系统提示、评估 prompt、复习快问系统提示、附加环节系统提示;终评的画像摘要后追加「理解状态」节前 20 条。提示语固定:"以下是用户读这块时的提问与困惑;追问和出题优先覆盖这些点,标为已澄清的不要再纠缠。" 为空时整段省略。
 
 ## 5. 契约(六处同步,一次提交)
 
@@ -125,18 +128,21 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 | `reading_send` | `bookId, topicId?, clientMsgId, text, quote, spineHref, blockId?` | `{ topicId, userMessage, assistantMessage }`;`topicId` 缺省 = 续该书最近未结束话题,没有则新建;幂等按 `(topicId, clientMsgId)` |
 | `reading_topic_end` | `topicId` | `{ distilled: boolean }`(同步跑提炼;失败返回 false) |
 | `reading_retry` | `messageId` | 同 `reading_send` 返回(重发 failed 的用户消息) |
+| `reading_distill` | `topicId` | `{ distilled: boolean }`(不结束话题,只对"需要提炼"的跑;第一批返回 false) |
 
-- `reading_send` 先落 user 消息(status pending),调 codex,成功写 assistant 消息并把 user 置 done;失败置 failed 并返回可重试错误码(沿用 `AiUnavailable` 语义)。
+- `reading_send` 先落 user 消息(status pending),调 codex(`ai_request` namespace `reading:{topic_id}:{client_msg_id}`,`client_msg_id` 须过 `orchestrate::validate_client_id`),成功写 assistant 消息并把 user 置 done;失败置 failed 并返回可重试错误码(沿用 `AiUnavailable` 语义)。`reading_retry` 复用同一 request id(`run_ai_request` 对 failed 行重跑)。
+- **取消**:只有"停止等待"没有真正的取消命令。前端点取消后不再等 `reading_send` 返回,该条显示"等待中";后端照常完成并落库;面板每 3 s 拉一次 `reading_messages` 直到该条变 done/failed(最多 2 分钟),再恢复正常。同一话题的发送在壳层串行(按 topicId 互斥),等待期间输入框禁用。
+- **第一批**只让 `reading_topic_end` 写 `ended_at` 并返回 `{distilled:false}`(提炼在第二批接上),契约六处同步只做一次。
 - 壳层 `commands/mod.rs::WIRE_COMMANDS`、`lib.rs::register_commands`、`tests/foundation.rs` payload、`contract.test.ts`、`tauri.test.ts::NATIVE_METHODS`、`shared/tauri-wire-contract.json`;`Backend` 接口、`TauriBackend`(含出站校验)、`MockBackend`(AI 回复用固定模板"关于「{quote 前 12 字}」:…")。
 - 阅读器现有 `reader_position` 与锚点段接口不变。
 
 ## 6. 界面
 
-- 右侧栏标签:「学习模式」「问书」互斥切换;学习模式面板状态在切换后保留(不卸载,只隐藏)。列宽与学习模式一致,不遮翻页。
-- 面板结构:顶栏(当前话题起始章节 · 「历史」下拉 · 「另起话题」)→ 消息流(用户右、AI 左;AI 回复 Markdown 渲染;用户消息顶部以引用块显示 quote)→ 输入区(顶部可删的引用区 + 文本框;Enter 发送、Shift+Enter 换行;发送后显示"思考中…"并可取消,取消即把该条标 failed 可重试)。
+- 右侧栏在正文就绪后总是渲染:没有任务(不带 `?task=`)时只有「问书」一个标签,默认展开;带任务时「学习模式」「问书」两个标签互斥切换,默认「学习模式」,学习模式面板切走时不卸载只隐藏。列宽与学习模式一致,不遮翻页。
+- 面板结构:顶栏(当前话题起始章节 · 「历史」下拉 · 「另起话题」)→ 消息流(用户右、AI 左;AI 回复 Markdown 渲染;用户消息顶部以引用块显示 quote)→ 输入区(顶部可删的引用区 + 文本框;Enter 发送、Shift+Enter 换行;发送后显示"思考中…";「取消」= 停止等待(见 §5),该条转为"等待中",后端结果到了自动补上)。
 - 「问 AI」:选区工具条新增按钮,把选文填进引用区并切到「问书」;`spineHref`/`blockId` 随之带上。
 - 历史:下拉列出该书全部话题(起始时间 + 首问前 20 字),选中即加载;在旧话题上继续发送 = 续该话题。
-- 提炼触发:「另起话题」、离开阅读器页面(组件卸载)、app 退出(有序退出钩子)时,对该书 `ended_at` 为空的当前话题调 `reading_topic_end`;后台执行,不阻塞界面;话题旁显示状态点(已记入记忆 / 待整理)。
+- 提炼触发:「另起话题」调 `reading_topic_end`(结束 + 提炼);离开阅读器页面调 `reading_distill[topicId]`(只提炼不结束);app 退出不做事,启动时补跑。都在后台,不阻塞界面;话题旁显示状态点(已记入记忆 / 待整理 = 需要提炼)。
 - 空状态文案:"选中正文里的一段文字点「问 AI」,或直接在这里贴一段话来问。"
 
 ## 7. 错误处理
@@ -147,12 +153,13 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 | 章节文本缺失(导入未完成) | 仍可问,上下文只带 quote,提示"本章原文不可用" |
 | 提炼失败 | 静默,话题待整理,下次补跑;`ai_request` 有日志 |
 | 删书 | 话题、消息级联删除;记忆目录整删 |
-| 多窗口/并发 | `reading_send` 幂等;同一话题串行(壳层按 topicId 互斥) |
+| 多窗口/并发 | `reading_send` 幂等;同一话题串行(壳层按 topicId 互斥);提炼与发送互斥 |
+| 贴入超长文本 | quote 8000 字、text 4000 字前端截断并提示(prompt argv 上限 100 KiB) |
 
 ## 8. 验证
 
 - core 单测:话题建/续/结束;`reading_send` 幂等;截断规则;提炼 JSON 解析与空话题跳过;`_reading.md` 整文件重生成幂等;`reading_notes_for` 按块匹配与上限;删书级联。
-- 契约:foundation wire 用例 5 条命令;contract.test / tauri.test 同步。
+- 契约:foundation wire 用例 6 条命令;contract.test / tauri.test 同步。
 - web:面板组件测试(发送→思考中→回复;失败→重试;另起话题;历史切换;「问 AI」带入选文;Enter/Shift+Enter)。
 - Mac 实测(真 codex):带入选文 → 两轮问答 → 另起话题 → `_reading.md` 出现三节条目 → 打开该块费曼对话,`ai_request` 日志里的系统提示含 reading_notes。
 - 交付两批 PR:①core + 契约 + 面板(能聊、能存、能带入选文);②提炼投影 + 反哺注入 + 退出/卸载触发。每批门禁绿、Mac 实测后合并,用户说「换」再装。
