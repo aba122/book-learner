@@ -135,3 +135,21 @@ export interface CodexBin { path: string | null; resolved: string | null; error:
 /** 诊断(测试阶段):版本与目录信息;日志目录下 app.log.YYYY-MM-DD 按天滚动 */
 export interface AppInfo { version: string; gitSha: string; builtAt: string; dataDir: string; logDir: string }
 export type ClientLogLevel = 'error' | 'warn' | 'info'
+
+// ---- 问书(阅读辅助对话,spec 2026-09-16)----
+export interface ReadingTopic {
+  id: number; bookId: number; startedAt: string; endedAt: string | null; distilledAt: string | null
+  /** 有回复且回复晚于上次提炼 → 待整理 */
+  needsDistill: boolean
+  anchorHref: string; anchorBlockId: number | null
+  /** 首条提问前 20 字 */
+  firstQuestion: string
+}
+export interface ReadingMessage {
+  id: number; topicId: number; role: 'user' | 'assistant'; text: string; quote: string
+  spineHref: string; blockId: number | null; status: 'pending' | 'done' | 'failed'
+  clientMsgId: string | null; createdAt: string
+}
+export interface ReadingSendInput { bookId: number; topicId: number | null; clientMsgId: string; text: string; quote: string; spineHref: string; blockId: number | null }
+/** AI 失败也是成功载荷:userMessage.status='failed'、assistantMessage=null;重试 = 同 topicId + clientMsgId 重发 */
+export interface ReadingSendResult { topicId: number; userMessage: ReadingMessage; assistantMessage: ReadingMessage | null }

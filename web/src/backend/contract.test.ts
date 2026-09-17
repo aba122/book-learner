@@ -138,6 +138,11 @@ describe('Tauri wire contract fixture', () => {
       { method: 'logClientEvent', command: 'log_client_event', payloadKeys: ['level', 'message', 'context'] },
       // 删除书(测试阶段):date 供删前快照命名
       { method: 'deleteBook', command: 'library_delete_book', payloadKeys: ['bookId', 'date'] },
+      { method: 'readingTopics', command: 'reading_topics', payloadKeys: ['bookId'] },
+      { method: 'readingMessages', command: 'reading_messages', payloadKeys: ['topicId'] },
+      { method: 'readingSend', command: 'reading_send', payloadKeys: ['bookId', 'topicId', 'clientMsgId', 'text', 'quote', 'spineHref', 'blockId'] },
+      { method: 'readingTopicEnd', command: 'reading_topic_end', payloadKeys: ['topicId'] },
+      { method: 'readingDistill', command: 'reading_distill', payloadKeys: ['topicId'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
@@ -394,5 +399,28 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     expect((await b.listAnchors(1)).map(a => a.hint)).toEqual(['需求', '供给'])
     expect(await b.listAnchors(2)).toHaveLength(1)
     await expect(b.confirmMap(1, 2, [{ op: 'merge', into: 1, from: [1] }])).rejects.toMatchObject({ code: 'invalid_request' })
+  })
+
+  it('问书:发送建话题并回复;同 clientMsgId 重放;另起话题后新建;历史按话题(spec 2026-09-16)', async () => {
+    const b = new MockBackend()
+    const r1 = await b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q1', text: '什么是需求定律', quote: '需求定律', spineHref: 'chap1.xhtml', blockId: 1 })
+    expect(r1.userMessage).toMatchObject({ role: 'user', status: 'done', quote: '需求定律', blockId: 1 })
+    expect(r1.assistantMessage?.role).toBe('assistant')
+    expect(r1.assistantMessage?.text).toContain('需求定律')
+    const again = await b.readingSend({ bookId: 1, topicId: r1.topicId, clientMsgId: 'q1', text: '什么是需求定律', quote: '', spineHref: 'chap1.xhtml', blockId: null })
+    expect(again.assistantMessage?.id).toBe(r1.assistantMessage?.id)
+    const topics = await b.readingTopics(1)
+    expect(topics).toHaveLength(1)
+    expect(topics[0]).toMatchObject({ id: r1.topicId, needsDistill: true, firstQuestion: '什么是需求定律', anchorHref: 'chap1.xhtml', endedAt: null })
+    expect(await b.readingMessages(r1.topicId)).toHaveLength(2)
+    expect(await b.readingTopicEnd(r1.topicId)).toEqual({ distilled: false })
+    expect((await b.readingTopics(1))[0].endedAt).not.toBeNull()
+    const r2 = await b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q2', text: '再问', quote: '', spineHref: 'chap1.xhtml', blockId: null })
+    expect(r2.topicId).not.toBe(r1.topicId)
+    expect((await b.readingTopics(1)).map(t => t.id)).toEqual([r2.topicId, r1.topicId])
+    await expect(b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'bad:id', text: 'x', quote: '', spineHref: '', blockId: null })).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q3', text: '   ', quote: '', spineHref: '', blockId: null })).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.readingMessages(999)).rejects.toMatchObject({ code: 'not_found' })
+    await expect(b.readingSend({ bookId: 999, topicId: null, clientMsgId: 'q4', text: 'x', quote: '', spineHref: '', blockId: null })).rejects.toMatchObject({ code: 'not_found' })
   })
 })

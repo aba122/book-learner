@@ -402,7 +402,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -414,6 +414,27 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     }
     return { calls, invoke }
   }
+
+  it('问书:readingSend 原样传 7 个键、AI 失败载荷(assistantMessage=null)可解码;坏 status → invalid_response', async () => {
+    const userMessage = { id: 3, topicId: 1, role: 'user', text: '问', quote: '引', spineHref: 'a.xhtml', blockId: null, status: 'failed', clientMsgId: 'q1', createdAt: '2026-09-16T00:00:00Z' }
+    const { calls, invoke } = recorder({
+      reading_send: { topicId: 1, userMessage, assistantMessage: null },
+      reading_topics: [{ id: 1, bookId: 1, startedAt: '2026-09-16T00:00:00Z', endedAt: null, distilledAt: null, needsDistill: false, anchorHref: 'a.xhtml', anchorBlockId: 4, firstQuestion: '问' }],
+      reading_messages: [userMessage],
+      reading_topic_end: { distilled: false },
+      reading_distill: { distilled: false },
+    })
+    const backend = new TauriBackend(invoke)
+    const sent = await backend.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q1', text: '问', quote: '引', spineHref: 'a.xhtml', blockId: null })
+    expect(sent).toEqual({ topicId: 1, userMessage, assistantMessage: null })
+    expect(calls[0]).toMatchObject({ command: 'reading_send', payload: { bookId: 1, topicId: null, clientMsgId: 'q1', text: '问', quote: '引', spineHref: 'a.xhtml', blockId: null } })
+    expect((await backend.readingTopics(1))[0]).toMatchObject({ anchorBlockId: 4, needsDistill: false })
+    expect(await backend.readingMessages(1)).toHaveLength(1)
+    expect(await backend.readingTopicEnd(1)).toEqual({ distilled: false })
+    expect(await backend.readingDistill(1)).toEqual({ distilled: false })
+    const bad = new TauriBackend(async <T>() => ({ topicId: 1, userMessage: { ...userMessage, status: 'weird' }, assistantMessage: null }) as T)
+    await expect(bad.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q1', text: '问', quote: '', spineHref: 'a.xhtml', blockId: null })).rejects.toMatchObject({ code: 'invalid_response' })
+  })
 
   it('uploads the file as raw chunks with op/index headers, then finalizes with type and title', async () => {
     const { calls, invoke } = recorder({
@@ -811,6 +832,8 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     ['reorder ids not integers', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'reorder', blockIds: [1.5] }])],
     ['split titles not strings', (backend: TauriBackend) => backend.confirmMap(1, 1, [{ op: 'split', blockId: 1, titleA: 1, titleB: '下' } as never])],
     ['expectedRevision not integer', (backend: TauriBackend) => backend.confirmMap(1, 1.5, [])],
+    ['reading clientMsgId with colon', (backend: TauriBackend) => backend.readingSend({ bookId: 1, topicId: null, clientMsgId: 'a:b', text: '问', quote: '', spineHref: 'a.xhtml', blockId: null })],
+    ['reading topicId not integer', (backend: TauriBackend) => backend.readingSend({ bookId: 1, topicId: 1.5, clientMsgId: 'q1', text: '问', quote: '', spineHref: 'a.xhtml', blockId: null })],
   ])('rejects unsafe outbound v2 values before invoking: %s', async (_name, operation) => {
     let invoked = false
     const backend = new TauriBackend(async <T>() => {

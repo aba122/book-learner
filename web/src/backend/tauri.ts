@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -487,6 +487,54 @@ function decodeTranscript(value: unknown): Transcript {
     model: stringAt(wire.model, 'transcript.model'),
   }
 }
+const READING_ROLES = ['user', 'assistant'] as const
+const READING_STATUSES = ['pending', 'done', 'failed'] as const
+function decodeReadingTopic(value: unknown, path: string): ReadingTopic {
+  const wire = objectAt(value, path)
+  return {
+    id: safeIntegerAt(wire.id, `${path}.id`),
+    bookId: safeIntegerAt(wire.bookId, `${path}.bookId`),
+    startedAt: stringAt(wire.startedAt, `${path}.startedAt`),
+    endedAt: nullableAt(wire.endedAt, `${path}.endedAt`, stringAt),
+    distilledAt: nullableAt(wire.distilledAt, `${path}.distilledAt`, stringAt),
+    needsDistill: booleanAt(wire.needsDistill, `${path}.needsDistill`),
+    anchorHref: stringAt(wire.anchorHref, `${path}.anchorHref`),
+    anchorBlockId: nullableAt(wire.anchorBlockId, `${path}.anchorBlockId`, safeIntegerAt),
+    firstQuestion: stringAt(wire.firstQuestion, `${path}.firstQuestion`),
+  }
+}
+function decodeReadingMessage(value: unknown, path: string): ReadingMessage {
+  const wire = objectAt(value, path)
+  return {
+    id: safeIntegerAt(wire.id, `${path}.id`),
+    topicId: safeIntegerAt(wire.topicId, `${path}.topicId`),
+    role: enumAt(wire.role, `${path}.role`, READING_ROLES),
+    text: stringAt(wire.text, `${path}.text`),
+    quote: stringAt(wire.quote, `${path}.quote`),
+    spineHref: stringAt(wire.spineHref, `${path}.spineHref`),
+    blockId: nullableAt(wire.blockId, `${path}.blockId`, safeIntegerAt),
+    status: enumAt(wire.status, `${path}.status`, READING_STATUSES),
+    clientMsgId: nullableAt(wire.clientMsgId, `${path}.clientMsgId`, stringAt),
+    createdAt: stringAt(wire.createdAt, `${path}.createdAt`),
+  }
+}
+function decodeReadingSendResult(value: unknown): ReadingSendResult {
+  const path = 'reading_send'
+  const wire = objectAt(value, path)
+  return {
+    topicId: safeIntegerAt(wire.topicId, `${path}.topicId`),
+    userMessage: decodeReadingMessage(wire.userMessage, `${path}.userMessage`),
+    assistantMessage: nullableAt(wire.assistantMessage, `${path}.assistantMessage`, decodeReadingMessage),
+  }
+}
+function decodeDistillResult(value: unknown, path: string): { distilled: boolean } {
+  const wire = objectAt(value, path)
+  return { distilled: booleanAt(wire.distilled, `${path}.distilled`) }
+}
+function outboundNullableInteger(value: unknown, path: string): void {
+  if (value !== null) outboundInteger(value, path)
+}
+
 function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
   const wire = objectAt(value, path)
   return {
@@ -1012,6 +1060,43 @@ export class TauriBackend implements Backend {
     return this.gated('gitPushNow', () => this.decode('git_push_now', {}, decodePushResult))
   }
 
+  readingTopics(bookId: number): Promise<ReadingTopic[]> {
+    return this.gated('readingTopics', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('reading_topics', { bookId }, value => arrayAt(value, 'readingTopics', decodeReadingTopic))
+    })
+  }
+  readingMessages(topicId: number): Promise<ReadingMessage[]> {
+    return this.gated('readingMessages', () => {
+      outboundInteger(topicId, 'topicId')
+      return this.decode('reading_messages', { topicId }, value => arrayAt(value, 'readingMessages', decodeReadingMessage))
+    })
+  }
+  readingSend(input: ReadingSendInput): Promise<ReadingSendResult> {
+    return this.gated('readingSend', () => {
+      outboundInteger(input.bookId, 'bookId')
+      outboundNullableInteger(input.topicId, 'topicId')
+      outboundClientId(input.clientMsgId, 'clientMsgId')
+      outboundString(input.text, 'text')
+      outboundString(input.quote, 'quote')
+      outboundString(input.spineHref, 'spineHref')
+      outboundNullableInteger(input.blockId, 'blockId')
+      const { bookId, topicId, clientMsgId, text, quote, spineHref, blockId } = input
+      return this.decode('reading_send', { bookId, topicId, clientMsgId, text, quote, spineHref, blockId }, decodeReadingSendResult)
+    })
+  }
+  readingTopicEnd(topicId: number): Promise<{ distilled: boolean }> {
+    return this.gated('readingTopicEnd', () => {
+      outboundInteger(topicId, 'topicId')
+      return this.decode('reading_topic_end', { topicId }, value => decodeDistillResult(value, 'reading_topic_end'))
+    })
+  }
+  readingDistill(topicId: number): Promise<{ distilled: boolean }> {
+    return this.gated('readingDistill', () => {
+      outboundInteger(topicId, 'topicId')
+      return this.decode('reading_distill', { topicId }, value => decodeDistillResult(value, 'reading_distill'))
+    })
+  }
   readerMarkList(bookId: number): Promise<ReaderMark[]> {
     return this.gated('readerMarkList', () => {
       outboundInteger(bookId, 'bookId')

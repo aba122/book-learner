@@ -19,6 +19,11 @@ export const READER_FONT_DEFAULT_IDX = 1
 export const READER_LINE_HEIGHTS = [1.5, 1.8, 2.1] as const
 export const READER_LINE_HEIGHT_DEFAULT_IDX = 1
 export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
+/** 问书(spec 2026-09-16):带入选文/提问的前端上限(core 兜底同值);取消发送后轮询 reading_messages 的间隔与上限 */
+export const READING_QUOTE_MAX_CHARS = 8000
+export const READING_TEXT_MAX_CHARS = 4000
+export const READING_POLL_MS = 3000
+export const READING_POLL_MAX_MS = 120_000
 /** 夜读/日读模式持久化键(每台设备,localStorage;BL-003) */
 export const THEME_KEY = 'bookLearner.theme'
 /** 阅读位置写回节流(毫秒):relocated 很密,只记最后一次 */
