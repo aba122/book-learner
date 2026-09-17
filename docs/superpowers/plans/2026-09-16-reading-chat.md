@@ -713,8 +713,9 @@ pub fn reading_messages(state: &AppState, topic_id: i64) -> Result<Vec<ReadingMe
     state.with_connection(|c| book_learner_core::reading_chat::list_messages(c, topic_id))
         .map(|v| v.into_iter().map(Into::into).collect())
 }
-/// 同一话题串行:发送/提炼/结束互斥(spec §7);忙则 conflict,前端在等待期间本就禁用输入
-fn lock_topic(state: &AppState, topic_id: Option<i64>) -> Result<Option<TopicGuard>, IpcError> {
+/// 同一话题串行:发送/提炼/结束互斥(spec §7);忙则 conflict,前端在等待期间本就禁用输入。
+/// topic_id 为 None(首条消息)不上锁:前端拿到首条回复后总带 topicId,并发首条只影响锚点归属,可接受
+pub(crate) fn lock_topic(state: &AppState, topic_id: Option<i64>) -> Result<Option<TopicGuard>, IpcError> {
     let Some(id) = topic_id else { return Ok(None) };
     let mut busy = state.reading_busy().lock().expect("reading_busy poisoned");
     if !busy.insert(id) {
@@ -757,7 +758,7 @@ pub fn reading_distill(state: &AppState, topic_id: i64) -> Result<DistillResultD
     ("reading_distill", &["topicId"]),
 ```
 
-`*_inner` 五个(`run_command(state, "<name>", || application::<fn>(…))`)+ 五个 `#[tauri::command(async)] pub async fn`(参数 camelCase 由 Tauri 自动转:`book_id: i64, topic_id: Option<i64>, client_msg_id: String, text: String, quote: String, spine_href: String, block_id: Option<i64>`)。`lib.rs::generate_handler!` 加五项。
+`*_inner` 五个(`run_command(state, "<name>", || application::<fn>(…))`)+ 五个 `#[tauri::command(async)] pub async fn`。`reading_send` 有 7 个业务参数,`reading_send_inner(state, input: SendInput)` 只收一个结构体(避开 clippy `too_many_arguments`);`#[tauri::command]` 函数本身参数(`book_id: i64, topic_id: Option<i64>, client_msg_id: String, text: String, quote: String, spine_href: String, block_id: Option<i64>`,camelCase 由 Tauri 自动转)加 `#[allow(clippy::too_many_arguments)]`,内部组 `SendInput` 再调 `_inner`。`lib.rs::generate_handler!` 加五项。
 
 - [ ] **Step 4: 契约 json**:`shared/tauri-wire-contract.json` 的 `commands` 末尾追加(方法名 = 前端 Backend 方法):
 
@@ -786,7 +787,10 @@ wire 用例 `match command` 加 5 项(用 `second`/`second_block`;`reading_send`
             "reading_topics" => json!({"bookId": second}),
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
-                let sent = commands::reading_send_inner(&state, second, None, "wire-q1", "什么是需求定律", "需求定律", "ch0.xhtml", None).unwrap();
+                let sent = commands::reading_send_inner(&state, book_learner_core::reading_chat::SendInput {
+                    book_id: second, topic_id: None, client_msg_id: "wire-q1".into(), text: "什么是需求定律".into(),
+                    quote: "需求定律".into(), spine_href: "ch0.xhtml".into(), block_id: None,
+                }).unwrap();
                 json!({"topicId": sent.topic_id})
             }
             "reading_send" => json!({"bookId": second, "topicId": null, "clientMsgId": "wire-q0", "text": "第一问", "quote": "", "spineHref": "ch0.xhtml", "blockId": null}),
@@ -917,9 +921,9 @@ Run: `pnpm -C web exec vitest --run src/features/reader/readingChat.test.tsx 2>&
 - 首次挂载:`readingTopics(bookId)` → 取第一个 `endedAt===null` 的为当前(否则 `topicId=null`,消息空),`readingMessages` 加载。
 - 发送:`clientMsgId = 'rq-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)`(过 `outboundClientId`:不含冒号、≤64);前端截断 `quote`/`text`;乐观插入 user 气泡(status pending);调用返回后用结果替换(`topicId` 记下);`assistantMessage` 为 null → 该条 failed,显示「重试」(同 id、同 topicId 重发)。
 - 取消:`AbortController` 只用于停止等待(不传给后端);置 `waitingId`,启动 `setInterval(READING_POLL_MS)` 拉 `readingMessages(topicId)`,直到该 clientMsgId 的用户消息 status≠pending 或超 `READING_POLL_MAX_MS`(超时显示「刷新」按钮;`window` `focus` 事件再拉一次)。
-- 「另起话题」:`readingTopicEnd(topicId)`→`topicId=null`、清消息;无消息时禁用。
+- 「另起话题」:先把本地 `topicId=null`、清消息(立刻可用),再 `void backend.readingTopicEnd(topicId).catch(() => {}).finally(() => 重拉 readingTopics)`——第二批里该命令同步跑提炼可能长达 120 s,不能等它;无消息时禁用。
 - 「历史」:`<select aria-label="历史话题">`,选项 `${startedAt.slice(0,16)} · ${firstQuestion}`;选中加载消息并把 `topicId` 设为它(旧话题续聊)。
-- 卸载:`useEffect` cleanup 里若 `topicId` 且有 assistant 消息 → `void backend.readingDistill(topicId)`(第一批返回 false,无害)。
+- 卸载:`useEffect` cleanup 里若 `topicId` 且有 assistant 消息 → `void backend.readingDistill(topicId).catch(() => {})`(第一批返回 false,无害;忙时后端返回 conflict,吞掉)。
 - 样式沿用 `Card`/`Button`/`AsyncError`;AI 文本用 `whitespace-pre-wrap`(不引入 markdown 库,YAGNI);气泡 `data-testid="reading-msg"` + `data-role`/`data-status`。
 
 `ReaderPage.tsx`:
@@ -983,15 +987,16 @@ git commit -m "feat(reader): 「问书」面板——带入选文、发送/等�
         send(&conn, &p, book, Some(r.topic_id), "m2", "再问");
         assert!(read_topic(&conn, r.topic_id).unwrap().needs_distill);
         assert!(distill_topic(&conn, &p, std::path::Path::new("."), &policy(), r.topic_id).unwrap());
-        // outbox 入队 sync_reading
-        let kinds: Vec<String> = conn.prepare("SELECT kind FROM projection_outbox ORDER BY id").unwrap()
-            .query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
-        assert!(kinds.iter().any(|k| k == "sync_reading"));
+        // 两次提炼 → 两行 sync_reading(op_id 带水位,不会被 INSERT OR IGNORE 吞掉)
+        let n: i64 = conn.query_row("SELECT count(*) FROM projection_outbox WHERE kind='sync_reading'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2);
         // 理解状态条目可读
         let lines = understanding_lines(&conn, book, 40).unwrap();
         assert!(lines.iter().any(|l| l.contains("把斜率当弹性")));
-        // 空话题 / 无回复不提炼
+        // 空话题 / 无回复不提炼(先结束当前话题,ensure_topic 才会新建一个空的)
+        end_topic(&conn, r.topic_id).unwrap();
         let empty = ensure_topic(&conn, book, None, "ch0.xhtml", None).unwrap();
+        assert_ne!(empty, r.topic_id);
         assert!(!distill_topic(&conn, &p, std::path::Path::new("."), &policy(), empty).unwrap());
     }
 
@@ -1042,14 +1047,14 @@ pub struct Distilled {
 
 (字段用 `#[serde(rename = "blockId")]` 对齐 camelCase;`kind` 只接受三值,其它按 `unclear` 归一。)
 
-`distill_topic(conn, provider, workdir, policy, topic_id) -> Result<bool>`:读话题;`needs_distill` 为 false → `Ok(false)`;拼 transcript(每条 `[用户|助手 · 章节 href · 块 #id]` + quote + text);`run_ai_json::<Distilled>`(request id `reading_distill:{topic_id}:m{max_id}`,`timeout_secs=READING_DISTILL_TIMEOUT_SECS`,`read_only=true`)→ 事务写 `distilled_json/distilled_at/distilled_up_to=max_id` → `projection::enqueue(conn, &format!("reading:{book_id}:t{topic_id}:sync_reading"), "sync_reading", &json!({"book_id": book_id}))` → `Ok(true)`。JSON 解析失败经 `run_ai_json` 的纠错重试仍失败 → `Err`,不改任何列。
+`distill_topic(conn, provider, workdir, policy, topic_id) -> Result<bool>`:读话题;`needs_distill` 为 false → `Ok(false)`;拼 transcript(每条 `[用户|助手 · 章节 href · 块 #id]` + quote + text);`run_ai_json::<Distilled>`(request id `reading_distill:{topic_id}:m{max_id}`,`timeout_secs=READING_DISTILL_TIMEOUT_SECS`,`read_only=true`)→ 事务写 `distilled_json/distilled_at/distilled_up_to=max_id` → `projection::enqueue(conn, &format!("reading:{book_id}:t{topic_id}:m{max_id}:sync_reading"), "sync_reading", &json!({"book_id": book_id}))`(op_id 带消息水位:outbox 按 op_id `INSERT OR IGNORE` 且 done 行不删,固定 op_id 会让二次提炼永远不再投影)→ `Ok(true)`。提炼 prompt 放在 `CompletionRequest.system`(与 extra/final_exam 一致),`messages` 为空。JSON 解析失败经 `run_ai_json` 的纠错重试仍失败 → `Err`,不改任何列。
 
 `topics_needing_distill(conn) -> Result<Vec<i64>>`:`SELECT t.id FROM reading_topic t WHERE EXISTS(SELECT 1 FROM reading_message m WHERE m.topic_id=t.id AND m.role='assistant' AND m.status='done' AND m.id>t.distilled_up_to) ORDER BY t.id`。
 
 `understanding_lines(conn, book_id, max)`:遍历该书 `distilled_json`(按 `distilled_at DESC`),展开 `understanding`,格式 `- [日期] 块 #N · 误解|未澄清|已澄清:note`(无块号省略 `块 #N ·`),取前 `max` 条。
 
 壳层:`application::reading_topic_end` = `end_topic` 后 `distill_topic`(错误只 `tracing::warn!`,返回 `{distilled:false}`);`reading_distill` 同(不 end)。两条命令的 `#[tauri::command]` 层在成功后像 `session_confirm_verdict` 那样 `spawn_blocking(run_startup_recovery)` 排空 outbox,`_reading.md` 才会当场写出。
-**启动补跑不要放进 `run_startup_recovery`**(它被五个命令处理器复用,里面不能塞 codex 调用):新增 `lib.rs::distill_pending_reading_topics(state)`——`let _job = state.jobs().begin()`(让有序退出等它),`state.ai_provider()` 失败只 warn 并返回,遍历 `reading_chat::topics_needing_distill` 逐个 `distill_topic`(错误 warn 继续),最后再 `projection::run_pending` 一次;在 `setup` 闭包里 `run_startup_recovery` 之后的同一 `spawn_blocking` 里调用一次。
+**启动补跑不要放进 `run_startup_recovery`**(它被五个命令处理器复用,里面不能塞 codex 调用):新增 `lib.rs::distill_pending_reading_topics(state)`——`let _job = state.jobs().begin()`(让有序退出等它),`state.ai_provider()` 失败只 warn 并返回,遍历 `reading_chat::topics_needing_distill` 逐个先 `application::lock_topic`(`pub(crate)`;忙则跳过)再 `distill_topic`(错误 warn 继续),最后再 `projection::run_pending` 一次;在 `setup` 闭包里 `run_startup_recovery` 之后的同一 `spawn_blocking` 里调用一次。
 
 - [ ] **Step 4: 跑测试、fmt、clippy、全量**
 - [ ] **Step 5: 提交** `feat(core): 问书话题提炼(distill_topic)、needs_distill、启动补跑`
