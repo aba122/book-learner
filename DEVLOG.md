@@ -609,3 +609,11 @@
 - 前端 `ReadingChatPanel`:右栏标签(无任务只有「问书」;有任务默认「学习模式」,切换不卸载);选区工具条「问 AI」把选文带进引用区;Enter 发送 / Shift+Enter 换行;「取消」= 停止等待(后端照常完成,每 3 s 轮询 `readingMessages` 补上,2 分钟后给「刷新」);「另起话题」先清本地再调后端;历史下拉可回看并续聊旧话题。**取舍**:AI 回复按纯文本 `whitespace-pre-wrap` 显示(spec 写 Markdown 渲染,不引第三方库,后续按需加);第一批所有有回复的话题都显示"待整理",是分批的预期。
 - 门禁:core 177(+7)、web 359/2(+6 面板、+1 契约、+2 传输)、tsc、oxlint 0、build;壳层 foundation(wire 5 项 + roundtrip)在 Mac 上跑。
 
+## 2026-09-16 · 问书第二批(提炼 + 反哺)
+- core `reading_chat`:`distill_topic`(话题 → `Distilled{focus,understanding,habits}` JSON,`run_ai_json`,请求 id `reading_distill:<topic>:m<maxMsgId>`;kind 非法值归一 unclear;去空条目);`topics_needing_distill`(有 done 回复且回复 id > `distilled_up_to`);`understanding_lines`/`reading_notes_for_block` 从 `distilled_json` 派生;成功入队 `sync_reading`(op_id 带消息水位,避免二次提炼被 outbox 的 INSERT OR IGNORE 吞掉)。
+- 投影 `sync_reading` → `memory::sync_reading`:章节 href/块 id 在 projection 里解析成标题再传(风格同 sync_map),整文件重生成 `_reading.md` 三节;`ensure_book` 给老记忆库幂等补 INDEX 里的 `_reading.md` 说明。
+- 反哺:`FixedContext.reading_notes`(15 处构造点 + 1 处集成测试同步),`fixed_context_for_block` 从 DB 派生该块条目;`context_block` 在前置块之后注入;终评在 `application::session_context` 的 final_exam 分支把该书理解状态追加到画像摘要。
+- 壳层:`reading_topic_end`/`reading_distill` 接 `distill_topic`(错误只 warn),命令层随后 `run_startup_recovery` 排空 outbox 写 `_reading.md`;启动 `distill_pending_reading_topics`(独立于 `run_startup_recovery`,持 `jobs().begin()`,逐话题取锁跳过忙的)补跑退出前没提炼的话题。
+- 前端:Mock 的 `readingTopicEnd`/`readingDistill` 标 `distilledAt`,状态点由"待整理"变"已记入记忆";面板卸载时 `readingDistill`。**批次一实测已确认**:真 codex 下 16s 得到连贯回复,`ai_request reading:1:… done`,话题/消息落库。
+- 门禁:core 181、web 360/2、tsc、oxlint 0、build。
+

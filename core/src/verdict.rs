@@ -457,6 +457,7 @@ mod tests {
             eval_history: String::new(),
             related_weakpoints: String::new(),
             prereq_status: String::new(),
+            reading_notes: String::new(),
         }
     }
     fn workdir() -> std::path::PathBuf {

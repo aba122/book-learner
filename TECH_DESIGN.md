@@ -109,7 +109,7 @@ review_stage: 3         # 间隔复习到第几档
 
 ### 3.2 上下文组装(固定注入 + 自主补充)
 
-每次 AI 调用,Rust 侧组装 prompt 时**固定注入**:
+每次 AI 调用,Rust 侧组装 prompt 时**固定注入**(2026-09-16 起追加 `reading_notes`:该块相关的问书提问与理解状态,来自 `_reading.md` 的 DB 源 `reading_topic.distilled_json`;费曼/评估/复习注入到 `context_block`,终评追加到画像摘要):
 1. 学习者画像摘要(`profile.md` 的"知识背景+已掌握概念"两节;教材/方法论书追加"个人情境"节,人文书不追加——`MemoryStore::profile_summary_for(ty)`);
 2. 当前块:原文全文(从 EPUB 抽取)、块文件的 frontmatter 与评估历史;
 3. 该书 _weakpoints.md 中与当前块相关(同块或前置块)的待考薄弱点;

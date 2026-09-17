@@ -73,6 +73,7 @@ fn full_block_lifecycle() {
                 eval_history: "".into(),
                 related_weakpoints: "".into(),
                 prereq_status: "".into(),
+                reading_notes: String::new(),
             },
             "用户:弹性就是……\n学生:那和斜率一样吗?",
         ),

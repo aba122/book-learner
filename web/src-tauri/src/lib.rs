@@ -350,6 +350,17 @@ pub fn run() {
                                 "启动投影恢复失败"
                             ),
                         }
+                        // 问书:上次没来得及提炼的话题(退出时不做提炼)在这里补,再把投影排空
+                        let distilled = application::distill_pending_reading_topics(&state);
+                        if distilled > 0 {
+                            tracing::info!(distilled, "问书话题补提炼完成");
+                            if let Err(error) = run_startup_recovery(&state) {
+                                tracing::warn!(
+                                    internal_cause = error.internal_cause(),
+                                    "补提炼后投影重放失败"
+                                );
+                            }
+                        }
                     });
                     Ok(())
                 }

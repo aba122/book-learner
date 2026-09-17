@@ -1,7 +1,7 @@
 //! 阅读辅助对话「问书」(spec 2026-09-16):按书存话题/消息;每条用户消息一次 codex exec
 //! (无状态,历史回合渲染进 system);话题提炼(第二批)把问答压成结构化条目,反哺 FixedContext。
 use crate::ai::{AiProvider, CompletionRequest, Role};
-use crate::orchestrate::{run_ai_request, validate_client_id, AiPolicy};
+use crate::orchestrate::{run_ai_json, run_ai_request, validate_client_id, AiPolicy};
 use crate::{prompts, CoreError, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::Path;
@@ -240,9 +240,237 @@ pub fn end_topic(conn: &Connection, topic_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// 已提炼的理解状态条目(第二批实现;签名先定好,问答 prompt 已接上)
-pub fn understanding_lines(_conn: &Connection, _book_id: i64, _max: usize) -> Result<Vec<String>> {
-    Ok(vec![])
+// ---- 提炼(话题 → 理解画像条目)----
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DistilledFocus {
+    #[serde(rename = "blockId", default)]
+    pub block_id: Option<i64>,
+    #[serde(default)]
+    pub href: String,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DistilledUnderstanding {
+    #[serde(rename = "blockId", default)]
+    pub block_id: Option<i64>,
+    /// misconception | unclear | clarified(其它值归一为 unclear)
+    #[serde(default)]
+    pub kind: String,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Distilled {
+    #[serde(default)]
+    pub focus: Vec<DistilledFocus>,
+    #[serde(default)]
+    pub understanding: Vec<DistilledUnderstanding>,
+    #[serde(default)]
+    pub habits: Vec<String>,
+}
+
+pub fn kind_label(kind: &str) -> &'static str {
+    match kind {
+        "misconception" => "误解",
+        "clarified" => "已澄清",
+        _ => "未澄清",
+    }
+}
+
+fn parse_distilled(text: &str) -> Result<Distilled> {
+    let trimmed = text.trim();
+    let json = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .and_then(|t| t.strip_suffix("```"))
+        .unwrap_or(trimmed)
+        .trim();
+    let mut d: Distilled =
+        serde_json::from_str(json).map_err(|e| CoreError::Ai(format!("distill json: {e}")))?;
+    for u in &mut d.understanding {
+        if !matches!(u.kind.as_str(), "misconception" | "unclear" | "clarified") {
+            u.kind = "unclear".into();
+        }
+    }
+    d.focus.retain(|f| !f.note.trim().is_empty());
+    d.understanding.retain(|u| !u.note.trim().is_empty());
+    d.habits.retain(|h| !h.trim().is_empty());
+    Ok(d)
+}
+
+/// 需要提炼的话题:有 done 的 assistant 回复且回复 id > distilled_up_to(按 id 升序)
+pub fn topics_needing_distill(conn: &Connection) -> Result<Vec<i64>> {
+    let mut st = conn.prepare(
+        "SELECT t.id FROM reading_topic t WHERE EXISTS(\
+            SELECT 1 FROM reading_message m WHERE m.topic_id=t.id AND m.role='assistant' \
+            AND m.status='done' AND m.id>t.distilled_up_to) ORDER BY t.id",
+    )?;
+    let ids = st.query_map([], |r| r.get(0))?;
+    Ok(ids.collect::<rusqlite::Result<_>>()?)
+}
+
+/// 提炼一个话题:不需要提炼 → Ok(false);codex/解析失败 → Err(不改任何列,下次再跑);
+/// 成功 → 写 distilled_json/distilled_at/distilled_up_to 并入队 sync_reading(op_id 带消息水位)
+pub fn distill_topic(
+    conn: &Connection,
+    provider: &dyn AiProvider,
+    workdir: &Path,
+    policy: &AiPolicy,
+    topic_id: i64,
+) -> Result<bool> {
+    if !conn.is_autocommit() {
+        return Err(CoreError::Other(
+            "distill_topic must not be called inside a transaction".into(),
+        ));
+    }
+    let topic = get_topic(conn, topic_id)?;
+    if !topic.needs_distill {
+        return Ok(false);
+    }
+    let max_id: i64 = conn.query_row(
+        "SELECT COALESCE(max(id),0) FROM reading_message WHERE topic_id=?1 AND status='done'",
+        [topic_id],
+        |r| r.get(0),
+    )?;
+    let book_title: String =
+        conn.query_row("SELECT title FROM book WHERE id=?1", [topic.book_id], |r| {
+            r.get(0)
+        })?;
+    let chapters = crate::mapgen::list_spine(conn, topic.book_id)?;
+    let mut transcript = String::new();
+    for m in list_messages(conn, topic_id)?
+        .into_iter()
+        .filter(|m| m.status == "done")
+    {
+        let who = if m.role == "assistant" {
+            "助手"
+        } else {
+            "用户"
+        };
+        let chapter = chapters
+            .iter()
+            .find(|c| c.href == m.spine_href)
+            .map(|c| c.title.clone())
+            .unwrap_or_else(|| m.spine_href.clone());
+        let block = m
+            .block_id
+            .map(|b| format!(" · 块 #{b}"))
+            .unwrap_or_default();
+        transcript.push_str(&format!("[{who} · {chapter}{block}]\n"));
+        if !m.quote.is_empty() {
+            transcript.push_str(&format!("引用:「{}」\n", m.quote));
+        }
+        transcript.push_str(&m.text);
+        transcript.push_str("\n\n");
+    }
+    let req = CompletionRequest {
+        system: prompts::reading_distill_prompt(&book_title, &transcript),
+        messages: vec![],
+        workdir: workdir.to_path_buf(),
+        read_only: true,
+        request_id: String::new(),
+        timeout_secs: READING_DISTILL_TIMEOUT_SECS,
+    };
+    let distilled = run_ai_json(
+        conn,
+        provider,
+        &format!("reading_distill:{topic_id}:m{max_id}"),
+        "reading_distill",
+        &req,
+        policy,
+        &parse_distilled,
+    )?;
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute(
+        "UPDATE reading_topic SET distilled_json=?2, distilled_at=?3, distilled_up_to=?4 WHERE id=?1",
+        rusqlite::params![
+            topic_id,
+            serde_json::to_string(&distilled).unwrap_or_default(),
+            now(),
+            max_id
+        ],
+    )?;
+    crate::projection::enqueue(
+        &tx,
+        &format!(
+            "reading:{}:t{topic_id}:m{max_id}:sync_reading",
+            topic.book_id
+        ),
+        "sync_reading",
+        &serde_json::json!({ "book_id": topic.book_id }),
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// 该书各话题已提炼的结果(按 distilled_at 新→旧),附提炼日期
+pub fn distilled_topics(conn: &Connection, book_id: i64) -> Result<Vec<(String, Distilled)>> {
+    let mut st = conn.prepare(
+        "SELECT distilled_at, distilled_json FROM reading_topic \
+         WHERE book_id=?1 AND distilled_json IS NOT NULL ORDER BY distilled_at DESC, id DESC",
+    )?;
+    let rows = st.query_map([book_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
+    let mut out = vec![];
+    for row in rows {
+        let (at, json) = row?;
+        if let Ok(d) = serde_json::from_str::<Distilled>(&json) {
+            out.push((at.chars().take(10).collect(), d));
+        }
+    }
+    Ok(out)
+}
+
+/// 已提炼的理解状态条目(新→旧,最多 max 条):`- [日期] 块 #N · 误解:…`
+pub fn understanding_lines(conn: &Connection, book_id: i64, max: usize) -> Result<Vec<String>> {
+    let mut lines = vec![];
+    for (date, d) in distilled_topics(conn, book_id)? {
+        for u in d.understanding {
+            let block = u
+                .block_id
+                .map(|b| format!("块 #{b} · "))
+                .unwrap_or_default();
+            lines.push(format!(
+                "- [{date}] {block}{}:{}",
+                kind_label(&u.kind),
+                u.note
+            ));
+            if lines.len() >= max {
+                return Ok(lines);
+            }
+        }
+    }
+    Ok(lines)
+}
+
+/// 反哺费曼/评估:该块相关的关注点与理解状态(新→旧,最多 max 条)
+pub fn reading_notes_for_block(
+    conn: &Connection,
+    book_id: i64,
+    block_id: i64,
+    max: usize,
+) -> Result<Vec<String>> {
+    let mut lines = vec![];
+    for (date, d) in distilled_topics(conn, book_id)? {
+        for f in d.focus.iter().filter(|f| f.block_id == Some(block_id)) {
+            lines.push(format!("- [{date}] 关注:{}", f.note));
+        }
+        for u in d
+            .understanding
+            .iter()
+            .filter(|u| u.block_id == Some(block_id))
+        {
+            lines.push(format!("- [{date}] {}:{}", kind_label(&u.kind), u.note));
+        }
+        if lines.len() >= max {
+            lines.truncate(max);
+            break;
+        }
+    }
+    Ok(lines)
 }
 
 /// 发送一条用户消息:①事务 A 落 pending user 行(同 topic+client id:done 重放 / pending|failed 续跑)
@@ -470,8 +698,15 @@ mod tests {
     struct Script(Mutex<Vec<crate::Result<String>>>);
     impl AiProvider for Script {
         fn complete(&self, req: &CompletionRequest) -> crate::Result<String> {
-            assert!(req.system.contains("阅读助手"), "system 应为阅读助手");
-            assert_eq!(req.messages.len(), 1, "messages 只放本条提问");
+            if req.request_id.starts_with("reading_distill:") {
+                assert!(
+                    req.messages.is_empty(),
+                    "提炼 prompt 在 system,messages 为空"
+                );
+            } else {
+                assert!(req.system.contains("阅读助手"), "system 应为阅读助手");
+                assert_eq!(req.messages.len(), 1, "messages 只放本条提问");
+            }
             self.0.lock().unwrap().remove(0)
         }
     }
@@ -672,5 +907,73 @@ mod tests {
             list_messages(&conn, 999).unwrap_err(),
             CoreError::NotFound(_)
         ));
+    }
+
+    const DISTILL_JSON: &str = r#"{"focus":[{"blockId":1,"href":"ch0.xhtml","note":"问需求定律"}],"understanding":[{"blockId":1,"kind":"misconception","note":"把斜率当弹性"},{"blockId":1,"kind":"clarified","note":"弹性是百分比之比"},{"blockId":2,"kind":"odd","note":"别的块"}],"habits":["先要结论"]}"#;
+
+    #[test]
+    fn distill_writes_json_and_marks_up_to_and_is_skipped_without_new_messages() {
+        let (conn, book) = setup();
+        let p = Script(Mutex::new(vec![
+            Ok("答".into()),
+            Ok(format!("```json\n{DISTILL_JSON}\n```")),
+            Ok("答2".into()),
+            Ok(DISTILL_JSON.into()),
+        ]));
+        let r = send(&conn, &p, book, None, "m1", "问");
+        assert!(get_topic(&conn, r.topic_id).unwrap().needs_distill);
+        assert!(distill_topic(&conn, &p, Path::new("."), &policy(), r.topic_id).unwrap());
+        let t = get_topic(&conn, r.topic_id).unwrap();
+        assert!(!t.needs_distill && t.distilled_at.is_some());
+        assert!(
+            !distill_topic(&conn, &p, Path::new("."), &policy(), r.topic_id).unwrap(),
+            "没新消息不再跑"
+        );
+        send(&conn, &p, book, Some(r.topic_id), "m2", "再问");
+        assert!(get_topic(&conn, r.topic_id).unwrap().needs_distill);
+        assert!(distill_topic(&conn, &p, Path::new("."), &policy(), r.topic_id).unwrap());
+        // 两次提炼 → 两行 sync_reading(op_id 带水位,不会被 INSERT OR IGNORE 吞掉)
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind='sync_reading'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        // 理解状态条目:kind 归一(odd → 未澄清)
+        let lines = understanding_lines(&conn, book, 40).unwrap();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("块 #1 · 误解:把斜率当弹性")),
+            "{lines:?}"
+        );
+        assert!(lines.iter().any(|l| l.contains("块 #2 · 未澄清:别的块")));
+        assert_eq!(understanding_lines(&conn, book, 1).unwrap().len(), 1);
+        // 按块反哺
+        let notes = reading_notes_for_block(&conn, book, 1, 10).unwrap();
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(notes[0].contains("关注:问需求定律"));
+        assert!(reading_notes_for_block(&conn, book, 3, 10)
+            .unwrap()
+            .is_empty());
+        // 空话题 / 无回复不提炼(先结束当前话题,ensure_topic 才会新建一个空的)
+        end_topic(&conn, r.topic_id).unwrap();
+        let empty = ensure_topic(&conn, book, None, "ch0.xhtml", None).unwrap();
+        assert_ne!(empty, r.topic_id);
+        assert!(!distill_topic(&conn, &p, Path::new("."), &policy(), empty).unwrap());
+        assert!(topics_needing_distill(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn distill_failure_keeps_needs_distill() {
+        let (conn, book) = setup();
+        let p = Script(Mutex::new(vec![Ok("答".into()), Ok("not json".into())]));
+        let r = send(&conn, &p, book, None, "m1", "问");
+        assert!(distill_topic(&conn, &p, Path::new("."), &policy(), r.topic_id).is_err());
+        let t = get_topic(&conn, r.topic_id).unwrap();
+        assert!(t.needs_distill && t.distilled_at.is_none());
+        assert_eq!(topics_needing_distill(&conn).unwrap(), vec![r.topic_id]);
     }
 }

@@ -187,18 +187,36 @@ fn session_context(
     session_id: i64,
 ) -> Result<(FixedContext, BookType), IpcError> {
     // 先取书类型,再按类型取画像摘要(教材/方法论追加"个人情境",M2 T6)
-    let (block_id, book_type, final_exam) = state.with_connection(|connection| {
+    let (block_id, book_id, book_type, final_exam) = state.with_connection(|connection| {
         let view = book_learner_core::session::get_session(connection, session_id)?;
         let book_id = book_learner_core::models::get_block(connection, view.block_id)?.book_id;
         let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
-        Ok((view.block_id, book_type, view.kind == "final_exam"))
+        Ok((view.block_id, book_id, book_type, view.kind == "final_exam"))
     })?;
     let profile_summary = state
         .memory()
         .profile_summary_for(book_type)
         .map_err(IpcError::from)?;
     if final_exam {
-        // 整书终评(M3 T1):上下文由会话自查全书地图,这里不算占位块的原文
+        // 整书终评(M3 T1):上下文由会话自查全书地图,这里不算占位块的原文;
+        // 画像摘要后追加该书的阅读理解状态(问书提炼,spec §4.3)
+        let understanding = state
+            .with_connection(|c| {
+                book_learner_core::reading_chat::understanding_lines(
+                    c,
+                    book_id,
+                    book_learner_core::reading_chat::READING_FINAL_STATE_MAX,
+                )
+            })
+            .unwrap_or_default();
+        let profile_summary = if understanding.is_empty() {
+            profile_summary
+        } else {
+            format!(
+                "{profile_summary}\n\n=== 读这本书时的理解状态 ===\n{}",
+                understanding.join("\n")
+            )
+        };
         return Ok((
             FixedContext {
                 profile_summary,
@@ -207,6 +225,7 @@ fn session_context(
                 eval_history: String::new(),
                 related_weakpoints: String::new(),
                 prereq_status: String::new(),
+                reading_notes: String::new(),
             },
             book_type,
         ));
@@ -946,17 +965,63 @@ pub fn reading_send(
     .map_err(Into::into)
 }
 
-/// 「另起话题」:写 ended_at;提炼第二批接上(此处恒 false)
+/// 锁已持有时跑一次提炼:不需要提炼 → false;codex/解析失败只记日志(下次再跑)→ false
+fn distill_locked(state: &AppState, topic_id: i64) -> Result<bool, IpcError> {
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    match book_learner_core::reading_chat::distill_topic(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        topic_id,
+    ) {
+        Ok(done) => Ok(done),
+        Err(error) => {
+            tracing::warn!(topic_id, %error, "问书话题提炼失败,下次再试");
+            Ok(false)
+        }
+    }
+}
+
+/// 「另起话题」:写 ended_at,再对需要提炼的话题跑提炼(同步,命令层随后重放投影写 _reading.md)
 pub fn reading_topic_end(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
     let _guard = lock_topic(state, Some(topic_id))?;
     state.with_connection(|c| book_learner_core::reading_chat::end_topic(c, topic_id))?;
-    Ok(DistillResultDto { distilled: false })
+    let distilled = distill_locked(state, topic_id)?;
+    Ok(DistillResultDto { distilled })
 }
 
-/// 离开阅读器时的提炼触发;第二批接上(此处只校验话题存在)
+/// 离开阅读器时的提炼:不结束话题(默认续聊跨次打开)
 pub fn reading_distill(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
     let _guard = lock_topic(state, Some(topic_id))?;
     state
         .with_connection(|c| book_learner_core::reading_chat::get_topic(c, topic_id).map(|_| ()))?;
-    Ok(DistillResultDto { distilled: false })
+    let distilled = distill_locked(state, topic_id)?;
+    Ok(DistillResultDto { distilled })
+}
+
+/// 启动补跑(spec §4.2 ③):遍历需要提炼的话题;忙的跳过;错误只记日志。不放进 run_startup_recovery(它被多个命令复用)
+pub fn distill_pending_reading_topics(state: &AppState) -> usize {
+    let ids = match state.with_connection(book_learner_core::reading_chat::topics_needing_distill) {
+        Ok(ids) => ids,
+        Err(error) => {
+            tracing::warn!(
+                internal_cause = error.internal_cause(),
+                "问书补提炼:读取待办失败"
+            );
+            return 0;
+        }
+    };
+    let mut done = 0;
+    for id in ids {
+        let Ok(Some(_guard)) = lock_topic(state, Some(id)) else {
+            continue;
+        };
+        if matches!(distill_locked(state, id), Ok(true)) {
+            done += 1;
+        }
+    }
+    done
 }

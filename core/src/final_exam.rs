@@ -500,6 +500,7 @@ mod tests {
             eval_history: String::new(),
             related_weakpoints: String::new(),
             prereq_status: String::new(),
+            reading_notes: String::new(),
         }
     }
     /// 建书 + 3 块;`passed` 为通过的块数(按 seq)

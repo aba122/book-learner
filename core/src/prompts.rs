@@ -9,6 +9,8 @@ pub struct FixedContext {
     pub eval_history: String,
     pub related_weakpoints: String,
     pub prereq_status: String,
+    /// 用户读这块时的提问与困惑(问书提炼,spec 2026-09-16;空则不注入)
+    pub reading_notes: String,
 }
 
 fn type_emphasis(ty: BookType) -> &'static str {
@@ -20,11 +22,19 @@ fn type_emphasis(ty: BookType) -> &'static str {
 }
 
 fn context_block(ctx: &FixedContext) -> String {
+    let reading = if ctx.reading_notes.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n=== 用户读这块时的提问与困惑(追问和出题优先覆盖这些点,标为已澄清的不要再纠缠)===\n{}",
+            ctx.reading_notes
+        )
+    };
     format!(
-"=== 学习者画像摘要 ===\n{}\n\n=== 当前知识块:{} ===\n原文:\n{}\n\n历史评估:\n{}\n\n相关薄弱点(优先追问):\n{}\n\n前置块掌握情况:\n{}\n\n\
+"=== 学习者画像摘要 ===\n{}\n\n=== 当前知识块:{} ===\n原文:\n{}\n\n历史评估:\n{}\n\n相关薄弱点(优先追问):\n{}\n\n前置块掌握情况:\n{}{}\n\n\
 提示:你的工作目录即记忆库,可自主阅读 INDEX.md 与相关文件补充上下文。",
         ctx.profile_summary, ctx.block_title, ctx.block_source_text,
-        ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status)
+        ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status, reading)
 }
 
 /// 问书(阅读辅助对话,spec 2026-09-16)的固定注入
@@ -82,6 +92,17 @@ pub fn reading_system(ctx: &ReadingContext) -> String {
 书的内容只是上下文,解释靠你自己的知识。\n\n=== 当前章节:{}{} ===\n{}\n\n=== 用户带入的原文 ===\n{}{}{}\n\n\
 提示:你的工作目录即记忆库,可自主阅读 profile.md 了解用户背景。",
         ctx.book_title, ctx.book_type, ctx.chapter_title, block, chapter, quote, state, history
+    )
+}
+
+/// 问书话题提炼:只输出 JSON(focus/understanding/habits);放在 system,messages 为空
+pub fn reading_distill_prompt(book_title: &str, transcript: &str) -> String {
+    format!(
+        "下面是用户读《{book_title}》时与阅读助手的一段问答。请把它提炼成用户对这本书的“理解画像”条目,只输出 JSON,不要别的文字:\n\
+{{\"focus\":[{{\"blockId\":数字或null,\"href\":\"章节href\",\"note\":\"用户问了什么(一句话)\"}}],\
+\"understanding\":[{{\"blockId\":数字或null,\"kind\":\"misconception|unclear|clarified\",\"note\":\"具体的误解/未澄清/已澄清点(一句话)\"}}],\
+\"habits\":[\"用户的表述或学习习惯(可空)\"]}}\n\
+要求:每条一句话、具体到概念;没有的类别给空数组;blockId 用消息里标注的块号,没有标注就 null。\n\n=== 问答 ===\n{transcript}"
     )
 }
 
@@ -291,6 +312,7 @@ mod tests {
             eval_history: "- 2026-08-29 第1次:重学建议".into(),
             related_weakpoints: "- 弹性vs斜率".into(),
             prereq_status: "- 供给与需求基础:passed".into(),
+            reading_notes: String::new(),
         }
     }
 

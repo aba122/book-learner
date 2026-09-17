@@ -439,6 +439,7 @@ mod tests {
             eval_history: String::new(),
             related_weakpoints: String::new(),
             prereq_status: String::new(),
+            reading_notes: String::new(),
         }
     }
     /// 建书(教材)+ 1 块;`passed=true` 时把块置为 passed 并插入一条已确认的 learn 会话
