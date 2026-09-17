@@ -227,6 +227,23 @@ describe('问书面板(spec 2026-09-16)', () => {
     expect(screen.getByRole('button', { name: '收窄对话' })).toBeInTheDocument()
   })
 
+  it('BL-017:收起面板不卸载对话——收起再展开,已有消息仍在且不重新拉取', async () => {
+    const user = userEvent.setup()
+    const listSpy = vi.spyOn(backendModule.backend, 'readingMessages')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await typeAndSend(user, '第一个问题')
+    await waitFor(() => expect(msgs()).toHaveLength(2))
+    const callsBefore = listSpy.mock.calls.length
+    await user.click(screen.getByRole('button', { name: '收起 ›' }))
+    // 收起后面板 DOM 仍在(hidden),消息未卸载
+    expect(screen.getAllByTestId('reading-msg')).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: '问书' }))
+    expect(msgs()).toHaveLength(2)
+    expect(msgs()[0]).toHaveTextContent('第一个问题')
+    expect(listSpy.mock.calls.length).toBe(callsBefore) // 未重新挂载,不再拉消息
+  })
+
   it('取消 = 停止等待:输入恢复、该条显示等待中;轮询到后端结果后补上回复', async () => {
     const user = userEvent.setup()
     const real = backendModule.backend

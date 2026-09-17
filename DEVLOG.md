@@ -631,3 +631,9 @@
 - 问书标签太小、又没有纯阅读入口。改:①书架每本 mapped 书的操作行加「阅读」,点它 `listBlocks` 取 seq 最小的块 → `navigate(/reader/{id})`(不带 task),右栏默认「问书」——"翻书遇到不懂就问"成为一条直达路径;②阅读器侧栏「学习模式 / 问书」标签改为药丸式(选中填 new 色、加阴影,问书带 💬),字号 xs→sm,明显得多。
 - 门禁:web 369/2、tsc、oxlint 0、build。
 
+## 2026-09-17 · 阅读器/问书三修(BL-017/018/019)
+- **BL-019(P1)**:epub.js 分栏宽度按渲染时容器宽算死,而开合问书/放大收窄只改容器宽、不触发 window resize → 旧列宽溢出、最左列截断(夜读下尤明显)。EpubView 加 ResizeObserver(containerRef),宽度变化即 `rendition.resize()` 重排;带宽度去抖(w!==last 才 resize)。
+- **BL-017**:「收起」原本把整张 Card(含 ReadingChatPanel)卸载,进行中的 readingSend/思考中随之丢。改为 `<div hidden={!panelOpen}>` 包住 Card 常挂、收起时另显重开条——面板与进行中的对话跨收起保留。
+- **BL-018**:阅读位置 800ms 防抖,卸载 cleanup 只 clearTimeout 不补写,翻页后立刻返回会丢最后位置 → 下次回第一页。加 pendingPos ref,卸载/切书时立即 `readerPositionSet` 补写。
+- 门禁:web 372/2(+3)、tsc、oxlint 0、build。
+
