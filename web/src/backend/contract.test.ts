@@ -413,8 +413,10 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     expect(topics).toHaveLength(1)
     expect(topics[0]).toMatchObject({ id: r1.topicId, needsDistill: true, firstQuestion: '什么是需求定律', anchorHref: 'chap1.xhtml', endedAt: null })
     expect(await b.readingMessages(r1.topicId)).toHaveLength(2)
-    expect(await b.readingTopicEnd(r1.topicId)).toEqual({ distilled: false })
-    expect((await b.readingTopics(1))[0].endedAt).not.toBeNull()
+    expect(await b.readingTopicEnd(r1.topicId)).toEqual({ distilled: true }) // 第二批:另起话题触发提炼
+    const ended = (await b.readingTopics(1)).find(t => t.id === r1.topicId)!
+    expect(ended.endedAt).not.toBeNull()
+    expect(ended.needsDistill).toBe(false)
     const r2 = await b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q2', text: '再问', quote: '', spineHref: 'chap1.xhtml', blockId: null })
     expect(r2.topicId).not.toBe(r1.topicId)
     expect((await b.readingTopics(1)).map(t => t.id)).toEqual([r2.topicId, r1.topicId])

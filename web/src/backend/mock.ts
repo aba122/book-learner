@@ -758,15 +758,22 @@ export class MockBackend implements Backend {
     this.readingMessageRows.push(reply)
     return { topicId: topic.id, userMessage: { ...user }, assistantMessage: { ...reply } }
   }
+  /** 与 core distill_topic 同语义:有新回复才提炼,标记 distilledAt(第二批) */
+  private mockDistill(topic: ReadingTopic): boolean {
+    if (!this.readingNeedsDistill(topic)) return false
+    topic.distilledAt = new Date().toISOString()
+    return true
+  }
   async readingTopicEnd(topicId: number): Promise<{ distilled: boolean }> {
     const topic = this.readingTopicRows.find(t => t.id === topicId)
     if (!topic) throw notFound()
     topic.endedAt = topic.endedAt ?? new Date().toISOString()
-    return { distilled: false }
+    return { distilled: this.mockDistill(topic) }
   }
   async readingDistill(topicId: number): Promise<{ distilled: boolean }> {
-    if (!this.readingTopicRows.some(t => t.id === topicId)) throw notFound()
-    return { distilled: false }
+    const topic = this.readingTopicRows.find(t => t.id === topicId)
+    if (!topic) throw notFound()
+    return { distilled: this.mockDistill(topic) }
   }
 
   // ---- 诊断:固定信息;前端事件记录在内存供用例断言 ----

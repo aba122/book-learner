@@ -187,6 +187,23 @@ describe('问书面板(spec 2026-09-16)', () => {
     expect(send.mock.calls[2][0].topicId).toBe(first)
   })
 
+  it('另起话题触发提炼后,历史里该话题状态点变「已记入记忆」(第二批)', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await typeAndSend(user, '第一话题的问题')
+    await waitFor(() => expect(msgs()).toHaveLength(2))
+    expect(screen.getByTestId('topic-state')).toHaveAttribute('data-state', 'pending')
+    await user.click(screen.getByRole('button', { name: '另起话题' }))
+    // 回看该话题:状态点应为已记入记忆
+    const history = screen.getByLabelText('历史话题')
+    await waitFor(() => expect(within(history).getAllByRole('option').length).toBeGreaterThanOrEqual(2))
+    const first = within(history).getAllByRole('option').at(-1)!.getAttribute('value')!
+    await user.selectOptions(history, first)
+    await waitFor(() => expect(screen.getByTestId('topic-state')).toHaveAttribute('data-state', 'done'))
+    expect(screen.getByTestId('topic-state')).toHaveTextContent('已记入记忆')
+  })
+
   it('取消 = 停止等待:输入恢复、该条显示等待中;轮询到后端结果后补上回复', async () => {
     const user = userEvent.setup()
     const real = backendModule.backend
