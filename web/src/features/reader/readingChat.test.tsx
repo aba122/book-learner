@@ -32,8 +32,6 @@ const h = vi.hoisted(() => {
 vi.mock('epubjs', () => ({ default: h.ePub }))
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
-const handler = (name: string) => h.rendition.on.mock.calls.find(c => c[0] === name)?.[1] as ((...args: unknown[]) => void) | undefined
-
 beforeEach(() => {
   vi.clearAllMocks()
   ;(backendModule as unknown as { backend: Backend }).backend = new MockBackend()

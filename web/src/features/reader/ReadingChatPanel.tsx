@@ -6,7 +6,7 @@ import { READING_POLL_MAX_MS, READING_POLL_MS, READING_QUOTE_MAX_CHARS, READING_
 import type { ReadingMessage, ReadingTopic } from '../../types'
 
 /** clientMsgId:过 outboundClientId(字母数字 . _ -,≤ 64) */
-export function newClientMsgId(): string {
+function newClientMsgId(): string {
   return `rq-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
@@ -94,13 +94,15 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
     [],
   )
 
-  // 「问 AI」带入选文
+  // 「问 AI」带入的选文优先于本地引用;用掉(发送/删除)时才通知父组件清掉,不在 effect 里 setState
+  const effectiveQuote = quoteDraft !== null ? quoteDraft.slice(0, READING_QUOTE_MAX_CHARS) : quote
+  const clearQuote = () => {
+    if (quoteDraft !== null) onQuoteConsumed()
+    setQuote('')
+  }
   useEffect(() => {
-    if (quoteDraft === null) return
-    setQuote(quoteDraft.slice(0, READING_QUOTE_MAX_CHARS))
-    onQuoteConsumed()
-    textareaRef.current?.focus()
-  }, [quoteDraft, onQuoteConsumed])
+    if (quoteDraft !== null) textareaRef.current?.focus()
+  }, [quoteDraft])
 
   useEffect(() => {
     const el = listRef.current
@@ -140,7 +142,7 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
     const body = text.trim().slice(0, READING_TEXT_MAX_CHARS)
     if (!body || sending || waiting) return
     const clientMsgId = newClientMsgId()
-    const q = quote.slice(0, READING_QUOTE_MAX_CHARS)
+    const q = effectiveQuote.slice(0, READING_QUOTE_MAX_CHARS)
     const blockId = blockIdForHref(currentHref)
     const optimistic: ReadingMessage = {
       id: -Date.now(), topicId: topicId ?? -1, role: 'user', text: body, quote: q, spineHref: currentHref, blockId,
@@ -148,7 +150,7 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
     }
     setMessages(cur => [...cur, optimistic])
     setText('')
-    setQuote('')
+    clearQuote()
     void dispatch({ topicId, clientMsgId, text: body, quote: q, spineHref: currentHref, blockId })
   }
 
@@ -315,10 +317,10 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
       </div>
 
       <div className="flex flex-col gap-1.5 border-t border-line pt-2">
-        {quote && (
+        {effectiveQuote && (
           <div className="flex items-start gap-2 rounded-s border border-line bg-paper-1 px-2 py-1 text-[11px] text-ink-3" data-testid="quote-draft">
-            <span className="line-clamp-3 flex-1">{quote}</span>
-            <button className="cursor-pointer text-ink-4 hover:text-ink-1" aria-label="删除引用" onClick={() => setQuote('')}>×</button>
+            <span className="line-clamp-3 flex-1">{effectiveQuote}</span>
+            <button className="cursor-pointer text-ink-4 hover:text-ink-1" aria-label="删除引用" onClick={clearQuote}>×</button>
           </div>
         )}
         <textarea
