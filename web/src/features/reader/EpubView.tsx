@@ -224,10 +224,21 @@ const EpubView = forwardRef<
       }
     }
     window.addEventListener('resize', onResize)
+    // BL-019:容器宽度变化(侧栏开合 / 问书放大收窄)不触发 window resize,靠 ResizeObserver 通知 epub.js 重排分栏
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      let last = containerRef.current.clientWidth
+      ro = new ResizeObserver(() => {
+        const w = containerRef.current?.clientWidth ?? last
+        if (w !== last) { last = w; onResize() }
+      })
+      ro.observe(containerRef.current)
+    }
     return () => {
       clearInterval(selectionTimer)
       detachPointer()
       window.removeEventListener('resize', onResize)
+      ro?.disconnect()
       book.destroy()
       bookRef.current = null
       rendRef.current = null

@@ -112,6 +112,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   /** 点击正文里已有高亮后弹出的操作条(BL-007):记区间 CFI */
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null)
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** BL-018:防抖待写的最后阅读位置;卸载/切书时补写,避免丢最后一页 */
+  const pendingPos = useRef<{ href: string; cfi: string } | null>(null)
 
   // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布
   const content = useAsyncResource(useCallback(async (isCurrent: () => boolean): Promise<ReaderContent> => {
@@ -209,14 +211,24 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const onRelocated = (loc: { cfi: string; href: string }) => {
     setCurrentHref(loc.href)
     if (bookId === null) return
+    pendingPos.current = { href: loc.href, cfi: loc.cfi }
     if (positionTimer.current) clearTimeout(positionTimer.current)
     positionTimer.current = setTimeout(() => {
+      pendingPos.current = null
       backend.readerPositionSet(bookId, loc.href, loc.cfi).catch(() => {
         /* 位置写回失败只影响下次起点 */
       })
     }, READER_POSITION_DEBOUNCE_MS)
   }
-  useEffect(() => () => { if (positionTimer.current) clearTimeout(positionTimer.current) }, [])
+  // 卸载/切书:清定时器并把待写位置立即补写(BL-018:翻页后 800ms 内点返回也不丢位置)
+  useEffect(() => () => {
+    if (positionTimer.current) clearTimeout(positionTimer.current)
+    const p = pendingPos.current
+    if (p && bookId !== null) {
+      pendingPos.current = null
+      backend.readerPositionSet(bookId, p.href, p.cfi).catch(() => {})
+    }
+  }, [bookId])
 
   return (
     <div className="flex h-full flex-col">
@@ -481,8 +493,17 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
         {/* 右侧栏(分栏,不遮翻页):有任务 →「学习模式」「问书」两个标签;无任务 → 只有「问书」 */}
         {ready && (
           <div className="flex shrink-0 items-stretch border-l border-line bg-paper-1">
-            {panelOpen ? (
-              <Card className={`m-3 flex flex-col gap-3 overflow-hidden p-5 ${sideTab === 'chat' ? (chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96') : 'w-72'}`}>
+            {!panelOpen && (
+              <button
+                className="my-auto mr-0 cursor-pointer rounded-l-m border border-line bg-paper-2 px-1.5 py-6 text-xs text-ink-3 shadow-card hover:text-ink-1"
+                onClick={() => setPanelOpen(true)}
+              >
+                {learning && sideTab === 'learn' ? '学习模式' : '问书'}
+              </button>
+            )}
+            {/* BL-017:收起只隐藏、不卸载,进行中的问书对话与「思考中」跨收起保留 */}
+            <div hidden={!panelOpen}>
+              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'chat' ? (chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96') : 'w-72'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1 rounded-m bg-paper-1 p-0.5" role="tablist" aria-label="侧栏">
                     {learning && (
@@ -555,14 +576,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                   />
                 </div>
               </Card>
-            ) : (
-              <button
-                className="my-auto mr-0 cursor-pointer rounded-l-m border border-line bg-paper-2 px-1.5 py-6 text-xs text-ink-3 shadow-card hover:text-ink-1"
-                onClick={() => setPanelOpen(true)}
-              >
-                {learning && sideTab === 'learn' ? '学习模式' : '问书'}
-              </button>
-            )}
+            </div>
           </div>
         )}
       </div>

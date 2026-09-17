@@ -47,9 +47,14 @@ const h = vi.hoisted(() => {
 vi.mock('epubjs', () => ({ default: h.ePub }))
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
+let roInstances: { cb: ResizeObserverCallback }[] = []
 beforeEach(() => {
+  roInstances = []
   vi.clearAllMocks()
   useSession.getState().setTheme('light')
+  // BL-019:jsdom 无 ResizeObserver,桩一个可手动触发的
+  class RO { cb: ResizeObserverCallback; constructor(cb: ResizeObserverCallback) { this.cb = cb; roInstances.push(this) } observe() {} unobserve() {} disconnect() {} }
+  ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = RO as unknown
   ;(backendModule as unknown as { backend: Backend }).backend = new MockBackend()
 })
 
@@ -281,6 +286,25 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     // 切回日读:正文回到默认纸白
     await act(async () => { useSession.getState().setTheme('light') })
     await waitFor(() => expect(h.rendition.themes.select).toHaveBeenLastCalledWith('paper'))
+  })
+
+  it('BL-018:翻页后立即返回也不丢位置——卸载时把待写位置补写', async () => {
+    const setPos = vi.spyOn(backendModule.backend, 'readerPositionSet')
+    const { unmount } = renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => { handler('relocated')?.({ start: { cfi: 'epubcfi(/6/14!/4/2/1:0)', href: 'chap2.xhtml' } }) })
+    setPos.mockClear()
+    unmount() // 防抖(800ms)还没到就卸载
+    expect(setPos).toHaveBeenCalledWith(1, 'chap2.xhtml', 'epubcfi(/6/14!/4/2/1:0)')
+  })
+
+  it('BL-019:正文容器尺寸变化(开合问书/放大收窄)时 rendition.resize 重排', async () => {
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    h.rendition.resize = vi.fn()
+    Object.defineProperty(screen.getByTestId('epub-container'), 'clientWidth', { value: 999, configurable: true })
+    await act(async () => { roInstances.forEach(r => r.cb([], {} as ResizeObserver)) })
+    expect(h.rendition.resize).toHaveBeenCalled()
   })
 
   it('BL-006:iframe 不派发 selectionchange 时,轮询 getSelection 也能弹出选区工具条并高亮', async () => {
