@@ -17,6 +17,7 @@ pub mod pomodoro;
 pub mod projection;
 pub mod prompts;
 pub mod reader_marks;
+pub mod reading_chat;
 pub mod sched;
 pub mod session;
 pub mod settings;
