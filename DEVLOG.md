@@ -617,3 +617,8 @@
 - 前端:Mock 的 `readingTopicEnd`/`readingDistill` 标 `distilledAt`,状态点由"待整理"变"已记入记忆";面板卸载时 `readingDistill`。**批次一实测已确认**:真 codex 下 16s 得到连贯回复,`ai_request reading:1:… done`,话题/消息落库。
 - 门禁:core 181、web 360/2、tsc、oxlint 0、build。
 
+## 2026-09-17 · 阅读器两修(BL-012 复制、BL-013 夜读联动)
+- **BL-012 正文不能复制**:BL-011 的父文档指针层把选区造在 iframe 里,系统 Cmd+C 拿不到、也没有复制入口。选区工具条加「复制」按钮;阅读器 window 监听 Cmd/Ctrl+C,有选区时 `navigator.clipboard.writeText(selection.text)`(无权限静默)。原生右键/长按菜单仍不可用(沙箱 iframe 限制),用按钮或快捷键。
+- **BL-013 夜读模式正文不变**:侧栏「夜读模式」= app `data-theme=dark`(外壳),阅读器正文用独立阅读主题(纸白/羊皮/夜读,存 readerPrefs)。改为联动:`effectiveTheme = appTheme==='dark' ? 'night' : readerPrefs.theme` 传给 EpubView;app 夜读时正文强制 night,日读回落阅读设置。Aa 主题选择在日读下仍生效。
+- 门禁:web 362/2(+2 reader.test)、tsc、oxlint 0、build。
+

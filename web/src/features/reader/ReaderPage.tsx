@@ -8,6 +8,7 @@ import Card from '../../components/Card'
 import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
 import { useBackendOperation } from '../../lib/useBackendOperation'
+import { useSession } from '../../store'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import type { HighlightColor, KnowledgeBlock, ReaderMark } from '../../types'
 import EpubView, { type EpubHandle, type ReaderTheme, type ReaderTypography, type SelectionInfo } from './EpubView'
@@ -93,6 +94,9 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   }
   const setFontIdx = (next: number | ((cur: number) => number)) => updatePrefs({ fontIdx: typeof next === 'function' ? next(fontIdx) : next })
   const setTheme = (next: ReaderTheme) => updatePrefs({ theme: next })
+  // BL-013:app「夜读模式」(data-theme=dark)驱动正文主题,否则用阅读设置里的主题
+  const appTheme = useSession(s => s.theme)
+  const effectiveTheme: ReaderTheme = appTheme === 'dark' ? 'night' : theme
   const typography: ReaderTypography = { lineHeight: READER_LINE_HEIGHTS[lineIdx], indent, overridePublisher }
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
@@ -138,6 +142,26 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // BL-012:正文选区靠指针层造(见 pointerLayer),原生 Cmd/Ctrl+C 复制不到;这里接管复制当前选区文本
+  const copySelection = useCallback((text: string) => {
+    if (!text) return
+    const write = navigator.clipboard?.writeText?.(text)
+    if (write && typeof write.catch === 'function') {
+      write.catch(() => {
+        /* 无剪贴板权限时静默;用户可再试或用系统菜单 */
+      })
+    }
+  }, [])
+  useEffect(() => {
+    const onCopyKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C') && selection?.text) {
+        copySelection(selection.text)
+      }
+    }
+    window.addEventListener('keydown', onCopyKey)
+    return () => window.removeEventListener('keydown', onCopyKey)
+  }, [selection, copySelection])
 
   const learning = taskId !== null
   const ready = block !== null && source !== null && url !== null
@@ -242,7 +266,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
               ref={epubRef}
               url={url}
               fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
-              theme={theme}
+              theme={effectiveTheme}
               typography={typography}
               initialHref={learning ? (content.data?.segments[0]?.cfiStart ?? source?.href) : (position?.cfiStart ?? source?.href)}
               highlights={highlights}
@@ -316,6 +340,13 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 onClick={() => addHighlight(c.color)}
               />
             ))}
+            <button
+              className="cursor-pointer text-xs text-ink-2 hover:text-ink-1"
+              aria-label="复制"
+              onClick={() => { copySelection(selection.text); setSelection(null); epubRef.current?.clearSelection() }}
+            >
+              复制
+            </button>
             <button
               className="cursor-pointer text-xs text-ink-2 hover:text-ink-1"
               aria-label="问 AI"

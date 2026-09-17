@@ -6,6 +6,7 @@ import * as backendModule from '../../backend'
 import { BackendError } from '../../backend/errors'
 import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
+import { useSession } from '../../store'
 import type { Backend } from '../../backend/types'
 import { READER_FONT_STEPS } from '../../config'
 import EpubView from './EpubView'
@@ -48,6 +49,7 @@ vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useSession.getState().setTheme('light')
   ;(backendModule as unknown as { backend: Backend }).backend = new MockBackend()
 })
 
@@ -250,6 +252,35 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
     await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, expect.any(Function), 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
     expect(screen.queryByRole('toolbar')).toBeNull()
+  })
+
+  it('BL-012:选区工具条有「复制」,点它与 Cmd+C 都把选区文本写入剪贴板', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    const range = {} as Range
+    const selection = { isCollapsed: false, rangeCount: 1, getRangeAt: () => range, toString: () => '需求曲线向右下方倾斜', removeAllRanges: vi.fn() }
+    h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: () => 'epubcfi(/6/8!/4/4,/1:0,/1:4)' }])
+    const toolbar = await screen.findByRole('toolbar', { name: '选区操作' })
+    // Cmd+C 复制当前选区
+    await user.keyboard('{Meta>}c{/Meta}')
+    expect(writeText).toHaveBeenLastCalledWith('需求曲线向右下方倾斜')
+    // 「复制」按钮
+    await user.click(within(toolbar).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenLastCalledWith('需求曲线向右下方倾斜')
+    expect(selection.removeAllRanges).toHaveBeenCalled()
+  })
+
+  it('BL-013:app 夜读模式下正文用 night 主题(不受阅读设置主题影响)', async () => {
+    useSession.getState().setTheme('dark')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.themes.select).toHaveBeenCalledWith('night'))
+    // 切回日读:正文回到默认纸白
+    await act(async () => { useSession.getState().setTheme('light') })
+    await waitFor(() => expect(h.rendition.themes.select).toHaveBeenLastCalledWith('paper'))
   })
 
   it('BL-006:iframe 不派发 selectionchange 时,轮询 getSelection 也能弹出选区工具条并高亮', async () => {
