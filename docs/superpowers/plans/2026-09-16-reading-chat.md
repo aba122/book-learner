@@ -164,8 +164,12 @@ mod tests {
         store_spine(&conn, book, &[SpineChapter { idx: 0, href: "ch0.xhtml".into(), title: "第一章".into(), text: "需求定律。".repeat(50) }]).unwrap();
         (conn, book)
     }
+    /// 测试不重试:run_ai_request 默认对 CoreError::Ai 重试 2 次、run_ai_json 纠错重试 1 次,会吃掉脚本里的下一条应答
+    fn policy() -> AiPolicy {
+        AiPolicy { max_transport_retries: 0, json_corrective_retries: 0, retry_backoff_ms: 0 }
+    }
     fn send(conn: &rusqlite::Connection, p: &dyn AiProvider, book: i64, topic: Option<i64>, id: &str, text: &str) -> SendResult {
-        send_message(conn, p, std::path::Path::new("."), &AiPolicy::default(), &SendInput {
+        send_message(conn, p, std::path::Path::new("."), &policy(), &SendInput {
             book_id: book, topic_id: topic, client_msg_id: id.into(), text: text.into(),
             quote: "需求定律".into(), spine_href: "ch0.xhtml".into(), block_id: None,
         }).unwrap()
@@ -183,7 +187,7 @@ mod tests {
         assert_eq!(topics.len(), 1);
         assert_eq!(topics[0].anchor_href, "ch0.xhtml");
         assert_eq!(topics[0].first_question, "什么是需求定律");
-        assert!(!topics[0].needs_distill == false || topics[0].needs_distill, "有回复即需要提炼");
+        assert!(topics[0].needs_distill, "有回复即需要提炼");
         assert_eq!(list_messages(&conn, r.topic_id).unwrap().len(), 2);
     }
 
@@ -214,8 +218,10 @@ mod tests {
         let r3 = send(&conn, &p, book, None, "m3", "三");
         assert_ne!(r3.topic_id, r1.topic_id, "结束后新建");
         assert_eq!(list_topics(&conn, book).unwrap().len(), 2);
-        // 空话题 end 也只写 ended_at,不报错
+        // 空话题 end 也只写 ended_at,不报错(先结束 r3 的话题,ensure_topic 才会新建一个空的)
+        end_topic(&conn, r3.topic_id).unwrap();
         let empty = ensure_topic(&conn, book, None, "ch0.xhtml", None).unwrap();
+        assert_ne!(empty, r3.topic_id);
         end_topic(&conn, empty).unwrap();
     }
 
@@ -235,12 +241,12 @@ mod tests {
     fn rejects_bad_client_id_and_empty_text() {
         let (conn, book) = setup();
         let p = Script(Mutex::new(vec![]));
-        let bad = send_message(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), &SendInput {
+        let bad = send_message(&conn, &p, std::path::Path::new("."), &policy(), &SendInput {
             book_id: book, topic_id: None, client_msg_id: "a:b".into(), text: "x".into(),
             quote: String::new(), spine_href: String::new(), block_id: None,
         });
         assert!(matches!(bad.unwrap_err(), crate::CoreError::InvalidInput(_)));
-        let empty = send_message(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), &SendInput {
+        let empty = send_message(&conn, &p, std::path::Path::new("."), &policy(), &SendInput {
             book_id: book, topic_id: None, client_msg_id: "m".into(), text: "  ".into(),
             quote: String::new(), spine_href: String::new(), block_id: None,
         });
@@ -502,36 +508,44 @@ pub fn send_message(conn: &Connection, provider: &dyn AiProvider, workdir: &Path
     let chapter = crate::mapgen::list_spine(conn, input.book_id)?
         .into_iter()
         .find(|c| c.href == input.spine_href);
-    let (chapter_title, chapter_text) = match chapter {
-        Some(c) => (c.title, chapter_window(&c.text, &quote, READING_CHAPTER_MAX_CHARS, READING_QUOTE_WINDOW)),
-        None => (String::new(), String::new()),
+    let (chapter_title, chapter_text, chapter_text_truncated) = match chapter {
+        Some(c) => {
+            let windowed = chapter_window(&c.text, &quote, READING_CHAPTER_MAX_CHARS, READING_QUOTE_WINDOW);
+            let truncated = windowed.chars().count() < c.text.chars().count();
+            (c.title, windowed, truncated)
+        }
+        None => (String::new(), String::new(), false),
     };
     let block_title: String = match input.block_id {
         Some(b) => crate::models::get_block(conn, b).map(|k| k.title).unwrap_or_default(),
         None => String::new(),
     };
     let state = understanding_lines(conn, input.book_id, READING_STATE_MAX)?;
-    let system = prompts::reading_system(&prompts::ReadingContext {
-        book_title, book_type, chapter_title, chapter_text, block_title, quote: quote.clone(), understanding: state,
-    });
-    let mut st = conn.prepare(&format!(
-        "SELECT role,text,quote FROM reading_message WHERE topic_id=?1 AND (status='done' OR id=?2) ORDER BY id"
-    ))?;
+    // 历史回合渲染进 system(ai::render_prompt 会把 Role::Assistant 标成“学生:”,不适合阅读助手);
+    // messages 只放本条提问
+    let mut st = conn.prepare(
+        "SELECT role,text,quote FROM reading_message WHERE topic_id=?1 AND status='done' AND id<?2 ORDER BY id",
+    )?;
     let all: Vec<(String, String, String)> = st
         .query_map(rusqlite::params![topic_id, user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
     drop(st);
     let skip = all.len().saturating_sub(READING_HISTORY_TURNS * 2);
-    let messages: Vec<(Role, String)> = all
+    let history: Vec<String> = all
         .into_iter()
         .skip(skip)
         .map(|(role, t, q)| {
-            let body = if role == "user" && !q.is_empty() { format!("引用:「{q}」\n\n{t}") } else { t };
-            (if role == "assistant" { Role::Assistant } else { Role::User }, body)
+            let who = if role == "assistant" { "助手" } else { "用户" };
+            if role == "user" && !q.is_empty() { format!("{who}(引用「{q}」):{t}") } else { format!("{who}:{t}") }
         })
         .collect();
+    let system = prompts::reading_system(&prompts::ReadingContext {
+        book_title, book_type, chapter_title, chapter_text, block_title, quote: quote.clone(), understanding: state, history,
+        truncated: chapter_text_truncated,
+    });
+    let question = if quote.is_empty() { text.clone() } else { format!("引用:「{quote}」\n\n{text}") };
     let req = CompletionRequest {
-        system, messages, workdir: workdir.to_path_buf(), read_only: true, request_id: String::new(), timeout_secs: READING_TURN_TIMEOUT_SECS,
+        system, messages: vec![(Role::User, question)], workdir: workdir.to_path_buf(), read_only: true, request_id: String::new(), timeout_secs: READING_TURN_TIMEOUT_SECS,
     };
     let accept = |t: &str| if t.trim().is_empty() { Err(CoreError::Ai("empty reading reply".into())) } else { Ok(()) };
     let outcome = run_ai_request(conn, provider, &format!("reading:{topic_id}:{}", input.client_msg_id), "reading", &req, policy, &accept);
@@ -589,14 +603,25 @@ pub struct ReadingContext {
     pub block_title: String,
     pub quote: String,
     pub understanding: Vec<String>,
+    /// 本话题历史回合(“用户:…”/“助手:…”,最近 READING_HISTORY_TURNS 轮),已渲染成行
+    pub history: Vec<String>,
+    /// 章节原文被窗口截断
+    pub truncated: bool,
 }
 
 /// 阅读助手 system prompt:直答、不出题不评估;书是上下文,答案靠模型自身知识
 pub fn reading_system(ctx: &ReadingContext) -> String {
     let chapter = if ctx.chapter_text.is_empty() {
         "(本章原文不可用)".to_string()
+    } else if ctx.truncated {
+        format!("(已截断,只保留用户带入文字附近)\n{}", ctx.chapter_text)
     } else {
         ctx.chapter_text.clone()
+    };
+    let history = if ctx.history.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n=== 本话题此前的问答 ===\n{}", ctx.history.join("\n"))
     };
     let state = if ctx.understanding.is_empty() {
         String::new()
@@ -607,9 +632,9 @@ pub fn reading_system(ctx: &ReadingContext) -> String {
     format!(
 "你是一位阅读助手,陪用户读《{}》({})。用户读到不理解的地方会把原文贴给你提问。\
 用中文回答;先直接回答问题,再按需要展开;不出题、不评估、不引导复述;引用书里的话时注明“书里说”;不确定就说不确定。\
-书的内容只是上下文,解释靠你自己的知识。\n\n=== 当前章节:{}{} ===\n{}\n\n=== 用户带入的原文 ===\n{}{}\n\n提示:你的工作目录即记忆库,可自主阅读 profile.md 了解用户背景。",
+书的内容只是上下文,解释靠你自己的知识。\n\n=== 当前章节:{}{} ===\n{}\n\n=== 用户带入的原文 ===\n{}{}{}\n\n提示:你的工作目录即记忆库,可自主阅读 profile.md 了解用户背景。",
         ctx.book_title, ctx.book_type, ctx.chapter_title, block, chapter,
-        if ctx.quote.is_empty() { "(无)".to_string() } else { ctx.quote.clone() }, state)
+        if ctx.quote.is_empty() { "(无)".to_string() } else { ctx.quote.clone() }, state, history)
 }
 ```
 
@@ -688,7 +713,21 @@ pub fn reading_messages(state: &AppState, topic_id: i64) -> Result<Vec<ReadingMe
     state.with_connection(|c| book_learner_core::reading_chat::list_messages(c, topic_id))
         .map(|v| v.into_iter().map(Into::into).collect())
 }
+/// 同一话题串行:发送/提炼/结束互斥(spec §7);忙则 conflict,前端在等待期间本就禁用输入
+fn lock_topic(state: &AppState, topic_id: Option<i64>) -> Result<Option<TopicGuard>, IpcError> {
+    let Some(id) = topic_id else { return Ok(None) };
+    let mut busy = state.reading_busy().lock().expect("reading_busy poisoned");
+    if !busy.insert(id) {
+        return Err(IpcError::conflict("这个话题正在处理,请稍等"));
+    }
+    Ok(Some(TopicGuard { state: state.reading_busy().clone(), id }))
+}
+struct TopicGuard { state: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<i64>>>, id: i64 }
+impl Drop for TopicGuard { fn drop(&mut self) { self.state.lock().expect("reading_busy poisoned").remove(&self.id); } }
+// AppState 加字段 `reading_busy: Arc<Mutex<HashSet<i64>>>` 与访问器 `reading_busy()`;IpcError 若无 `conflict` 构造器,按 error.rs 现有 ErrorCode::Conflict 的写法加一个。
+
 pub fn reading_send(state: &AppState, input: book_learner_core::reading_chat::SendInput) -> Result<ReadingSendResultDto, IpcError> {
+    let _guard = lock_topic(state, input.topic_id)?;
     let _job = state.jobs().begin();
     let (provider, policy) = state.ai_provider()?;
     let connection = state.open_connection()?;
@@ -696,10 +735,12 @@ pub fn reading_send(state: &AppState, input: book_learner_core::reading_chat::Se
         .map(Into::into).map_err(Into::into)
 }
 pub fn reading_topic_end(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
+    let _guard = lock_topic(state, Some(topic_id))?;
     state.with_connection(|c| book_learner_core::reading_chat::end_topic(c, topic_id))?;
     Ok(DistillResultDto { distilled: false }) // 第二批接提炼
 }
-pub fn reading_distill(_state: &AppState, _topic_id: i64) -> Result<DistillResultDto, IpcError> {
+pub fn reading_distill(state: &AppState, topic_id: i64) -> Result<DistillResultDto, IpcError> {
+    let _guard = lock_topic(state, Some(topic_id))?;
     Ok(DistillResultDto { distilled: false }) // 第二批
 }
 ```
@@ -751,7 +792,7 @@ wire 用例 `match command` 加 5 项(用 `second`/`second_block`;`reading_send`
             "reading_send" => json!({"bookId": second, "topicId": null, "clientMsgId": "wire-q0", "text": "第一问", "quote": "", "spineHref": "ch0.xhtml", "blockId": null}),
 ```
 
-再加一条端到端用例(`#[test] fn reading_chat_roundtrip`):send → assistant 非空 → topics 长度 1 且 `needs_distill` → end → topics[0].ended_at 非空 → 再 send(无 topicId)开新话题。
+再加一条端到端用例(`#[test] fn reading_chat_roundtrip`,用自己的 state,不依赖 wire 循环留下的话题数):send → assistant 非空 → topics 长度 1 且 `needs_distill` → end → topics[0].ended_at 非空 → 再 send(无 topicId)开新话题 → 两个话题。
 
 - [ ] **Step 6: Linux 侧能做的检查**
 
@@ -836,7 +877,7 @@ export interface ReadingSendResult { topicId: number; userMessage: ReadingMessag
 
 `tauri.ts`:解码器 `decodeReadingTopic`/`decodeReadingMessage`/`decodeReadingSendResult`(status 只接受三值、role 两值,否则 `invalidShape`),五个方法用 `this.gated(...)` + `outboundInteger`/`outboundClientId`/`outboundString`,`topicId`/`blockId` 为 null 或整数。`config.ts` 加 `READING_QUOTE_MAX_CHARS = 8000`、`READING_TEXT_MAX_CHARS = 4000`、`READING_POLL_MS = 3000`、`READING_POLL_MAX_MS = 120_000`。
 
-`mock.ts`:`private readingTopics: ReadingTopic[] = []`、`private readingMessages: ReadingMessage[] = []`、`nextReadingId = 1`;`readingSend`:`requireClientId`;空 text → `invalidRequest()`;书不存在 → `notFound()`;找/建话题(锚点取首条);同 id 已 done → 重放;否则落 user(done)+ assistant(文本 `关于「${quote.slice(0,12) || text.slice(0,12)}」:这句话在说……(Mock 回复)`);`readingTopics` 按 id 倒序、`needsDistill = 有 assistant`;`readingTopicEnd` 写 `endedAt`,返回 `{distilled:false}`;`readingDistill` 返回 `{distilled:false}`;`deleteBook` 里顺带清两组数据。
+`mock.ts`:字段不能与同名方法冲突——`private readingTopicRows: ReadingTopic[] = []`、`private readingMessageRows: ReadingMessage[] = []`、`private nextReadingId = 1`;`readingSend`:`requireClientId`;空 text → `invalidRequest()`;书不存在 → `notFound()`;找/建话题(锚点取首条);同 id 已 done → 重放;否则落 user(done)+ assistant(文本 `关于「${quote.slice(0,12) || text.slice(0,12)}」:这句话在说……(Mock 回复)`);`readingTopics` 按 id 倒序、`needsDistill = 有 assistant`;`readingTopicEnd` 写 `endedAt`,返回 `{distilled:false}`;`readingDistill` 返回 `{distilled:false}`;`deleteBook` 里顺带清两组数据。
 
 - [ ] **Step 4: 跑测试**
 
@@ -909,7 +950,7 @@ git commit -m "feat(reader): 「问书」面板——带入选文、发送/等�
 **Files:**
 - Modify: `DEVLOG.md`、`CHANGELOG.md`、`docs/CODE_MAP.md`(§阅读器、§6 契约表、§9 无新陷阱则不加)、`PRODUCT_SPEC.md`(阅读器一节加「问书」两句)
 
-- [ ] **Step 1: 文档**:DEVLOG 新条目「2026-09-16 · 问书第一批」(设计链接、取舍:AI 失败返回成功载荷、取消=停止等待、第一批状态点恒"待整理");CHANGELOG Unreleased 加一行;CODE_MAP 阅读器段落加面板与命令;PRODUCT_SPEC §阅读器加「问书」。
+- [ ] **Step 1: 文档**:DEVLOG 新条目「2026-09-16 · 问书第一批」(设计链接、取舍:AI 失败返回成功载荷、取消=停止等待、第一批状态点恒"待整理"、AI 回复先按纯文本 `whitespace-pre-wrap` 显示而非 spec 说的 Markdown 渲染——不引第三方库,后续按需加);CHANGELOG Unreleased 加一行;CODE_MAP 阅读器段落加面板与命令;PRODUCT_SPEC §阅读器加「问书」。
 - [ ] **Step 2: 推送 + PR**:`git push -u origin feat/reading-chat-1`,`gh pr create`(标题「问书第一批:面板 + 契约 + core reading_chat」)。
 - [ ] **Step 3: Mac 门禁**(经隧道,`~/Developer/bl-logs/<name>-cmd.sh` + `bl-run.sh`):`cargo test`(壳层,含 foundation)、`clippy -D warnings`、`cargo fmt --check`(core 与壳层)、打 debug bundle。
 - [ ] **Step 4: Mac 实测**(真 codex,调试包 + 桥,置前按 pid):打开测试书某块 → 桥合成事件在指针层划选 → 「问 AI」→ 输入问题回车 → 等回复(≤120 s)→ `reading_message` 两行、`ai_request` 有 `reading:` 行 → 「另起话题」→ `reading_topic.ended_at` 非空 → 再问一条开新话题 → 历史下拉两条。记录到 DEVLOG。
@@ -935,13 +976,13 @@ git commit -m "feat(reader): 「问书」面板——带入选文、发送/等�
         let p = Script(Mutex::new(vec![Ok("答".into()), Ok(DISTILL_JSON.into()), Ok("答2".into()), Ok(DISTILL_JSON.into())]));
         let r = send(&conn, &p, book, None, "m1", "问");
         assert!(read_topic(&conn, r.topic_id).unwrap().needs_distill);
-        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), r.topic_id).unwrap());
+        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &policy(), r.topic_id).unwrap());
         let t = read_topic(&conn, r.topic_id).unwrap();
         assert!(!t.needs_distill && t.distilled_at.is_some());
-        assert!(!distill_topic(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), r.topic_id).unwrap(), "没新消息不再跑");
+        assert!(!distill_topic(&conn, &p, std::path::Path::new("."), &policy(), r.topic_id).unwrap(), "没新消息不再跑");
         send(&conn, &p, book, Some(r.topic_id), "m2", "再问");
         assert!(read_topic(&conn, r.topic_id).unwrap().needs_distill);
-        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), r.topic_id).unwrap());
+        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &policy(), r.topic_id).unwrap());
         // outbox 入队 sync_reading
         let kinds: Vec<String> = conn.prepare("SELECT kind FROM projection_outbox ORDER BY id").unwrap()
             .query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
@@ -951,7 +992,7 @@ git commit -m "feat(reader): 「问书」面板——带入选文、发送/等�
         assert!(lines.iter().any(|l| l.contains("把斜率当弹性")));
         // 空话题 / 无回复不提炼
         let empty = ensure_topic(&conn, book, None, "ch0.xhtml", None).unwrap();
-        assert!(!distill_topic(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), empty).unwrap());
+        assert!(!distill_topic(&conn, &p, std::path::Path::new("."), &policy(), empty).unwrap());
     }
 
     #[test]
@@ -959,7 +1000,7 @@ git commit -m "feat(reader): 「问书」面板——带入选文、发送/等�
         let (conn, book) = setup();
         let p = Script(Mutex::new(vec![Ok("答".into()), Ok("not json".into())]));
         let r = send(&conn, &p, book, None, "m1", "问");
-        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &AiPolicy::default(), r.topic_id).is_err());
+        assert!(distill_topic(&conn, &p, std::path::Path::new("."), &policy(), r.topic_id).is_err());
         assert!(read_topic(&conn, r.topic_id).unwrap().needs_distill);
         assert_eq!(topics_needing_distill(&conn).unwrap(), vec![r.topic_id]);
     }
@@ -1007,7 +1048,8 @@ pub struct Distilled {
 
 `understanding_lines(conn, book_id, max)`:遍历该书 `distilled_json`(按 `distilled_at DESC`),展开 `understanding`,格式 `- [日期] 块 #N · 误解|未澄清|已澄清:note`(无块号省略 `块 #N ·`),取前 `max` 条。
 
-壳层:`application::reading_topic_end` = `end_topic` 后 `distill_topic`(错误只记日志,返回 `{distilled:false}`);`reading_distill` 同(不 end)。`lib.rs::run_startup_recovery`:`for id in topics_needing_distill { let _ = distill_topic(...) }`(需要 provider;用 `state.ai_provider()`,失败只 `tracing::warn!`)。
+壳层:`application::reading_topic_end` = `end_topic` 后 `distill_topic`(错误只 `tracing::warn!`,返回 `{distilled:false}`);`reading_distill` 同(不 end)。两条命令的 `#[tauri::command]` 层在成功后像 `session_confirm_verdict` 那样 `spawn_blocking(run_startup_recovery)` 排空 outbox,`_reading.md` 才会当场写出。
+**启动补跑不要放进 `run_startup_recovery`**(它被五个命令处理器复用,里面不能塞 codex 调用):新增 `lib.rs::distill_pending_reading_topics(state)`——`let _job = state.jobs().begin()`(让有序退出等它),`state.ai_provider()` 失败只 warn 并返回,遍历 `reading_chat::topics_needing_distill` 逐个 `distill_topic`(错误 warn 继续),最后再 `projection::run_pending` 一次;在 `setup` 闭包里 `run_startup_recovery` 之后的同一 `spawn_blocking` 里调用一次。
 
 - [ ] **Step 4: 跑测试、fmt、clippy、全量**
 - [ ] **Step 5: 提交** `feat(core): 问书话题提炼(distill_topic)、needs_distill、启动补跑`
