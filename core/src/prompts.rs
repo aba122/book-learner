@@ -85,6 +85,17 @@ pub fn reading_system(ctx: &ReadingContext) -> String {
     )
 }
 
+/// 问书话题提炼:只输出 JSON(focus/understanding/habits);放在 system,messages 为空
+pub fn reading_distill_prompt(book_title: &str, transcript: &str) -> String {
+    format!(
+        "下面是用户读《{book_title}》时与阅读助手的一段问答。请把它提炼成用户对这本书的“理解画像”条目,只输出 JSON,不要别的文字:\n\
+{{\"focus\":[{{\"blockId\":数字或null,\"href\":\"章节href\",\"note\":\"用户问了什么(一句话)\"}}],\
+\"understanding\":[{{\"blockId\":数字或null,\"kind\":\"misconception|unclear|clarified\",\"note\":\"具体的误解/未澄清/已澄清点(一句话)\"}}],\
+\"habits\":[\"用户的表述或学习习惯(可空)\"]}}\n\
+要求:每条一句话、具体到概念;没有的类别给空数组;blockId 用消息里标注的块号,没有标注就 null。\n\n=== 问答 ===\n{transcript}"
+    )
+}
+
 /// 费曼学生扮演 system prompt(TECH_DESIGN §6.2)。
 pub fn feynman_system(ty: BookType, ctx: &FixedContext) -> String {
     format!(
