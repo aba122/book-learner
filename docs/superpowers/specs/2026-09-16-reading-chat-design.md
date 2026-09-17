@@ -11,9 +11,9 @@
 | 决策点 | 结论 |
 |---|---|
 | 对话如何影响学习 | 只塑造"这本书的理解画像"(记忆条目);不直接生成薄弱点,不改计划 |
-| AI 看到的上下文 | 用户带入的文字 + 当前章节全文(截断)+ 本话题近 8 轮 + `_reading.md` 理解状态;书是上下文,回答靠 AI 自身知识 |
+| AI 看到的上下文 | 用户带入的文字 + 当前章节全文(截断)+ 本话题近 8 轮 + 这本书已提炼的理解状态条目;书是上下文,回答靠 AI 自身知识 |
 | 对话组织 | 一本书一条时间线,默认续聊(跨次打开阅读器也续,直到用户点「另起话题」);历史按话题回看,旧话题可续 |
-| 提炼时机 | 话题结束时一次(另起话题 / 离开阅读器 / 退出 app);未提炼的下次补 |
+| 提炼时机 | 一个话题攒到有新问答后提炼一次:「另起话题」时结束并提炼;离开阅读器时只提炼不结束;退出 app 不做事,下次启动补跑 |
 
 不做:语音、图片、多书串聊、导出原始对话、从对话直接生成薄弱点、影响每日计划。
 
@@ -29,7 +29,7 @@ ReaderPage ──「问书」面板(ReadingChatPanel)
    ├─ SQLite: reading_topic / reading_message
    ├─ ai.rs codex exec(问答 prompt / 提炼 prompt)
    └─ projection outbox: sync_reading(book) → memory::sync_reading → books/<slug>/_reading.md
-prompts::FixedContext.reading_notes ← memory::reading_notes_for(block)
+prompts::FixedContext.reading_notes ← fixed_context_for_block(conn) 从 reading_topic.distilled_json 派生
 ```
 
 ## 3. 数据与记忆
@@ -95,7 +95,7 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 1. 书名、类型、当前章节标题、所在块标题(有则给)。
 2. 当前章节全文(`spine_item.text`);超过 `READING_CHAPTER_MAX_CHARS`(6000)时,以用户带入文字在章节文本中的首次命中为中心截 `±3000` 字,命不中则取章首 6000 字,并注明"已截断"。
 3. 用户带入的文字(`quote`)。
-4. `_reading.md` 的「理解状态」节(整节,上限 40 条,取最新)。
+4. 这本书已提炼的「理解状态」条目(从各话题 `distilled_json` 派生,不读 md;最新 40 条)。
 5. 本话题最近 8 轮(user/assistant 各算一轮)。
 
 工作目录为记忆库根,提示语允许它自行阅读 `profile.md`。超时沿用 `AiConfig.timeout_secs`。
@@ -117,7 +117,7 @@ CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_m
 
 ### 4.3 反哺学习与评估
 
-`prompts::FixedContext` 新增 `reading_notes: String`,在 `fixed_context_for_block(conn, …)` 里直接从 SQLite 派生(不解析 md,投影可能滞后):读该书各话题 `distilled_json` 的 `focus`/`understanding` 中 `blockId` 等于当前块的条目,按话题时间倒序取最新 10 条,格式化为 `- [日期] 关注:…` / `- [日期] 误解|未澄清|已澄清:…`;无则空串。现有五处 `FixedContext` 测试构造器同步补该字段。注入点:费曼系统提示、评估 prompt、复习快问系统提示、附加环节系统提示;终评的画像摘要后追加「理解状态」节前 20 条。提示语固定:"以下是用户读这块时的提问与困惑;追问和出题优先覆盖这些点,标为已澄清的不要再纠缠。" 为空时整段省略。
+`prompts::FixedContext` 新增 `reading_notes: String`,在 `fixed_context_for_block(conn, …)` 里直接从 SQLite 派生(不解析 md,投影可能滞后):读该书各话题 `distilled_json` 的 `focus`/`understanding` 中 `blockId` 等于当前块的条目,按话题时间倒序取最新 10 条,格式化为 `- [日期] 关注:…` / `- [日期] 误解|未澄清|已澄清:…`;无则空串。现有五处 `FixedContext` 测试构造器同步补该字段。注入点:费曼系统提示、评估 prompt、复习快问系统提示、附加环节系统提示;终评的画像摘要后追加该书理解状态条目最新 20 条(同样从 DB 派生)。提示语固定:"以下是用户读这块时的提问与困惑;追问和出题优先覆盖这些点,标为已澄清的不要再纠缠。" 为空时整段省略。
 
 ## 5. 契约(六处同步,一次提交)
 
