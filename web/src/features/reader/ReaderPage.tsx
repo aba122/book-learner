@@ -484,12 +484,12 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             {panelOpen ? (
               <Card className={`m-3 flex flex-col gap-3 overflow-hidden p-5 ${sideTab === 'chat' ? (chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96') : 'w-72'}`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1" role="tablist" aria-label="侧栏">
+                  <div className="flex items-center gap-1 rounded-m bg-paper-1 p-0.5" role="tablist" aria-label="侧栏">
                     {learning && (
                       <button
                         role="tab"
                         aria-selected={sideTab === 'learn'}
-                        className={`cursor-pointer rounded-s px-2 py-0.5 text-xs ${sideTab === 'learn' ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
+                        className={`cursor-pointer rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'learn' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
                         onClick={() => setSideTab('learn')}
                       >
                         学习模式
@@ -498,10 +498,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     <button
                       role="tab"
                       aria-selected={sideTab === 'chat'}
-                      className={`cursor-pointer rounded-s px-2 py-0.5 text-xs ${sideTab === 'chat' ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
+                      className={`flex cursor-pointer items-center gap-1 rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'chat' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
                       onClick={() => setSideTab('chat')}
                     >
-                      问书
+                      <span aria-hidden>💬</span>问书
                     </button>
                   </div>
                   <div className="flex items-center gap-2">

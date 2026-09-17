@@ -120,7 +120,7 @@ select * from setting;
 | 路由 | 页面 | 读 | 写 |
 |---|---|---|---|
 | `/` | `features/today/TodayPage` | `listBooks` → `checkBehind`(先)→ `todayQueue` → 每书 `listBlocks`;`stats`;`pomodoroState` | `completeTask`(Tauri 下有意 unsupported)、`pomodoroStart` |
-| `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`;`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
+| `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
 | `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession` | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |

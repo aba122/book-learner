@@ -105,6 +105,17 @@ describe('单主攻书补完(M2 T8)', () => {
   })
 })
 
+  it('BL-016:mapped 书有「阅读」入口,点它用第一个知识块打开阅读器(不带任务)', async () => {
+    const user = userEvent.setup()
+    renderLibrary()
+    // 种子主攻书「微观经济学」(id=1,已 mapped)
+    const read = await screen.findByRole('button', { name: '阅读' })
+    await user.click(read)
+    const first = [...await backendModule.backend.listBlocks(1)].sort((a, z) => a.seq - z.seq)[0]
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/reader/${first.id}`))
+    expect(screen.getByTestId('loc').textContent).not.toContain('task=')
+  })
+
 describe('书架页', () => {
   it('渲染种子书与"主攻中"状态徽标', async () => {
     renderLibrary()

@@ -99,6 +99,13 @@ export default function LibraryPage() {
     }
   }
 
+  // 「阅读」:直接打开阅读器读这本书(不带任务),右栏默认「问书」;定位到该书第一个知识块
+  const readOp = useBackendOperation(async (book: Book) => {
+    const blocks = await backend.listBlocks(book.id)
+    const first = [...blocks].sort((a, z) => a.seq - z.seq)[0]
+    if (first) navigate(`/reader/${first.id}`)
+  })
+
   const confirmSwitch = () => {
     if (!switchTarget) return
     switchOp.clearError('switch')
@@ -177,6 +184,15 @@ export default function LibraryPage() {
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-4">
               <span>{STATUS_NOTE[book.status] ?? ''}</span>
               <span className="flex items-center gap-3">
+                {book.importState === 'mapped' && (
+                  <button
+                    className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline disabled:opacity-40"
+                    disabled={readOp.pending.size > 0}
+                    onClick={() => { readOp.clearError('read'); void readOp.run('read', book) }}
+                  >
+                    阅读
+                  </button>
+                )}
                 <button
                   className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline"
                   onClick={() => setExportTarget(book)}
