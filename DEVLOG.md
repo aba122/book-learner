@@ -622,3 +622,8 @@
 - **BL-013 夜读模式正文不变**:侧栏「夜读模式」= app `data-theme=dark`(外壳),阅读器正文用独立阅读主题(纸白/羊皮/夜读,存 readerPrefs)。改为联动:`effectiveTheme = appTheme==='dark' ? 'night' : readerPrefs.theme` 传给 EpubView;app 夜读时正文强制 night,日读回落阅读设置。Aa 主题选择在日读下仍生效。
 - 门禁:web 362/2(+2 reader.test)、tsc、oxlint 0、build。
 
+## 2026-09-17 · 问书界面(BL-014 加宽、BL-015 Markdown)
+- **BL-015**:第一批为省依赖用纯文本显示,LLM 回复的 `**加粗**`/列表露出原始记号。自写轻量 Markdown:`markdownParse.ts`(纯函数:块级标题/无序有序列表/引用/围栏代码/段落,行内粗斜码链接)+ `markdown.tsx`(渲染成 React 元素,靠 React 自动转义防 XSS,不用第三方库、不用 dangerouslySetInnerHTML)。AI 气泡走 Markdown,用户气泡保持纯文本。解析器与组件分文件(oxlint react/only-export-components)。
+- **BL-014**:问书 tab 时面板从 w-72 加宽到 w-96,顶部加「放大/收窄」在 w-96 ↔ w-[40rem](max-w-78vw)切换;消息字号 xs→sm、气泡加内边距,读着更舒服。
+- 门禁:web 368/2(+markdown 5、+readingChat 1)、tsc、oxlint 0、build。
+
