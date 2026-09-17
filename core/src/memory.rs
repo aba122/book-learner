@@ -23,14 +23,28 @@ pub struct ProfileSections {
 
 const INDEX_TEMPLATE: &str = "# INDEX — 记忆库总索引\n\n\
 每次 AI 调用请先读本文件。`profile.md` 是跨书学习者画像;每本书在 `books/<slug>/` 下:\
-`_map.md` 知识地图与状态、`_weakpoints.md` 薄弱点清单、`blocks/` 各知识块记忆。\n\n\
+`_map.md` 知识地图与状态、`_weakpoints.md` 薄弱点清单、`_reading.md` 阅读对话提炼(关注点/理解状态/表述习惯,费曼与评估前请读)、`blocks/` 各知识块记忆。\n\n\
 ## 书目\n\n| 书名 | 目录 |\n|---|---|\n";
+/// INDEX 里描述 `_reading.md` 的一句(老记忆库缺时在 ensure_book 幂等补)
+const INDEX_READING_HINT: &str = "`_reading.md`";
 
 const PROFILE_TEMPLATE: &str = "# 学习者画像\n\n\
 ## 知识背景\n\n(待补充)\n\n\
 ## 已掌握概念\n\n(按领域列出,随学习自动积累)\n\n\
 ## 误区模式\n\n(AI 观察积累,只增不删)\n\n\
 ## 个人情境\n\n(工作/研究/生活现状;方法论书情境化与教材迁移题都依赖本节)\n";
+
+/// `sync_reading` 的一条(章节/块标题由 projection 解析好);focus/习惯为文本,understanding 为 (kind 中文, note)
+#[derive(Debug, Clone, Default)]
+pub struct ReadingEntry {
+    pub date: String,
+    pub chapter_title: String,
+    pub block_id: Option<i64>,
+    pub block_title: String,
+    pub focus: Vec<String>,
+    pub understanding: Vec<(String, String)>,
+    pub habits: Vec<String>,
+}
 
 impl MemoryStore {
     pub fn init(root: &Path) -> Result<Self> {
@@ -161,10 +175,22 @@ impl MemoryStore {
             atomic_write(&wp, "# 薄弱点清单\n\n## 待考\n\n## 已修复\n")?;
         }
         let index_path = self.root.join("INDEX.md");
-        let idx = std::fs::read_to_string(&index_path)?;
+        let mut idx = std::fs::read_to_string(&index_path)?;
+        let mut changed = false;
+        // 老记忆库的 INDEX 说明里没有 _reading.md,补一句(幂等)
+        if !idx.contains(INDEX_READING_HINT) {
+            if let Some(pos) = idx.find("`blocks/`") {
+                idx.insert_str(pos, "`_reading.md` 阅读对话提炼、");
+                changed = true;
+            }
+        }
         let line = format!("| {title} | books/{slug}/ |\n");
         if !idx.contains(&line) {
-            atomic_write(&index_path, &(idx + &line))?;
+            idx.push_str(&line);
+            changed = true;
+        }
+        if changed {
+            atomic_write(&index_path, &idx)?;
         }
         Ok(())
     }
@@ -327,6 +353,59 @@ impl MemoryStore {
         let content = format!("# 知识地图 — {title}\n\n| 知识块 | 状态 |\n|---|---|\n{rows}\n");
         atomic_write(
             &self.root.join("books").join(book_slug).join("_map.md"),
+            &content,
+        )?;
+        Ok(())
+    }
+
+    /// 阅读对话提炼镜像(`_reading.md`,问书 spec 2026-09-16):整文件重生成,三节。
+    /// 章节/块标题已由 projection 解析好;entries 按话题新→旧。
+    pub fn sync_reading(
+        &self,
+        book_slug: &str,
+        book_title: &str,
+        entries: &[ReadingEntry],
+    ) -> Result<()> {
+        let book_slug = validate_slug(book_slug)?;
+        let mut focus = vec![];
+        let mut understanding = vec![];
+        let mut habits: Vec<String> = vec![];
+        for e in entries {
+            let block = e.block_id.map(|b| format!("(块 #{b})")).unwrap_or_default();
+            for f in &e.focus {
+                focus.push(format!(
+                    "- [{}] {} · {}{}:{}",
+                    e.date, e.chapter_title, e.block_title, block, f
+                ));
+            }
+            for (kind, note) in &e.understanding {
+                let b = e
+                    .block_id
+                    .map(|x| format!("块 #{x} · "))
+                    .unwrap_or_default();
+                understanding.push(format!("- [{}] {b}{kind}:{note}", e.date));
+            }
+            for h in &e.habits {
+                if !habits.contains(h) {
+                    habits.push(h.clone());
+                }
+            }
+        }
+        let join = |v: &[String]| {
+            if v.is_empty() {
+                String::new()
+            } else {
+                v.join("\n")
+            }
+        };
+        let content = format!(
+            "# 《{book_title}》阅读对话记忆\n\n## 关注点\n\n{}\n\n## 理解状态\n\n{}\n\n## 表述与习惯\n\n{}\n",
+            join(&focus),
+            join(&understanding),
+            join(&habits.iter().map(|h| format!("- {h}")).collect::<Vec<_>>()),
+        );
+        atomic_write(
+            &self.root.join("books").join(book_slug).join("_reading.md"),
             &content,
         )?;
         Ok(())
@@ -622,6 +701,67 @@ mod tests {
         }
         let _ = m;
     }
+    #[test]
+    fn sync_reading_writes_three_sections_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        m.ensure_book("micro", "微观经济学").unwrap();
+        let entries = vec![super::ReadingEntry {
+            date: "2026-09-16".into(),
+            chapter_title: "第三章".into(),
+            block_id: Some(5),
+            block_title: "需求弹性".into(),
+            focus: vec!["问弹性和斜率的区别".into()],
+            understanding: vec![
+                ("误解".into(), "把斜率当弹性".into()),
+                ("已澄清".into(), "弹性是百分比之比".into()),
+            ],
+            habits: vec!["先要结论".into(), "先要结论".into()],
+        }];
+        m.sync_reading("micro", "微观经济学", &entries).unwrap();
+        let path = dir.path().join("books/micro/_reading.md");
+        let a = std::fs::read_to_string(&path).unwrap();
+        assert!(a.contains("## 关注点"));
+        assert!(a.contains("- [2026-09-16] 第三章 · 需求弹性(块 #5):问弹性和斜率的区别"));
+        assert!(a.contains("- [2026-09-16] 块 #5 · 误解:把斜率当弹性"));
+        assert!(a.contains("## 表述与习惯\n\n- 先要结论\n"), "习惯去重");
+        m.sync_reading("micro", "微观经济学", &entries).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            a,
+            "整文件重生成幂等"
+        );
+        // INDEX 说明含 _reading.md
+        assert!(std::fs::read_to_string(dir.path().join("INDEX.md"))
+            .unwrap()
+            .contains("_reading.md"));
+    }
+
+    #[test]
+    fn ensure_book_backfills_reading_hint_into_legacy_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        // 模拟老 INDEX(没有 _reading.md 说明)
+        let idx = dir.path().join("INDEX.md");
+        std::fs::write(
+            &idx,
+            "# INDEX\n`blocks/` 各知识块记忆。\n\n## 书目\n\n| 书名 | 目录 |\n|---|---|\n",
+        )
+        .unwrap();
+        m.ensure_book("micro", "微观").unwrap();
+        let after = std::fs::read_to_string(&idx).unwrap();
+        assert!(after.contains("_reading.md"));
+        m.ensure_book("micro", "微观").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&idx)
+                .unwrap()
+                .matches("_reading.md")
+                .count(),
+            1,
+            "只补一次"
+        );
+    }
+
     #[test]
     fn ensure_book_creates_book_dir_and_updates_index() {
         let dir = tempfile::tempdir().unwrap();

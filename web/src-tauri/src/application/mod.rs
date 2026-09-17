@@ -187,18 +187,36 @@ fn session_context(
     session_id: i64,
 ) -> Result<(FixedContext, BookType), IpcError> {
     // 先取书类型,再按类型取画像摘要(教材/方法论追加"个人情境",M2 T6)
-    let (block_id, book_type, final_exam) = state.with_connection(|connection| {
+    let (block_id, book_id, book_type, final_exam) = state.with_connection(|connection| {
         let view = book_learner_core::session::get_session(connection, session_id)?;
         let book_id = book_learner_core::models::get_block(connection, view.block_id)?.book_id;
         let (_, book_type) = book_learner_core::models::get_book_slug_type(connection, book_id)?;
-        Ok((view.block_id, book_type, view.kind == "final_exam"))
+        Ok((view.block_id, book_id, book_type, view.kind == "final_exam"))
     })?;
     let profile_summary = state
         .memory()
         .profile_summary_for(book_type)
         .map_err(IpcError::from)?;
     if final_exam {
-        // 整书终评(M3 T1):上下文由会话自查全书地图,这里不算占位块的原文
+        // 整书终评(M3 T1):上下文由会话自查全书地图,这里不算占位块的原文;
+        // 画像摘要后追加该书的阅读理解状态(问书提炼,spec §4.3)
+        let understanding = state
+            .with_connection(|c| {
+                book_learner_core::reading_chat::understanding_lines(
+                    c,
+                    book_id,
+                    book_learner_core::reading_chat::READING_FINAL_STATE_MAX,
+                )
+            })
+            .unwrap_or_default();
+        let profile_summary = if understanding.is_empty() {
+            profile_summary
+        } else {
+            format!(
+                "{profile_summary}\n\n=== 读这本书时的理解状态 ===\n{}",
+                understanding.join("\n")
+            )
+        };
         return Ok((
             FixedContext {
                 profile_summary,
@@ -207,6 +225,7 @@ fn session_context(
                 eval_history: String::new(),
                 related_weakpoints: String::new(),
                 prereq_status: String::new(),
+                reading_notes: String::new(),
             },
             book_type,
         ));

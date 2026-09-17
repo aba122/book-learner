@@ -9,6 +9,8 @@ pub struct FixedContext {
     pub eval_history: String,
     pub related_weakpoints: String,
     pub prereq_status: String,
+    /// 用户读这块时的提问与困惑(问书提炼,spec 2026-09-16;空则不注入)
+    pub reading_notes: String,
 }
 
 fn type_emphasis(ty: BookType) -> &'static str {
@@ -20,11 +22,19 @@ fn type_emphasis(ty: BookType) -> &'static str {
 }
 
 fn context_block(ctx: &FixedContext) -> String {
+    let reading = if ctx.reading_notes.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n=== 用户读这块时的提问与困惑(追问和出题优先覆盖这些点,标为已澄清的不要再纠缠)===\n{}",
+            ctx.reading_notes
+        )
+    };
     format!(
-"=== 学习者画像摘要 ===\n{}\n\n=== 当前知识块:{} ===\n原文:\n{}\n\n历史评估:\n{}\n\n相关薄弱点(优先追问):\n{}\n\n前置块掌握情况:\n{}\n\n\
+"=== 学习者画像摘要 ===\n{}\n\n=== 当前知识块:{} ===\n原文:\n{}\n\n历史评估:\n{}\n\n相关薄弱点(优先追问):\n{}\n\n前置块掌握情况:\n{}{}\n\n\
 提示:你的工作目录即记忆库,可自主阅读 INDEX.md 与相关文件补充上下文。",
         ctx.profile_summary, ctx.block_title, ctx.block_source_text,
-        ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status)
+        ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status, reading)
 }
 
 /// 问书(阅读辅助对话,spec 2026-09-16)的固定注入
@@ -302,6 +312,7 @@ mod tests {
             eval_history: "- 2026-08-29 第1次:重学建议".into(),
             related_weakpoints: "- 弹性vs斜率".into(),
             prereq_status: "- 供给与需求基础:passed".into(),
+            reading_notes: String::new(),
         }
     }
 

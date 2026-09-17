@@ -308,6 +308,14 @@ pub fn fixed_context_for_block(
             prereq.push(format!("- {}:{}", p.title, p.status));
         }
     }
+    let reading_notes = crate::reading_chat::reading_notes_for_block(
+        conn,
+        block.book_id,
+        block_id,
+        crate::reading_chat::READING_NOTES_PER_BLOCK,
+    )
+    .unwrap_or_default()
+    .join("\n");
     Ok(FixedContext {
         profile_summary: profile_summary.to_string(),
         block_title: block.title,
@@ -315,6 +323,7 @@ pub fn fixed_context_for_block(
         eval_history: history.join("\n"),
         related_weakpoints: weak.join("\n"),
         prereq_status: prereq.join("\n"),
+        reading_notes,
     })
 }
 
@@ -639,6 +648,7 @@ mod tests {
             eval_history: String::new(),
             related_weakpoints: String::new(),
             prereq_status: String::new(),
+            reading_notes: String::new(),
         }
     }
     /// 建书 + 2 块 + 计划 + 今日队列;返回 (task_id of block1, block1, block2)

@@ -184,6 +184,53 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
                 .collect();
             memory.sync_map(&slug, &title, &rows)
         }
+        "sync_reading" => {
+            let book_id = field_i64(&p, "book_id")?;
+            let (slug, title) = book_slug_title(conn, book_id)?;
+            memory.ensure_book(&slug, &title)?;
+            // 章节 href → 标题、块 id → 标题(解析好再传给 memory,风格同 sync_map)
+            let chapters = crate::mapgen::list_spine(conn, book_id)?;
+            let chapter_title = |href: &str| -> String {
+                chapters
+                    .iter()
+                    .find(|c| c.href == href)
+                    .map(|c| c.title.clone())
+                    .unwrap_or_else(|| href.to_string())
+            };
+            let mut entries = vec![];
+            for (date, d) in crate::reading_chat::distilled_topics(conn, book_id)? {
+                // 该话题第一条 focus 的 href/block 作为归组标题(没有 focus 则用理解状态的块)
+                let (href, block_id) = d
+                    .focus
+                    .first()
+                    .map(|f| (f.href.clone(), f.block_id))
+                    .or_else(|| d.understanding.first().map(|u| (String::new(), u.block_id)))
+                    .unwrap_or_default();
+                let block_title = block_id
+                    .and_then(|b| crate::models::get_block(conn, b).ok())
+                    .map(|k| k.title)
+                    .unwrap_or_default();
+                entries.push(crate::memory::ReadingEntry {
+                    date,
+                    chapter_title: chapter_title(&href),
+                    block_id,
+                    block_title,
+                    focus: d.focus.iter().map(|f| f.note.clone()).collect(),
+                    understanding: d
+                        .understanding
+                        .iter()
+                        .map(|u| {
+                            (
+                                crate::reading_chat::kind_label(&u.kind).to_string(),
+                                u.note.clone(),
+                            )
+                        })
+                        .collect(),
+                    habits: d.habits.clone(),
+                });
+            }
+            memory.sync_reading(&slug, &title, &entries)
+        }
         "extra_archive" => {
             let artifact_id = field_i64(&p, "artifact_id")?;
             let entry_key = field_str(&p, "entry_key")?;
@@ -494,6 +541,7 @@ mod tests {
             eval_history: String::new(),
             related_weakpoints: String::new(),
             prereq_status: String::new(),
+            reading_notes: String::new(),
         }
     }
     /// 建书 → spine → 草图落库(入队 init_book)→ 计划 → 会话 → 评估 → 确认(pass);返回 (book, block1, session)
