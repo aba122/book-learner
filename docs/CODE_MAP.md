@@ -173,7 +173,7 @@ select * from setting;
 | `ai.rs` | `CodexCliProvider`:`codex exec --skip-git-repo-check -C <memory/> --sandbox read-only|workspace-write --output-last-message <tmp> <prompt>`;prompt ≤ 100 KiB(argv)、输出 ≤ 1 MiB、进程组超时杀 | — |
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
-| `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system,`reading:<topic>:<clientMsgId>`)、`end_topic`、`chapter_window`;提炼与 `reading_notes`(第二批) | reading_topic, reading_message |
+| `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
 | `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt` | — |
 
@@ -185,7 +185,7 @@ select * from setting;
 
 **超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、`--version` 10。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
 
-**投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
+**投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`sync_reading`(`_reading.md`,问书提炼,op_id 带消息水位 `reading:<book>:t<topic>:m<id>`)、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
 
 **测试**:`cargo test --manifest-path core/Cargo.toml --all-targets`(单测 167 + 集成 29:`tests/foundation.rs`、`lifecycle.rs`、`m1_engine.rs`);`#[ignore]` 的 `codex_real_smoke` 需本机 codex。
 
