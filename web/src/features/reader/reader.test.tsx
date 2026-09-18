@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -286,6 +286,23 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     // 切回日读:正文回到默认纸白
     await act(async () => { useSession.getState().setTheme('light') })
     await waitFor(() => expect(h.rendition.themes.select).toHaveBeenLastCalledWith('paper'))
+  })
+
+  it('BL-018:有上次阅读位置时,连从学习任务(开始)进入也回到该位置;回读原文(back)仍到本块', async () => {
+    const b = backendModule.backend
+    // 先存一个较深的位置
+    await b.readerPositionSet(1, 'chap2.xhtml', 'epubcfi(/6/16!/4/2[chapter]/48/1:192)')
+    // 学习任务进入:display 应用上次位置,而不是块首
+    renderReader('/reader/4?task=3')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith('epubcfi(/6/16!/4/2[chapter]/48/1:192)'))
+    cleanup()
+    // 回读原文(?back):强制到本块原文(不吃上次位置)
+    h.rendition.display.mockClear()
+    renderReader('/reader/4?back=3')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalled())
+    expect(h.rendition.display.mock.calls.every(c => c[0] !== 'epubcfi(/6/16!/4/2[chapter]/48/1:192)')).toBe(true)
   })
 
   it('BL-018:翻页后立即返回也不丢位置——卸载时把待写位置补写', async () => {

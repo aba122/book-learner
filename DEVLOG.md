@@ -637,3 +637,9 @@
 - **BL-018**:阅读位置 800ms 防抖,卸载 cleanup 只 clearTimeout 不补写,翻页后立刻返回会丢最后位置 → 下次回第一页。加 pendingPos ref,卸载/切书时立即 `readerPositionSet` 补写。
 - 门禁:web 372/2(+3)、tsc、oxlint 0、build。
 
+## 2026-09-18 · BL-018 二修 + 阅读入口门禁
+- 首修只补了保存(flush),但真实数据显示位置本就存对了(book1 存在 part0006 的位置)。真正的问题在恢复:从今日任务进阅读器是 learning 模式,`initialHref` 取块首段 `segments[0]`,忽略已存位置 → 落到块首("第一页")。
+- 改 `initialHref` 语义:回读原文(`?back`)强制到本块原文(保留 BL-001);其余优先回到已存阅读位置,无位置时——任务给块首、自由阅读给书首。**取舍**:开一个尚未读到的新块任务会落到上次阅读处而非该块首;回读原文按钮仍精确跳到该块,study 场景够用,换来"随时接着读"。
+- 顺修 BL-016:「阅读」入口原来只对 `importState==='mapped'` 显示,而真实书多为 `ready`,导致自由阅读入口一直不出现;改为 ready/mapped 都显示。
+- 门禁:web 373/2、tsc、oxlint 0、build。
+
