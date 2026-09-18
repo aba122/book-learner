@@ -174,6 +174,9 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const initialMarks = content.data?.readerMarksInit ?? []
   const currentMarks = marks ?? initialMarks
   const position = initialMarks.find(m => m.kind === 'position') ?? null
+  // 起始定位(BL-018):回读原文(?back)强制到本块原文;否则优先回到上次阅读位置;都没有再按模式给块首/书首
+  const blockStart = content.data?.segments[0]?.cfiStart ?? source?.href
+  const initialHref = backTaskId ? blockStart : (position?.cfiStart ?? (learning ? blockStart : source?.href))
   const highlights = currentMarks.filter(m => m.kind === 'highlight' && m.cfiEnd).map(m => ({ cfiRange: m.cfiEnd as string, color: m.color }))
   const bookId = block?.bookId ?? null
 
@@ -282,7 +285,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
               fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
               theme={effectiveTheme}
               typography={typography}
-              initialHref={learning ? (content.data?.segments[0]?.cfiStart ?? source?.href) : (position?.cfiStart ?? source?.href)}
+              initialHref={initialHref}
               highlights={highlights}
               blockSegments={learning ? content.data?.segments : undefined}
               onToc={setToc}

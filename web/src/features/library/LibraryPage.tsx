@@ -184,7 +184,7 @@ export default function LibraryPage() {
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-4">
               <span>{STATUS_NOTE[book.status] ?? ''}</span>
               <span className="flex items-center gap-3">
-                {book.importState === 'mapped' && (
+                {(book.importState === 'mapped' || book.importState === 'ready') && (
                   <button
                     className="cursor-pointer text-ink-4 underline-offset-2 hover:text-ink-2 hover:underline disabled:opacity-40"
                     disabled={readOp.pending.size > 0}
