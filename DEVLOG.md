@@ -643,3 +643,6 @@
 - 顺修 BL-016:「阅读」入口原来只对 `importState==='mapped'` 显示,而真实书多为 `ready`,导致自由阅读入口一直不出现;改为 ready/mapped 都显示。
 - 门禁:web 373/2、tsc、oxlint 0、build。
 
+## 2026-09-18 · BL-020 输入框内方向键误翻页
+- ReaderPage 的 window keydown 监听把 ArrowLeft/Right 直接翻页,焦点在问书输入框时也触发。onKey 开头判断 e.target 为 INPUT/TEXTAREA/SELECT/contenteditable 则 return。门禁:web 374/2、tsc、oxlint 0、build。
+

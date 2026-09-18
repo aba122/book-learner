@@ -244,6 +244,19 @@ describe('问书面板(spec 2026-09-16)', () => {
     expect(listSpy.mock.calls.length).toBe(callsBefore) // 未重新挂载,不再拉消息
   })
 
+  it('BL-020:在问书输入框内按左右方向键只移动光标,不翻页', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    h.rendition.next.mockClear(); h.rendition.prev.mockClear()
+    const box = screen.getByLabelText('问书输入')
+    box.focus()
+    await user.type(box, '需求')
+    await user.keyboard('{ArrowLeft}{ArrowRight}')
+    expect(h.rendition.next).not.toHaveBeenCalled()
+    expect(h.rendition.prev).not.toHaveBeenCalled()
+  })
+
   it('取消 = 停止等待:输入恢复、该条显示等待中;轮询到后端结果后补上回复', async () => {
     const user = userEvent.setup()
     const real = backendModule.backend
