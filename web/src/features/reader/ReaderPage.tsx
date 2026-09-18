@@ -140,6 +140,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // BL-020:焦点在输入框/文本域/可编辑处时,方向键用于移动光标,不翻页
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
       if (e.key === 'ArrowRight') epubRef.current?.next()
       if (e.key === 'ArrowLeft') epubRef.current?.prev()
     }
