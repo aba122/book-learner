@@ -99,7 +99,7 @@ function Sidebar() {
 }
 
 /** 已自带 Toolbar 带的页面(第二批:今日/书架/阅读器;第三批全部换完后删掉这段过渡) */
-const OWN_TOOLBAR = (path: string) => path === '/' || path === '/library' || path.startsWith('/reader/')
+const OWN_TOOLBAR = (path: string) => path === '/' || path === '/library' || path === '/settings' || path.startsWith('/reader/')
 
 /** 过渡:主区顶部 52px 拖动带;侧栏折叠时在这里给「显示侧栏」(左留 72px 让开红绿灯)。页面自带 Toolbar 时不渲染。 */
 function MainTitleBand() {
