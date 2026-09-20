@@ -44,6 +44,9 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 番茄钟卡片不见了 / 暂停结束在哪 | 已从右下浮动卡搬进今日页工具栏带的胶囊(`data-testid="pomodoro"`);控制失败在胶囊尾部警示钮 → 浮层 | `web/src/features/today/Pomodoro.tsx` |
 | 阅读器顶部按钮/目录/阅读设置在哪 | 工具栏带图标钮(悬停有提示);目录与阅读设置是锚定浮层(Esc 关、焦点回钮);右栏 tab 是分段控件 | `web/src/features/reader/ReaderPage.tsx`(`Toolbar`/`Popover`/`Segmented`) |
 | 阅读器 ←/→ 不翻页 | 焦点在输入框/浮层(`[role=dialog]`)/菜单里,或有模态开着(`data-modal-open`);脉络图画布抢方向键选节点 | `ReaderPage.tsx` `onKey` |
+| 设置页找不到某项 / 左列不跟着滚 | 六个分区全部在页里(通用 / AI 与导出 / 语音 / 画像 / 数据 / 诊断),左列只在内容区 ≥ 768px 时显示;滚动跟随靠 IntersectionObserver | `web/src/features/settings/SettingsPage.tsx`(`SectionNav`) |
+| 地图编辑态看不到 上移/跳过/删除 | 行内图标钮悬停或 Tab 聚焦到该行时显现(始终在 DOM);删除只对未学且未进今日计划的块可用 | `web/src/features/map/MapPage.tsx` |
+| 费曼页原文参考栏不见了 | 工具栏最左「原文参考」钮(aria-pressed)开关,状态存 `bookLearner.feynmanSource` | `web/src/features/feynman/FeynmanPage.tsx` |
 | 外观不跟随系统 / 想手动改 | `store.ts` `themePreference`(存储键仅在手动覆盖时存在);设置页「外观」三态 | `web/src/store.ts`;`SettingsPage` `AppearanceRow` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
@@ -161,11 +164,11 @@ select * from setting;
 
 **测试**:vitest 22 文件 / 322 用例(`pnpm -C web test -- --run`);Playwright `web/e2e/{anchors,cfi}-smoke.spec.ts`(需 `PLAYWRIGHT_BROWSERS_PATH`);`pnpm -C web build` 是唯一有效的类型门禁;oxlint 配置 `web/.oxlintrc.json`。
 
-### 4.1 共享组件与令牌(视觉改版第一、二批,2026-09-20)
+### 4.1 共享组件与令牌(视觉改版三批,2026-09-20)
 
 | 文件 | 作用 |
 |---|---|
-| `theme/tokens.css` | 语义令牌两层:`surface-*` / `label-1..4`(四级只准装饰,可点元素最低三级,`theme/tokensPolicy.test.ts` 棘轮)/ `separator` / `fill-*` / `accent`(跟随系统 AccentColor)/ `signal-*`(三任务色只标数据)/ `hl-*`(阅读高亮);旧名 `--ink-*`/`--paper-*`/`--line`/`--c-*` 为别名,第三批末删;字阶 `text-large-title…text-footnote`;`prefers-reduced-motion/contrast/reduced-transparency` 回退 |
+| `theme/tokens.css` | 语义令牌两层:`surface-*` / `label-1..4`(四级只准装饰,可点元素最低三级,`theme/tokensPolicy.test.ts` 棘轮 = 0)/ `separator` / `fill-*` / `accent`(固定 #3b5aa6 / #9db3ea,WKWebView 的 `AccentColor` 关键字只对 color 生效)/ `signal-*`(三任务色只标数据)/ `hl-*`(阅读高亮);**旧名 `--ink-*`/`--paper-*`/`--line`/`--c-*`/`--shadow-*` 已删(第三批)**;字阶 `text-large-title…text-footnote`;`prefers-reduced-motion/contrast/reduced-transparency` 回退 |
 | `components/icons/` | `paths.ts` 52 个自绘 SF 风格图标 + `Icon`(无 label 即装饰) |
 | `components/Dialog` + `lib/useFocusTrap` + `lib/modalStack` | 模态原语:焦点陷阱/Esc/还原;打开时 `<html data-modal-open>`(阅读器翻页监听让路);`Confirm` 是它的薄壳 |
 | `components/Field/Input/Textarea/Select/Checkbox/Toggle` + `lib/formClasses` | 表单原语;焦点 3px 强调环;`Field` 用 `useId`,error 带 `role=alert` |
@@ -174,10 +177,11 @@ select * from setting;
 | `components/Menu` / `Popover` / `ProgressBar` | 受控菜单(按钮锚定或右键坐标,`menuitem` 28px 行,键盘完整);非模态锚定浮层(`role=dialog aria-modal=false`,Esc/外点关闭、焦点回锚);进度条(定/不定,`size sm|md`) |
 | `components/ToastHost` + `lib/toastStore` | 轻提示:`toast({message})`;每条自带 `role=status`,无条目时不渲染 DOM(别放常驻 status 容器,会撞页面测试);只在书架页挂载 |
 | `components/Markdown` + `lib/markdownParse` | 从 `features/reader/` 下沉;问书气泡在用,第三批费曼/终评复用;标题仍渲成 `<p>`(页面靠“只有一个 heading”断言) |
+| `features/settings/SettingsSection` + `settingsSections.ts` | 设置页分区壳(衬线标题 + 说明 + `Card p-0 divide-y` 分组列表)与分区清单(左列导航 / `scrollIntoView` / IntersectionObserver 跟随共用) |
 | `components/Dialog` 的 `label` / `closeButton` | `label` 固定可访问名(向导标题随阶段变);`closeButton={false}` 关掉头部 ×(页脚已有取消/关闭时,否则「关闭」重名) |
 | `components/EmptyState/Skeleton/Spinner` | 空态/骨架/转圈(`data-motion-essential`) |
 | `store.ts` | `themePreference`(system/light/dark,跟随系统)、`sidebarCollapsed`;`theme` 仍是解析值 |
-| `App.tsx` | 侧栏 52px 拖动带 + 图标导航 + `aria-current`;`MenuActions` 订阅 `backend.subscribeMenu`(Tauri 事件 `menu_action`:`open-settings`/`toggle-sidebar`;mock 用 ⌘, / ⌃⌘S);过渡带 `MainTitleBand` 只在还没自带 `Toolbar` 的页(`OWN_TOOLBAR`)渲染 |
+| `App.tsx` | 侧栏 52px 拖动带 + 图标导航 + `aria-current`;`MenuActions` 订阅 `backend.subscribeMenu`(Tauri 事件 `menu_action`:`open-settings`/`toggle-sidebar`;mock 用 ⌘, / ⌃⌘S);`<main overflow-hidden>`,八个页面各自渲染 `Toolbar` 带与滚动区 |
 | `web/src-tauri/tauri.conf.json` / `capabilities/default.json` / `lib.rs::install_app_menu` | 透明标题栏 + `windowEffects: sidebar` + `macOSPrivateApi`;拖动权限 `core:window:allow-start-dragging`;原生菜单栏(攻书/编辑/显示/窗口/帮助) |
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)
