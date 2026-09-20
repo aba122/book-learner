@@ -3057,8 +3057,18 @@ fn lineage_roundtrip_through_commands() {
     let directory = tempfile::tempdir().unwrap();
     let (state, _mock) = state_with_mock(&directory.path().join("lineage.db"));
     let (first, _second, _block) = seed_books(&state);
-    seed_map(&state, first); // 落一章 spine(ch0.xhtml, idx0)→ 无位置时 progress_seq=0 有已读章
-                             // 无图时 get 返回 None
+    // first 已有块(seed_books),不能再走 seed_map(会 apply_draft_map 冲突);直接落一章 spine
+    // (ch0.xhtml, idx0)→ 无位置时 progress_seq=0,有已读章可生成
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章','正文')",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    // 无图时 get 返回 None
     assert!(commands::lineage_get_inner(&state, first)
         .unwrap()
         .is_none());
