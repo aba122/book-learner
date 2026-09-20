@@ -2,9 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
-import Card from '../../components/Card'
+import Button from '../../components/Button'
+import EmptyState from '../../components/EmptyState'
+import Icon from '../../components/icons/Icon'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
+import Skeleton from '../../components/Skeleton'
+import Toolbar, { ToolbarSpacer } from '../../components/Toolbar'
 import { REPLAN_DISMISSED_KEY } from '../../config'
 import { localCalendarDate } from '../../lib/localDate'
 import { readPref } from '../../lib/prefs'
@@ -24,6 +28,10 @@ interface QueueBundle {
   replan: Replan | null
 }
 
+/**
+ * 今日学习(视觉改版第二批):工具栏带右侧放番茄钟胶囊;页头右侧是统计簇(数据,不是动作);
+ * 一次性提示与自动均摊提示合在同一个 role=status 里;空态给「去书架」。
+ */
 export default function TodayPage() {
   const navigate = useNavigate()
   const setCurrentTaskId = useSession(s => s.setCurrentTaskId)
@@ -108,130 +116,155 @@ export default function TodayPage() {
   const doneCount = tasks?.filter(t => t.status === 'done').length ?? 0
   const allDone = tasks !== null && tasks.length > 0 && doneCount === tasks.length
 
+  // 一次只存在一个 role=status(跨页提示 + 自动均摊提示合并成一条)
+  const notices = [
+    notice,
+    replan?.status === 'auto_adjusted'
+      ? `进度落后,已按剩余天数均摊:今日起每日 ${replan.newDaily} 个新块(截止 ${replan.deadline} 不变)。`
+      : null,
+  ].filter((n): n is string => typeof n === 'string' && n.length > 0)
+
+  const pomodoroSnapshot = pomodoro ?? pomodoroState.data
+  const pomodoroTask = pomodoroSnapshot?.taskId == null ? undefined : tasks?.find(t => t.id === pomodoroSnapshot.taskId)
+  const pomodoroTitle = pomodoroTask ? (blocks.get(pomodoroTask.blockId)?.title ?? `任务 #${pomodoroTask.id}`) : '专注'
+
   return (
-    <div className="mx-auto max-w-4xl px-10 py-12">
-      <PageHeader
-        title="今日学习"
-        subtitle={`${today} · 薄弱重考 → 间隔复习 → 新块攻克`}
-        actions={
-          stats.data && (
-            <div className="flex items-center gap-5">
-              <div className="text-right text-xs leading-relaxed text-ink-3">
-                <div>
-                  连续 <span className="font-semibold text-ink-1">{stats.data.streakDays}</span> 天
-                </div>
-                <div>
-                  今日 <span className="font-semibold text-ink-1">{stats.data.minutesToday}</span> 分钟
-                </div>
-              </div>
-              <ProgressRing
-                value={stats.data.totalBlocks ? stats.data.passedBlocks / stats.data.totalBlocks : 0}
-                label={`${stats.data.passedBlocks}/${stats.data.totalBlocks}`}
-                color="var(--c-ok)"
-              />
-            </div>
-          )
-        }
-      />
-
-      {notice && (
-        <Card role="status" className="mb-6 border-review/40 bg-review-soft/40 p-4 text-sm text-ink-2">
-          {notice}
-        </Card>
-      )}
-
-      {replan?.status === 'auto_adjusted' && (
-        <Card role="status" className="mb-6 border-review/40 bg-review-soft/40 p-4 text-sm text-ink-2">
-          进度落后,已按剩余天数均摊:今日起每日 {replan.newDaily} 个新块(截止 {replan.deadline} 不变)。
-        </Card>
-      )}
-
-      {stats.error && (
-        <div className="mb-6">
-          <AsyncError error={stats.error} onRetry={stats.reload} variant="compact" />
-        </div>
-      )}
-      {pomodoroState.error && pomodoro === null && (
-        <div className="mb-6">
-          <AsyncError error={pomodoroState.error} onRetry={pomodoroState.reload} variant="compact" />
-        </div>
-      )}
-
-      {queue.error && tasks !== null && (
-        <div className="mb-6">
-          <AsyncError error={queue.error} onRetry={reloadQueue} variant="compact" />
-        </div>
-      )}
-
-      {allDone && (
-        <Card className="mb-6 border-ok/40 bg-paper-2 p-5 text-sm text-ok">
-          今日队列全部完成——把余下的时间还给生活,明天继续。
-        </Card>
-      )}
-
-      {queue.error && tasks === null ? (
-        <AsyncError error={queue.error} onRetry={reloadQueue} />
-      ) : tasks === null ? (
-        <p className="text-sm text-ink-3">正在取回今日队列…</p>
-      ) : tasks.length === 0 ? (
-        <Card className="p-10 text-center">
-          <p className="font-serif text-xl text-ink-1">今天没有排定的任务</p>
-          <p className="mt-2 text-sm leading-relaxed text-ink-3">
-            学习是长跑,休整也是节奏的一部分。去书架挑一本书设定目标,明天的队列会在这里等你。
-          </p>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {tasks.map(task => {
-            const failure = completion.errors.get(task.id)
-            const completionUnavailable = failure?.retryable === false
-            return (
-              <div key={task.id} data-testid={`task-row-${task.id}`} className="flex flex-col gap-2">
-                <TaskCard
-                  task={task}
-                  block={blocks.get(task.blockId)}
-                  onStart={start}
-                  onComplete={complete}
-                  onFocus={task => { focusOp.clearError('focus'); void focusOp.run('focus', task) }}
-                  onRead={read}
-                  completing={completion.pending.has(task.id) && !completionUnavailable}
-                  completionUnavailable={completionUnavailable}
-                />
-                {failure && (
-                  <AsyncError
-                    error={failure}
-                    onRetry={() => complete(task)}
-                    variant="compact"
+    <div className="flex h-full min-h-0 flex-col">
+      <Toolbar aria-label="今日工具栏">
+        <ToolbarSpacer />
+        {pomodoroSnapshot && pomodoroSnapshot.phase !== 'idle' && (
+          <Pomodoro snapshot={pomodoroSnapshot} taskTitle={pomodoroTitle} onSnapshot={setPomodoro} />
+        )}
+      </Toolbar>
+      <div className="min-h-0 flex-1 overflow-y-auto @container">
+        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16">
+          <PageHeader
+            title="今日学习"
+            subtitle={`${today} · 薄弱重考 → 间隔复习 → 新块攻克`}
+            actions={
+              stats.data && (
+                <div className="flex items-center gap-4">
+                  <div className="text-right text-footnote leading-relaxed text-label-3">
+                    <div>
+                      连续 <span className="font-semibold text-label-1 tabular-nums">{stats.data.streakDays}</span> 天
+                    </div>
+                    <div>
+                      今日 <span className="font-semibold text-label-1 tabular-nums">{stats.data.minutesToday}</span> 分钟
+                    </div>
+                  </div>
+                  <ProgressRing
+                    size={56}
+                    stroke={4}
+                    value={stats.data.totalBlocks ? stats.data.passedBlocks / stats.data.totalBlocks : 0}
+                    label={`${stats.data.passedBlocks}/${stats.data.totalBlocks}`}
+                    color="var(--signal-ok)"
                   />
-                )}
+                </div>
+              )
+            }
+          />
+
+          {notices.length > 0 && (
+            <div role="status" className="mb-6 flex items-start gap-2.5 rounded-m border border-review/40 bg-review-soft/50 px-4 py-3 text-callout leading-relaxed text-label-1">
+              <Icon name="info-circle" size={16} className="mt-px shrink-0 text-review" />
+              <div className="min-w-0">
+                {notices.map((n, i) => <p key={i}>{n}</p>)}
               </div>
-            )
-          })}
-        </div>
-      )}
+            </div>
+          )}
 
-      {activeBook && replan?.status === 'needs_decision' && !replanDismissed && (
-        <ReplanDialog
-          book={activeBook}
-          replan={replan}
-          today={today}
-          onResolved={reloadQueue}
-          onDismiss={() => setReplanDismissed(true)}
-        />
-      )}
+          {stats.error && (
+            <div className="mb-6">
+              <AsyncError error={stats.error} onRetry={stats.reload} variant="compact" />
+            </div>
+          )}
+          {pomodoroState.error && pomodoro === null && (
+            <div className="mb-6">
+              <AsyncError error={pomodoroState.error} onRetry={pomodoroState.reload} variant="compact" />
+            </div>
+          )}
+          {focusOp.errors.get('focus') && (
+            <div className="mb-6">
+              <AsyncError error={focusOp.errors.get('focus')!} onRetry={() => void focusOp.retry('focus')} variant="compact" />
+            </div>
+          )}
 
-      {focusOp.errors.get('focus') && (
-        <div className="mt-6">
-          <AsyncError error={focusOp.errors.get('focus')!} onRetry={() => void focusOp.retry('focus')} variant="compact" />
+          {queue.error && tasks !== null && (
+            <div className="mb-6">
+              <AsyncError error={queue.error} onRetry={reloadQueue} variant="compact" />
+            </div>
+          )}
+
+          {allDone && (
+            <div className="mb-6 flex items-start gap-2.5 rounded-m border border-ok/40 bg-ok-soft/50 px-4 py-3 text-callout leading-relaxed text-label-1">
+              <Icon name="checkmark-seal" size={16} className="mt-px shrink-0 text-ok" />
+              <p>今日队列全部完成——把余下的时间还给生活,明天继续。</p>
+            </div>
+          )}
+
+          {queue.error && tasks === null ? (
+            <AsyncError error={queue.error} onRetry={reloadQueue} />
+          ) : tasks === null ? (
+            <div aria-busy="true" className="flex flex-col gap-3">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="rounded-l border border-sep bg-card px-5 py-4">
+                  <Skeleton lines={2} />
+                </div>
+              ))}
+            </div>
+          ) : tasks.length === 0 ? (
+            <EmptyState
+              icon="sun"
+              title="今天没有排定的任务"
+              body="学习是长跑,休整也是节奏的一部分。去书架挑一本书设定目标,明天的队列会在这里等你。"
+              action={
+                <Button size="sm" onClick={() => navigate('/library')}>
+                  去书架
+                </Button>
+              }
+            />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {tasks.map((task, i) => {
+                const failure = completion.errors.get(task.id)
+                const completionUnavailable = failure?.retryable === false
+                return (
+                  <div key={task.id} data-testid={`task-row-${task.id}`} className="flex flex-col gap-2">
+                    <TaskCard
+                      task={task}
+                      block={blocks.get(task.blockId)}
+                      index={i}
+                      onStart={start}
+                      onComplete={complete}
+                      onFocus={task => { focusOp.clearError('focus'); void focusOp.run('focus', task) }}
+                      onRead={read}
+                      completing={completion.pending.has(task.id) && !completionUnavailable}
+                      completionUnavailable={completionUnavailable}
+                    />
+                    {failure && (
+                      <AsyncError
+                        error={failure}
+                        onRetry={() => complete(task)}
+                        variant="compact"
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activeBook && replan?.status === 'needs_decision' && !replanDismissed && (
+            <ReplanDialog
+              book={activeBook}
+              replan={replan}
+              today={today}
+              onResolved={reloadQueue}
+              onDismiss={() => setReplanDismissed(true)}
+            />
+          )}
         </div>
-      )}
-      {(() => {
-        const snapshot = pomodoro ?? pomodoroState.data
-        if (!snapshot || snapshot.phase === 'idle') return null
-        const task = snapshot.taskId === null ? undefined : tasks?.find(t => t.id === snapshot.taskId)
-        const title = task ? (blocks.get(task.blockId)?.title ?? `任务 #${task.id}`) : '专注'
-        return <Pomodoro snapshot={snapshot} taskTitle={title} onSnapshot={setPomodoro} />
-      })()}
+      </div>
     </div>
   )
 }

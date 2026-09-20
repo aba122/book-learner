@@ -40,6 +40,10 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 翻页时纸面内容错位/空白 | 快照 iframe 的位置/尺寸与原 iframe 不一致,或大章克隆超过 250 ms 超时先开卷 | `pageCurlOverlay.ts`(`READER_PAGE_SNAPSHOT_MAX_MS`) |
 | 点正文不翻页 / 划不了选区 / 点高亮没反应 | 指针层 `.bl-pointer` 是否盖在正文上(z-index 5)且未被别的层遮住;单击被判成拖动(>4 px)/取消选区;`findVisibleFrame` 找不到可视 iframe | `web/src/features/reader/pointerLayer.ts` |
 | 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);`trafficLightPosition {14,20}` 对应 52px 带 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 书架卡片上找不到「导出/标记已学完/删除」 | 收进「《x》的更多操作」菜单(卡片右上 ⋯ 或右键卡片);桥/脚本先点更多操作再点 `[role=menuitem]` | `web/src/features/library/LibraryPage.tsx`(`Menu`) |
+| 番茄钟卡片不见了 / 暂停结束在哪 | 已从右下浮动卡搬进今日页工具栏带的胶囊(`data-testid="pomodoro"`);控制失败在胶囊尾部警示钮 → 浮层 | `web/src/features/today/Pomodoro.tsx` |
+| 阅读器顶部按钮/目录/阅读设置在哪 | 工具栏带图标钮(悬停有提示);目录与阅读设置是锚定浮层(Esc 关、焦点回钮);右栏 tab 是分段控件 | `web/src/features/reader/ReaderPage.tsx`(`Toolbar`/`Popover`/`Segmented`) |
+| 阅读器 ←/→ 不翻页 | 焦点在输入框/浮层(`[role=dialog]`)/菜单里,或有模态开着(`data-modal-open`);脉络图画布抢方向键选节点 | `ReaderPage.tsx` `onKey` |
 | 外观不跟随系统 / 想手动改 | `store.ts` `themePreference`(存储键仅在手动覆盖时存在);设置页「外观」三态 | `web/src/store.ts`;`SettingsPage` `AppearanceRow` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
@@ -157,7 +161,7 @@ select * from setting;
 
 **测试**:vitest 22 文件 / 322 用例(`pnpm -C web test -- --run`);Playwright `web/e2e/{anchors,cfi}-smoke.spec.ts`(需 `PLAYWRIGHT_BROWSERS_PATH`);`pnpm -C web build` 是唯一有效的类型门禁;oxlint 配置 `web/.oxlintrc.json`。
 
-### 4.1 共享组件与令牌(视觉改版第一批,2026-09-20)
+### 4.1 共享组件与令牌(视觉改版第一、二批,2026-09-20)
 
 | 文件 | 作用 |
 |---|---|
@@ -166,10 +170,14 @@ select * from setting;
 | `components/Dialog` + `lib/useFocusTrap` + `lib/modalStack` | 模态原语:焦点陷阱/Esc/还原;打开时 `<html data-modal-open>`(阅读器翻页监听让路);`Confirm` 是它的薄壳 |
 | `components/Field/Input/Textarea/Select/Checkbox/Toggle` + `lib/formClasses` | 表单原语;焦点 3px 强调环;`Field` 用 `useId`,error 带 `role=alert` |
 | `components/Segmented` | radio/tabs 两种语义,逐项 `ariaLabel`,方向键 |
-| `components/Toolbar` / `IconButton` / `Tooltip` | 52px 工具栏带(拖动区,折叠时自带「显示侧栏」);28×28 图标钮(`aria-label` + sr-only 文字,桥按 innerText 点);提示为 render-prop、无 ref |
+| `components/Toolbar` / `IconButton` / `Tooltip` | 52px 工具栏带(拖动区 + `@container`,折叠时自带「显示侧栏」);28×28 图标钮(`aria-label` + sr-only 文字,桥按 innerText 点;`forwardRef` 可作浮层锚定;`active` → aria-pressed、`expanded` → aria-expanded);提示为 render-prop、无 ref |
+| `components/Menu` / `Popover` / `ProgressBar` | 受控菜单(按钮锚定或右键坐标,`menuitem` 28px 行,键盘完整);非模态锚定浮层(`role=dialog aria-modal=false`,Esc/外点关闭、焦点回锚);进度条(定/不定,`size sm|md`) |
+| `components/ToastHost` + `lib/toastStore` | 轻提示:`toast({message})`;每条自带 `role=status`,无条目时不渲染 DOM(别放常驻 status 容器,会撞页面测试);只在书架页挂载 |
+| `components/Markdown` + `lib/markdownParse` | 从 `features/reader/` 下沉;问书气泡在用,第三批费曼/终评复用;标题仍渲成 `<p>`(页面靠“只有一个 heading”断言) |
+| `components/Dialog` 的 `label` / `closeButton` | `label` 固定可访问名(向导标题随阶段变);`closeButton={false}` 关掉头部 ×(页脚已有取消/关闭时,否则「关闭」重名) |
 | `components/EmptyState/Skeleton/Spinner` | 空态/骨架/转圈(`data-motion-essential`) |
 | `store.ts` | `themePreference`(system/light/dark,跟随系统)、`sidebarCollapsed`;`theme` 仍是解析值 |
-| `App.tsx` | 侧栏 52px 拖动带 + 图标导航 + `aria-current`;`MenuActions` 订阅 `backend.subscribeMenu`(Tauri 事件 `menu_action`:`open-settings`/`toggle-sidebar`;mock 用 ⌘, / ⌃⌘S) |
+| `App.tsx` | 侧栏 52px 拖动带 + 图标导航 + `aria-current`;`MenuActions` 订阅 `backend.subscribeMenu`(Tauri 事件 `menu_action`:`open-settings`/`toggle-sidebar`;mock 用 ⌘, / ⌃⌘S);过渡带 `MainTitleBand` 只在还没自带 `Toolbar` 的页(`OWN_TOOLBAR`)渲染 |
 | `web/src-tauri/tauri.conf.json` / `capabilities/default.json` / `lib.rs::install_app_menu` | 透明标题栏 + `windowEffects: sidebar` + `macOSPrivateApi`;拖动权限 `core:window:allow-start-dragging`;原生菜单栏(攻书/编辑/显示/窗口/帮助) |
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)

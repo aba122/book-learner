@@ -94,7 +94,8 @@ sql "select id,title,type,status from book; select b.id,b.title,b.status,b.book_
 
 echo "== §4 单主攻书:把教材书标记为已学完"
 a go /library >/dev/null; a wait "标记为已学完" 30 >/dev/null
-a js "const card=[...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='标记为已学完'); card.click(); return 'ok'"
+a js "const more=[...document.querySelectorAll('button')].filter(b=>/的更多操作$/.test(b.innerText.trim())).at(-1); more.click(); return 'ok'"; sleep 0.5
+a js "const item=[...document.querySelectorAll('[role=menuitem]')].find(b=>b.innerText.trim()==='标记为已学完'); item.click(); return 'ok'"
 sleep 1; dclick "标记为已学完?" "标记为已学完"; sleep 2
 a text | grep -m3 "已学完\|复习照常\|主攻中"
 sql "select id,title,status from book; select book_id,active from study_plan;"

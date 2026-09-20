@@ -98,10 +98,15 @@ function Sidebar() {
   )
 }
 
-/** 第一批过渡:主区顶部 52px 拖动带;侧栏折叠时在这里给「显示侧栏」(左留 72px 让开红绿灯)。第二批起由各页 Toolbar 取代。 */
+/** 已自带 Toolbar 带的页面(第二批:今日/书架/阅读器;第三批全部换完后删掉这段过渡) */
+const OWN_TOOLBAR = (path: string) => path === '/' || path === '/library' || path.startsWith('/reader/')
+
+/** 过渡:主区顶部 52px 拖动带;侧栏折叠时在这里给「显示侧栏」(左留 72px 让开红绿灯)。页面自带 Toolbar 时不渲染。 */
 function MainTitleBand() {
   const collapsed = useSession(s => s.sidebarCollapsed)
   const toggleSidebar = useSession(s => s.toggleSidebar)
+  const { pathname } = useLocation()
+  if (OWN_TOOLBAR(pathname)) return null
   return (
     <div data-tauri-drag-region className={`flex h-13 shrink-0 items-center ${collapsed ? 'pl-[72px]' : 'px-3'}`}>
       {collapsed && <IconButton icon="sidebar-left" label="显示侧栏" onClick={toggleSidebar} />}
@@ -133,8 +138,8 @@ export default function App() {
       <MenuActions />
       <div className="flex h-full">
         <Sidebar />
-        {/* 主区不透明。第二三批各页面自己渲染 52px 的 Toolbar 带(components/Toolbar);
-            第一批页面还没有,先由外壳给一条同高的拖动带,免得内容顶到透明标题栏下 */}
+        {/* 主区不透明。各页面自己渲染 52px 的 Toolbar 带(components/Toolbar);
+            还没换的页面先由外壳给一条同高的拖动带,免得内容顶到透明标题栏下 */}
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-content">
           <MainTitleBand />
           <Routes>

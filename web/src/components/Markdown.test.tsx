@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { parseBlocks, parseInline } from './markdownParse'
-import Markdown from './markdown'
+import { parseBlocks, parseInline } from '../lib/markdownParse'
+import Markdown from './Markdown'
 
 describe('轻量 Markdown 渲染(BL-015)', () => {
   it('行内:粗体、斜体、行内码、链接', () => {

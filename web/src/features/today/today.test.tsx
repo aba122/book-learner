@@ -691,6 +691,49 @@ describe('今日学习页', () => {
     expect(stop).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('pomodoro')).not.toBeInTheDocument()
   })
+
+  it('番茄钟胶囊渲染在今日工具栏带里(不再是右下浮动卡)', async () => {
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    fireEvent.click(within(cards[0]).getByRole('button', { name: '专注' }))
+    const toolbar = await screen.findByRole('toolbar', { name: '今日工具栏' })
+    expect(within(toolbar).getByTestId('pomodoro')).toBeInTheDocument()
+  })
+})
+
+describe('视觉改版第二批:今日页', () => {
+  it('任务卡带队列序号 01/02/…', async () => {
+    renderToday()
+    const cards = await screen.findAllByTestId('task-card')
+    expect(within(cards[0]).getByText('01')).toBeInTheDocument()
+    expect(within(cards[3]).getByText('04')).toBeInTheDocument()
+  })
+
+  it('空态给「去书架」动作,点击导航到书架', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'todayQueue').mockResolvedValue([])
+    renderToday()
+    expect(await screen.findByText('今天没有排定的任务')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '去书架' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/library')
+  })
+
+  it('重排对话框:Esc 关闭 = 本日不再提醒', async () => {
+    const user = userEvent.setup()
+    const memory = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => memory.get(k) ?? null,
+      setItem: (k: string, v: string) => { memory.set(k, v) },
+      removeItem: (k: string) => { memory.delete(k) },
+    })
+    vi.spyOn(backendModule.backend, 'checkBehind').mockResolvedValue(NEEDS_DECISION)
+    renderToday()
+    await screen.findByRole('dialog', { name: '进度落后,需要你决定' })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(memory.get('bookLearner.replanDismissed')).toBe(localCalendarDate())
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('跨页一次性提示(H-T5)', () => {

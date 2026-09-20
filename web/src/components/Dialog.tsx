@@ -15,10 +15,14 @@ const WIDTH: Record<Size, string> = {
 export interface DialogProps {
   open: boolean
   title: string
+  /** 可访问名固定值(标题随阶段变化时用;默认 = title) */
+  label?: string
   description?: string
   size?: Size
   /** false:无 Esc、无遮罩点击、无关闭钮(忙态/必须做出选择时) */
   dismissible?: boolean
+  /** 头部 × 关闭钮(页脚已有取消/关闭时可关掉,避免重名) */
+  closeButton?: boolean
   onClose?: () => void
   initialFocus?: RefObject<HTMLElement | null>
   footer?: ReactNode
@@ -34,9 +38,11 @@ export interface DialogProps {
 export default function Dialog({
   open,
   title,
+  label,
   description,
   size = 'md',
   dismissible = true,
+  closeButton = true,
   onClose,
   initialFocus,
   footer,
@@ -76,7 +82,8 @@ export default function Dialog({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={label ?? title}
+        aria-labelledby={label ? undefined : titleId}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         data-testid={testId}
@@ -93,7 +100,7 @@ export default function Dialog({
               </p>
             )}
           </div>
-          {dismissible && onClose && <IconButton icon="xmark" label="关闭" onClick={onClose} className="-mr-2 -mt-1" />}
+          {dismissible && closeButton && onClose && <IconButton icon="xmark" label="关闭" onClick={onClose} className="-mr-2 -mt-1" />}
         </header>
         {children ? <div className="min-h-0 overflow-y-auto px-6 py-4">{children}</div> : <div className="h-4" />}
         {footer && <footer className="flex justify-end gap-2 px-6 pb-5">{footer}</footer>}

@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { backend } from '../../backend'
 import { BackendError } from '../../backend/errors'
 import Button from '../../components/Button'
+import IconButton from '../../components/IconButton'
+import Select from '../../components/Select'
+import Spinner from '../../components/Spinner'
+import Textarea from '../../components/Textarea'
 import { READING_POLL_MAX_MS, READING_POLL_MS, READING_QUOTE_MAX_CHARS, READING_TEXT_MAX_CHARS } from '../../config'
 import type { ReadingMessage, ReadingTopic } from '../../types'
-import Markdown from './markdown'
+import Markdown from '../../components/Markdown'
 
 /** clientMsgId:过 outboundClientId(字母数字 . _ -,≤ 64) */
 function newClientMsgId(): string {
@@ -243,21 +247,25 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
   const busy = sending !== null || waiting !== null
   const waitingMsg = waiting ? messages.find(m => m.clientMsgId === waiting) : null
 
+  const linkCls = 'cursor-pointer rounded-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-40'
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2" data-testid="reading-chat">
-      <div className="flex items-center gap-2 text-xs text-ink-3">
+      <div className="flex items-center gap-2 text-footnote text-label-3">
         <span className="truncate" title={current?.anchorHref}>
           {current ? `话题 · ${current.startedAt.slice(0, 10)}` : '新话题'}
         </span>
         {current && (
-          <span data-testid="topic-state" data-state={topicState(current)} className="text-[11px] text-ink-4">
+          <span data-testid="topic-state" data-state={topicState(current)} className="flex items-center gap-1">
+            {topicState(current) !== 'none' && <span aria-hidden className={`inline-block size-1.5 rounded-full ${topicState(current) === 'done' ? 'bg-ok' : 'bg-review'}`} />}
             {topicState(current) === 'pending' ? '待整理' : topicState(current) === 'done' ? '已记入记忆' : ''}
           </span>
         )}
         <span className="flex-1" />
-        <select
+        <Select
+          size="sm"
           aria-label="历史话题"
-          className="max-w-32 rounded-s border border-line bg-paper-1 px-1 py-0.5 text-[11px] text-ink-2"
+          className="max-w-36"
           value={topicId ?? ''}
           onChange={e => {
             const v = e.target.value
@@ -270,16 +278,16 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
               {t.startedAt.slice(0, 16).replace('T', ' ')} · {t.firstQuestion || '(空)'}
             </option>
           ))}
-        </select>
-        <Button className="px-2 py-0.5 text-[11px]" disabled={busy || messages.length === 0} onClick={newTopic}>
+        </Select>
+        <Button size="sm" disabled={busy || messages.length === 0} onClick={newTopic}>
           另起话题
         </Button>
       </div>
 
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" data-testid="reading-messages">
-        {loadError && <p className="text-xs text-weak">{loadError}</p>}
+        {loadError && <p className="text-footnote text-weak">{loadError}</p>}
         {messages.length === 0 && !sending && (
-          <p className="text-xs leading-relaxed text-ink-3">选中正文里的一段文字点「问 AI」,或直接在这里贴一段话来问。</p>
+          <p className="px-1 py-2 text-callout leading-relaxed text-label-3">选中正文里的一段文字点「问 AI」,或直接在这里贴一段话来问。</p>
         )}
         {messages.map(m => (
           <div
@@ -287,44 +295,45 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
             data-testid="reading-msg"
             data-role={m.role}
             data-status={m.status}
-            className={`max-w-[88%] rounded-m px-3.5 py-2.5 text-sm leading-relaxed ${m.role === 'user' ? 'self-end bg-paper-3 text-ink-1' : 'self-start border border-line bg-paper-2 text-ink-1'}`}
+            className={`max-w-[88%] rounded-m px-3.5 py-2.5 text-body leading-relaxed text-label-1 ${m.role === 'user' ? 'self-end bg-inset' : 'self-start bg-card ring-1 ring-sep/70'}`}
           >
-            {m.quote && <blockquote className="mb-1.5 border-l-2 border-line pl-2 text-xs text-ink-3 line-clamp-4">{m.quote}</blockquote>}
+            {m.quote && <blockquote className="mb-1.5 line-clamp-4 border-l-2 border-sep pl-2 text-footnote text-label-3">{m.quote}</blockquote>}
             {m.role === 'assistant' ? <Markdown text={m.text} /> : <div className="whitespace-pre-wrap">{m.text}</div>}
             {m.role === 'user' && m.status === 'failed' && (
-              <div className="mt-1 flex items-center gap-2 text-[11px] text-weak">
+              <div className="mt-1 flex items-center gap-2 text-footnote text-weak">
                 <span>没有得到回复</span>
-                <button className="cursor-pointer underline" disabled={busy} onClick={() => retry(m)}>重试</button>
+                <button type="button" className={linkCls} disabled={busy} onClick={() => retry(m)}>重试</button>
               </div>
             )}
             {m.role === 'user' && m.status === 'pending' && waiting === m.clientMsgId && (
-              <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-4">
+              <div className="mt-1 flex items-center gap-2 text-footnote text-label-3">
                 <span>等待中…</span>
                 {pollExpired && (
-                  <button className="cursor-pointer underline" onClick={() => { setPollExpired(false); void pollOnce().catch(() => {}) }}>刷新</button>
+                  <button type="button" className={linkCls} onClick={() => { setPollExpired(false); void pollOnce().catch(() => {}) }}>刷新</button>
                 )}
               </div>
             )}
           </div>
         ))}
         {sending && (
-          <div className="self-start flex items-center gap-2 text-xs text-ink-4" data-testid="reading-thinking">
+          <div className="flex items-center gap-2 self-start px-1 text-footnote text-label-3" data-testid="reading-thinking">
+            <Spinner size={14} />
             <span>思考中…</span>
-            <button className="cursor-pointer underline" onClick={cancelWaiting}>取消</button>
+            <button type="button" className={linkCls} onClick={cancelWaiting}>取消</button>
           </div>
         )}
         {waitingMsg && !sending && null}
-        {error && <p className="text-xs text-weak" role="alert">{error}</p>}
+        {error && <p className="text-footnote text-weak" role="alert">{error}</p>}
       </div>
 
-      <div className="flex flex-col gap-1.5 border-t border-line pt-2">
+      <div className="flex flex-col gap-1.5 border-t border-sep pt-2">
         {effectiveQuote && (
-          <div className="flex items-start gap-2 rounded-s border border-line bg-paper-1 px-2 py-1 text-[11px] text-ink-3" data-testid="quote-draft">
-            <span className="line-clamp-3 flex-1">{effectiveQuote}</span>
-            <button className="cursor-pointer text-ink-4 hover:text-ink-1" aria-label="删除引用" onClick={clearQuote}>×</button>
+          <div className="flex items-start gap-1 rounded-s bg-inset py-1 pr-1 pl-2.5 text-footnote text-label-2" data-testid="quote-draft">
+            <span className="line-clamp-3 flex-1 py-0.5">{effectiveQuote}</span>
+            <IconButton icon="xmark" size="sm" label="删除引用" onClick={clearQuote} />
           </div>
         )}
-        <textarea
+        <Textarea
           ref={textareaRef}
           aria-label="问书输入"
           rows={3}
@@ -333,10 +342,10 @@ export default function ReadingChatPanel({ bookId, currentHref, blockIdForHref, 
           placeholder="读到哪里不懂,就在这里问(Enter 发送,Shift+Enter 换行)"
           onChange={e => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          className="w-full resize-none rounded-s border border-line bg-paper-2 px-2 py-1.5 text-xs text-ink-1 disabled:opacity-60"
+          className="resize-none"
         />
         <div className="flex justify-end">
-          <Button variant="primary" className="px-3 py-1 text-xs" disabled={busy || !text.trim()} onClick={send}>
+          <Button variant="primary" size="sm" disabled={busy || !text.trim()} onClick={send}>
             发送
           </Button>
         </div>
