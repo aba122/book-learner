@@ -646,3 +646,12 @@
 ## 2026-09-18 · BL-020 输入框内方向键误翻页
 - ReaderPage 的 window keydown 监听把 ArrowLeft/Right 直接翻页,焦点在问书输入框时也触发。onKey 开头判断 e.target 为 INPUT/TEXTAREA/SELECT/contenteditable 则 return。门禁:web 374/2、tsc、oxlint 0、build。
 
+
+## 2026-09-19 · 脉络图第一批(生成 + 看图 + 手改保存)
+- 设计与计划见 `/u/fzv6en/.claude/plans/mac-app-epub-lucky-spring.md` 顶部一节。四决策已确认:自绘节点-连线图、阅读器右栏第三个标签、与知识地图独立并存、手动生成+增量更新+保留手改。本批交付「生成/看图/手改保存」,增量更新与 AI 按理解修正、看原文、问一问入第二批。
+- 迁移 **v10**:新表 `lineage_graph(book_id UNIQUE, up_to_seq, graph_json, generated_at, updated_at)`,每书一张(upsert),删书级联(并入 `library::delete_book`);`SCHEMA_VERSION` 与全部版本断言 9→10。
+- core `lineage.rs`:`progress_seq`(position.spine_href → spine_item.idx,无进度为 0);`generate`(取已读章节标题 + 该范围知识块作骨架喂 AI 控 token,`run_ai_json` id `lineage:{book}:s{seq}`,无已读章拒绝;不得在事务内);`get`(带 current_seq,>up_to_seq 时前端提示更新);`save`(持久化手改,保留 up_to_seq);`parse_graph`(剥代码围栏、删空标题节点、去重 id、删悬空/自环边、截到 40 节点)。5 条单测。
+- 契约六处 + 三命令 `lineage_get/generate/save`(共 74):`AppState.lineage_busy` 每书互斥,`application::lock_book`(忙 → conflict),`generate` 走 `open_connection` 非事务 + JobGuard;foundation 补 EngineMock `lineage:` 分支、wire 三条(用 first,second 已在 delete 处删)与生成/手改 roundtrip。
+- 前端 `features/reader/lineage/`:`layout.ts` 分层 DAG 布局纯函数(最长路径分层、同层居中、成环退化不死循环、保留手改坐标)+ 6 单测;`LineageGraph.tsx` 底层 SVG 贝塞尔连线 + 绝对定位卡片节点(主题感知,CSS 变量);`LineagePanel.tsx` 空态生成 / 看图 / 点节点改名·改摘要·删节点 / 保存手改 + 2 组件测试。`ReaderPage` sideTab 增 `'lineage'`,🗺 脉络图 药丸标签 + 面板(hidden 不卸载),复用「放大/收窄」(aria-label 对话态才带"对话")。
+- **取舍**:本批手改仅改名/改摘要/删节点(拖动定位、加节点、连线编辑、AI 修正入第二批);「重新生成」直接覆盖(增量保留手改为第二批);节点详情里「看原文」「问一问」占位待第二批。
+- 门禁(Linux 侧):core lib 187 通过/1 ignored(+6 lineage/v10);web 384/2 skipped(+layout 6、+LineagePanel 2、+契约/解码用例)、tsc、oxlint 0、build。foundation/clippy/mac-foundation 待 Mac 门禁与真 codex 实测。
