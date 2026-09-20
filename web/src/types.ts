@@ -156,8 +156,12 @@ export interface ReadingSendResult { topicId: number; userMessage: ReadingMessag
 
 // ---- 脉络图(阅读进度合成图,plan 2026-09-19)----
 export interface LineageNode {
-  id: string; title: string; summary: string
-  /** 节点性质(阶段/主题/概念/事件…),仅作前端配色提示,可空串 */
+  id: string; title: string
+  /** 一句话(≤30 字),卡片上显示 */
+  summary: string
+  /** 1-3 句展开,详情框显示 */
+  detail: string
+  /** 节点性质(阶段/主题/概念/转折/事件),前端按此配色,可空串 */
   kind: string
   blockIds: number[]; spineHrefs: string[]
   /** 手改坐标(拖动后落库);未定位为 null,由布局纯函数算 */
@@ -170,5 +174,7 @@ export interface LineageGraphData { nodes: LineageNode[]; edges: LineageEdge[] }
 /** 每书一张当前图;currentSeq > upToSeq 时前端提示"更新到最新进度" */
 export interface LineageGraph {
   bookId: number; upToSeq: number; currentSeq: number
+  /** 对应章节标题(可空;spine 序号含封面/目录,不能直接当章号显示) */
+  upToTitle: string; currentTitle: string
   graph: LineageGraphData; generatedAt: string | null; updatedAt: string
 }

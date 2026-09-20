@@ -438,15 +438,15 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
 
   it('脉络图:lineageGet null / 解码图;generate 出图;save 原样传 bookId+graph;坏节点 → invalid_response', async () => {
     const graph = {
-      bookId: 1, upToSeq: 2, currentSeq: 3,
-      graph: { nodes: [{ id: 'a', title: '生产者社会', summary: 's', kind: '阶段', blockIds: [4], spineHrefs: ['c.xhtml'], x: null, y: 12.5, userEdited: true }], edges: [{ from: 'a', to: 'a', label: '自环会被 core 清掉但解码不管' }] },
+      bookId: 1, upToSeq: 2, currentSeq: 3, upToTitle: '第一章', currentTitle: '第二章',
+      graph: { nodes: [{ id: 'a', title: '生产者社会', summary: 's', detail: 'd', kind: '阶段', blockIds: [4], spineHrefs: ['c.xhtml'], x: null, y: 12.5, userEdited: true }], edges: [{ from: 'a', to: 'a', label: '自环会被 core 清掉但解码不管' }] },
       generatedAt: '2026-09-19T00:00:00Z', updatedAt: '2026-09-19T01:00:00Z',
     }
     const { calls, invoke } = recorder({ lineage_get: null, lineage_generate: graph, lineage_save: graph })
     const backend = new TauriBackend(invoke)
     expect(await backend.lineageGet(1)).toBeNull()
     const g = await backend.lineageGenerate(1)
-    expect(g).toMatchObject({ upToSeq: 2, currentSeq: 3 })
+    expect(g).toMatchObject({ upToSeq: 2, currentSeq: 3, upToTitle: '第一章', currentTitle: '第二章' })
     expect(g.graph.nodes[0]).toMatchObject({ title: '生产者社会', blockIds: [4], y: 12.5, x: null, userEdited: true })
     const saved = await backend.lineageSave(1, graph.graph)
     expect(saved.graph.nodes[0].title).toBe('生产者社会')

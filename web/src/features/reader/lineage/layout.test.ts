@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { LineageGraphData } from '../../../types'
-import { layout, PAD } from './layout'
+import { layout, NODE_H, PAD } from './layout'
 
 function node(id: string, extra: Partial<{ x: number | null; y: number | null }> = {}) {
-  return { id, title: id.toUpperCase(), summary: '', kind: '', blockIds: [], spineHrefs: [], x: null, y: null, userEdited: false, ...extra }
+  return { id, title: id.toUpperCase(), summary: '', detail: '', kind: '', blockIds: [], spineHrefs: [], x: null, y: null, userEdited: false, ...extra }
 }
 
 describe('脉络图布局(plan 2026-09-19)', () => {
@@ -56,5 +56,22 @@ describe('脉络图布局(plan 2026-09-19)', () => {
   it('输出节点顺序与输入一致', () => {
     const g: LineageGraphData = { nodes: [node('a'), node('b'), node('c')], edges: [{ from: 'a', to: 'c', label: '' }] }
     expect(layout(g).nodes.map(n => n.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('脉络图布局:真实高度', () => {
+  it('层距按该层最高卡片算,连线锚点用节点自身高度', () => {
+    const g: LineageGraphData = { nodes: [node('a'), node('b')], edges: [{ from: 'a', to: 'b', label: '' }] }
+    const l = layout(g, { a: 200 })
+    const a = l.nodes.find(n => n.id === 'a')!
+    const b = l.nodes.find(n => n.id === 'b')!
+    expect(a.h).toBe(200)
+    expect(b.y).toBeGreaterThanOrEqual(a.y + 200)
+    expect(b.h).toBe(NODE_H) // 没量到用默认
+    expect(l.height).toBeGreaterThanOrEqual(b.y + b.h)
+  })
+  it('order 为阅读顺序(数组下标 +1)', () => {
+    const g: LineageGraphData = { nodes: [node('x'), node('y')], edges: [] }
+    expect(layout(g).nodes.map(n => n.order)).toEqual([1, 2])
   })
 })

@@ -105,6 +105,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [sideTab, setSideTab] = useState<'learn' | 'chat' | 'lineage'>(taskId !== null ? 'learn' : 'chat')
   /** BL-014:问书面板加宽切换 */
   const [chatWide, setChatWide] = useState(false)
+  /** 脉络图默认放大(图需要横向空间),与问书的宽窄各记各的 */
+  const [lineageWide, setLineageWide] = useState(true)
+  const wide = sideTab === 'chat' ? chatWide : lineageWide
+  const setWide = sideTab === 'chat' ? setChatWide : setLineageWide
   const [quoteDraft, setQuoteDraft] = useState<string | null>(null)
   const [currentHref, setCurrentHref] = useState('')
   const [marksOpen, setMarksOpen] = useState(false)
@@ -511,7 +515,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             )}
             {/* BL-017:收起只隐藏、不卸载,进行中的问书对话与「思考中」跨收起保留 */}
             <div hidden={!panelOpen}>
-              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'learn' ? 'w-72' : chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}>
+              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'learn' ? 'w-72' : wide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1 rounded-m bg-paper-1 p-0.5" role="tablist" aria-label="侧栏">
                     {learning && (
@@ -545,10 +549,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     {sideTab !== 'learn' && (
                       <button
                         className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-                        aria-label={`${chatWide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
-                        onClick={() => setChatWide(w => !w)}
+                        aria-label={`${wide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
+                        onClick={() => setWide(w => !w)}
                       >
-                        {chatWide ? '⇥ 收窄' : '⇤ 放大'}
+                        {wide ? '⇥ 收窄' : '⇤ 放大'}
                       </button>
                     )}
                     <button

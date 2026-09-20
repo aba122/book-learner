@@ -23,6 +23,8 @@ export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
 export const READING_QUOTE_MAX_CHARS = 8000
 export const READING_TEXT_MAX_CHARS = 4000
 export const READING_POLL_MS = 3000
+/** 脉络图手改自动保存防抖 */
+export const LINEAGE_AUTOSAVE_MS = 800
 export const READING_POLL_MAX_MS = 120_000
 /** 夜读/日读模式持久化键(每台设备,localStorage;BL-003) */
 export const THEME_KEY = 'bookLearner.theme'
