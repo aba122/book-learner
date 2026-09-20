@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -574,6 +574,20 @@ function decodeLineageGraph(value: unknown, path = 'lineage'): LineageGraph {
     graph: decodeLineageGraphData(wire.graph, `${path}.graph`),
     generatedAt: nullableAt(wire.generatedAt, `${path}.generatedAt`, stringAt),
     updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
+  }
+}
+function decodeLineageNodeSource(value: unknown, path: string): LineageNodeSource {
+  const wire = objectAt(value, path)
+  return {
+    hrefs: arrayAt(wire.hrefs, `${path}.hrefs`, (item, p) => {
+      const w = objectAt(item, p)
+      return { href: stringAt(w.href, `${p}.href`), title: stringAt(w.title, `${p}.title`) }
+    }),
+    blocks: arrayAt(wire.blocks, `${path}.blocks`, (item, p) => {
+      const w = objectAt(item, p)
+      return { id: safeIntegerAt(w.id, `${p}.id`), title: stringAt(w.title, `${p}.title`) }
+    }),
+    excerpt: stringAt(wire.excerpt, `${path}.excerpt`),
   }
 }
 function outboundLineageGraph(value: unknown): void {
@@ -1174,6 +1188,27 @@ export class TauriBackend implements Backend {
       outboundInteger(bookId, 'bookId')
       outboundLineageGraph(graph)
       return this.decode('lineage_save', { bookId, graph }, value => decodeLineageGraph(value, 'lineage_save'))
+    })
+  }
+  lineageUpdate(bookId: number): Promise<LineageGraph> {
+    return this.gated('lineageUpdate', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('lineage_update', { bookId }, value => decodeLineageGraph(value, 'lineage_update'))
+    })
+  }
+  lineageRevise(bookId: number, nodeId: string | null, instruction: string): Promise<LineageGraph> {
+    return this.gated('lineageRevise', () => {
+      outboundInteger(bookId, 'bookId')
+      if (nodeId !== null) outboundString(nodeId, 'nodeId')
+      outboundString(instruction, 'instruction')
+      return this.decode('lineage_revise', { bookId, nodeId, instruction }, value => decodeLineageGraph(value, 'lineage_revise'))
+    })
+  }
+  lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
+    return this.gated('lineageNodeSource', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(nodeId, 'nodeId')
+      return this.decode('lineage_node_source', { bookId, nodeId }, value => decodeLineageNodeSource(value, 'lineage_node_source'))
     })
   }
   readerMarkList(bookId: number): Promise<ReaderMark[]> {

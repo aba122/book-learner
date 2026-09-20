@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -129,6 +129,8 @@ export class MockBackend implements Backend {
   private nextReadingId = 1
   /** 脉络图:每书一张当前图(plan 2026-09-19) */
   private lineageRows = new Map<number, { upToSeq: number; graph: LineageGraphData; generatedAt: string | null; updatedAt: string }>()
+  /** 测试用:置 true 模拟"读到了更后面"(currentSeq = upToSeq + 1),让「更新到最新进度」出现 */
+  lineageBehind = false
   private settings: AppSettings = { ...APP_DEFAULTS }
   private profile: Profile = {
     background: '经济学本科,读过曼昆《经济学原理》', mastered: '- 供需曲线与均衡', pitfalls: '- 容易把弹性和斜率混为一谈', context: '在做平台定价的研究,想把弹性分析用到实验设计上',
@@ -782,7 +784,7 @@ export class MockBackend implements Backend {
   // ---- 脉络图(plan 2026-09-19):与 core::lineage 同语义;生成用固定小图 ----
   private lineageView(bookId: number): LineageGraph {
     const row = this.lineageRows.get(bookId)!
-    return { bookId, upToSeq: row.upToSeq, currentSeq: row.upToSeq, upToTitle: '第二章 从工作伦理到消费美学', currentTitle: '第二章 从工作伦理到消费美学', graph: structuredClone(row.graph), generatedAt: row.generatedAt, updatedAt: row.updatedAt }
+    return { bookId, upToSeq: row.upToSeq, currentSeq: row.upToSeq + (this.lineageBehind ? 1 : 0), upToTitle: '第二章 从工作伦理到消费美学', currentTitle: this.lineageBehind ? '第三章 福利国家的兴衰' : '第二章 从工作伦理到消费美学', graph: structuredClone(row.graph), generatedAt: row.generatedAt, updatedAt: row.updatedAt }
   }
   async lineageGet(bookId: number): Promise<LineageGraph | null> {
     return this.lineageRows.has(bookId) ? this.lineageView(bookId) : null
@@ -805,6 +807,36 @@ export class MockBackend implements Backend {
     const prev = this.lineageRows.get(bookId)
     this.lineageRows.set(bookId, { upToSeq: prev?.upToSeq ?? 0, graph: structuredClone(graph), generatedAt: prev?.generatedAt ?? null, updatedAt: new Date().toISOString() })
     return this.lineageView(bookId)
+  }
+  async lineageUpdate(bookId: number): Promise<LineageGraph> {
+    const row = this.lineageRows.get(bookId)
+    if (!row) throw invalidRequest()
+    if (!this.lineageBehind) throw invalidRequest() // 已是最新进度
+    // 同 core:userEdited 节点原样保留,新章补一个节点接在最后
+    const nodes = row.graph.nodes.map(n => (n.userEdited ? n : { ...n, summary: n.summary }))
+    const last = nodes.at(-1)
+    nodes.push({ id: 'c', title: '新穷人', summary: '福利国家退场后被抛下的人', detail: '不再被需要的劳动力如何被重新定义为"新穷人"。', kind: '阶段', blockIds: [], spineHrefs: ['chap3.xhtml'], x: null, y: null, userEdited: false })
+    const edges = [...row.graph.edges]
+    if (last) edges.push({ from: last.id, to: 'c', label: '引出' })
+    this.lineageBehind = false
+    this.lineageRows.set(bookId, { upToSeq: row.upToSeq + 1, graph: { nodes, edges }, generatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+    return this.lineageView(bookId)
+  }
+  async lineageRevise(bookId: number, nodeId: string | null, instruction: string): Promise<LineageGraph> {
+    const row = this.lineageRows.get(bookId)
+    if (!row) throw invalidRequest()
+    if (!instruction.trim()) throw invalidRequest()
+    const target = nodeId === null ? row.graph.nodes[0] : row.graph.nodes.find(n => n.id === nodeId)
+    if (!target) throw notFound()
+    const nodes = row.graph.nodes.map(n => (n.id === target.id ? { ...n, title: `${n.title}(修正)`, userEdited: true } : n))
+    this.lineageRows.set(bookId, { ...row, graph: { nodes, edges: row.graph.edges }, updatedAt: new Date().toISOString() })
+    return this.lineageView(bookId)
+  }
+  async lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
+    const node = this.lineageRows.get(bookId)?.graph.nodes.find(n => n.id === nodeId)
+    if (!node) throw notFound()
+    const titles: Record<string, string> = { 'chap1.xhtml': '第一章 工作的意义', 'chap2.xhtml': '第二章 从工作伦理到消费美学', 'chap3.xhtml': '第三章 福利国家的兴衰' }
+    return { hrefs: node.spineHrefs.map(h => ({ href: h, title: titles[h] ?? h })), blocks: [], excerpt: `这里是「${node.title}」所在章节开头的节选……` }
   }
 
   // ---- 诊断:固定信息;前端事件记录在内存供用例断言 ----

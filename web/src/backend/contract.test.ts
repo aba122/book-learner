@@ -146,6 +146,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'lineageGet', command: 'lineage_get', payloadKeys: ['bookId'] },
       { method: 'lineageGenerate', command: 'lineage_generate', payloadKeys: ['bookId'] },
       { method: 'lineageSave', command: 'lineage_save', payloadKeys: ['bookId', 'graph'] },
+      { method: 'lineageUpdate', command: 'lineage_update', payloadKeys: ['bookId'] },
+      { method: 'lineageRevise', command: 'lineage_revise', payloadKeys: ['bookId', 'nodeId', 'instruction'] },
+      { method: 'lineageNodeSource', command: 'lineage_node_source', payloadKeys: ['bookId', 'nodeId'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
@@ -448,6 +451,22 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     expect(after.graph.nodes[0]).toMatchObject({ title: '我改的', userEdited: true, x: 42 })
     expect(after.upToSeq).toBe(g.upToSeq) // save 不改覆盖进度
     await expect(b.lineageGenerate(999)).rejects.toMatchObject({ code: 'not_found' })
+    // 第二批:没读到更后面 → 更新拒绝;读到了 → 增量更新保留手改并补新节点
+    await expect(b.lineageUpdate(1)).rejects.toMatchObject({ code: 'invalid_request' })
+    b.lineageBehind = true
+    expect((await b.lineageGet(1))!.currentSeq).toBeGreaterThan(g.upToSeq)
+    const up = await b.lineageUpdate(1)
+    expect(up.graph.nodes[0]).toMatchObject({ title: '我改的', userEdited: true })
+    expect(up.graph.nodes.map(n => n.id)).toContain('c')
+    expect(up.upToSeq).toBe(g.upToSeq + 1)
+    // 修正:改了的节点标 userEdited;空指令拒绝;看原文给章节与节选
+    const rev = await b.lineageRevise(1, 'c', '写得更具体')
+    expect(rev.graph.nodes.find(n => n.id === 'c')).toMatchObject({ title: '新穷人(修正)', userEdited: true })
+    await expect(b.lineageRevise(1, null, '  ')).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.lineageRevise(1, 'zzz', 'x')).rejects.toMatchObject({ code: 'not_found' })
+    const src = await b.lineageNodeSource(1, 'c')
+    expect(src.hrefs[0]).toEqual({ href: 'chap3.xhtml', title: '第三章 福利国家的兴衰' })
+    expect(src.excerpt).toContain('新穷人')
     await b.deleteBook(1, '2026-09-19')
     expect(await b.lineageGet(1)).toBeNull()
   })

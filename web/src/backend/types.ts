@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -71,6 +71,10 @@ export interface Backend {
   lineageGet(bookId: number): Promise<LineageGraph | null>
   lineageGenerate(bookId: number): Promise<LineageGraph>
   lineageSave(bookId: number, graph: LineageGraphData): Promise<LineageGraph>
+  /** 第二批:增量更新到最新进度(保留 userEdited 节点;进度没前进 → invalid_request)、AI 按理解修正(可聚焦节点)、看原文 */
+  lineageUpdate(bookId: number): Promise<LineageGraph>
+  lineageRevise(bookId: number, nodeId: string | null, instruction: string): Promise<LineageGraph>
+  lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>
