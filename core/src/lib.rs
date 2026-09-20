@@ -6,6 +6,7 @@ pub mod export;
 pub mod extra;
 pub mod final_exam;
 pub mod library;
+pub mod lineage;
 pub mod map;
 pub mod mapgen;
 pub mod memory;

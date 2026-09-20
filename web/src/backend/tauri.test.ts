@@ -402,7 +402,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -434,6 +434,27 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     expect(await backend.readingDistill(1)).toEqual({ distilled: false })
     const bad = new TauriBackend(async <T>() => ({ topicId: 1, userMessage: { ...userMessage, status: 'weird' }, assistantMessage: null }) as T)
     await expect(bad.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q1', text: '问', quote: '', spineHref: 'a.xhtml', blockId: null })).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('脉络图:lineageGet null / 解码图;generate 出图;save 原样传 bookId+graph;坏节点 → invalid_response', async () => {
+    const graph = {
+      bookId: 1, upToSeq: 2, currentSeq: 3,
+      graph: { nodes: [{ id: 'a', title: '生产者社会', summary: 's', kind: '阶段', blockIds: [4], spineHrefs: ['c.xhtml'], x: null, y: 12.5, userEdited: true }], edges: [{ from: 'a', to: 'a', label: '自环会被 core 清掉但解码不管' }] },
+      generatedAt: '2026-09-19T00:00:00Z', updatedAt: '2026-09-19T01:00:00Z',
+    }
+    const { calls, invoke } = recorder({ lineage_get: null, lineage_generate: graph, lineage_save: graph })
+    const backend = new TauriBackend(invoke)
+    expect(await backend.lineageGet(1)).toBeNull()
+    const g = await backend.lineageGenerate(1)
+    expect(g).toMatchObject({ upToSeq: 2, currentSeq: 3 })
+    expect(g.graph.nodes[0]).toMatchObject({ title: '生产者社会', blockIds: [4], y: 12.5, x: null, userEdited: true })
+    const saved = await backend.lineageSave(1, graph.graph)
+    expect(saved.graph.nodes[0].title).toBe('生产者社会')
+    expect(calls.map(c => c.command)).toEqual(['lineage_get', 'lineage_generate', 'lineage_save'])
+    expect(calls[2]).toMatchObject({ command: 'lineage_save', payload: { bookId: 1, graph: graph.graph } })
+
+    const badInvoke: InvokeFn = async <T>() => ({ ...graph, graph: { nodes: [{ id: 'a' }], edges: [] } }) as T
+    await expect(new TauriBackend(badInvoke).lineageGenerate(1)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
   it('uploads the file as raw chunks with op/index headers, then finalizes with type and title', async () => {

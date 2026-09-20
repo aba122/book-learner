@@ -37,6 +37,29 @@ fn context_block(ctx: &FixedContext) -> String {
         ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status, reading)
 }
 
+/// 脉络图生成(plan 2026-09-19):按已读章节/知识块骨架,产出节点-连线图 JSON。只输出 JSON。
+pub fn lineage_generate_prompt(
+    book_title: &str,
+    ty: BookType,
+    chapters: &str,
+    blocks: &str,
+) -> String {
+    let angle = match ty {
+        BookType::Textbook => "以概念/原理/方法为节点,连线标注依赖或推导关系",
+        BookType::Methodology => "以观点/框架/案例为节点,连线标注支撑或递进关系",
+        BookType::Humanities => "以叙事阶段/主题/关键转折为节点,连线标注时间先后或因果关系",
+    };
+    format!(
+        "你在为《{book_title}》生成一张“脉络图”:把读者**已读到的部分**梳理成逻辑清晰的节点-连线图,帮他看清主线与结构。{angle}。\
+只输出 JSON,不要别的文字:\n\
+{{\"nodes\":[{{\"id\":\"短id\",\"title\":\"节点名(简练)\",\"summary\":\"1-2句这部分讲了什么\",\"kind\":\"阶段|主题|概念|事件(可空)\",\"blockIds\":[相关知识块号],\"spineHrefs\":[\"相关章节href\"]}}],\
+\"edges\":[{{\"from\":\"id\",\"to\":\"id\",\"label\":\"关系(如 转向/因为/递进)\"}}]}}\n\
+要求:节点 8-20 个为宜、不超过 40;id 唯一且简短;只覆盖下面列出的已读章节,别剧透后文;summary 具体到内容不空话;blockIds/spineHrefs 用下面给出的号与 href。\n\n\
+=== 已读章节(href 标题)===\n{chapters}\n\n=== 已读范围的知识块(#号 [模块] 标题)===\n{blocks}\n\n\
+提示:你的工作目录即记忆库,可读 INDEX.md / _map.md / _reading.md 了解全书结构与读者关注点。"
+    )
+}
+
 /// 问书(阅读辅助对话,spec 2026-09-16)的固定注入
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReadingContext {

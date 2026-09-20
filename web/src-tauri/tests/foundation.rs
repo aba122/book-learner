@@ -1345,6 +1345,9 @@ impl AiProvider for EngineMock {
         if id.starts_with("reading:") {
             return Ok("需求定律说的是价格与需求量反向变动。".into());
         }
+        if id.starts_with("lineage:") {
+            return Ok(r#"{"nodes":[{"id":"a","title":"生产者社会","summary":"以工作定义身份","spineHrefs":["ch0.xhtml"]},{"id":"b","title":"消费者社会","summary":"以消费定义身份"}],"edges":[{"from":"a","to":"b","label":"转向"}]}"#.into());
+        }
         if id.starts_with("reading_distill:") {
             return Ok(r#"{"focus":[{"blockId":null,"href":"ch0.xhtml","note":"问需求定律"}],"understanding":[{"blockId":null,"kind":"clarified","note":"价格与需求量反向"}],"habits":["先要结论"]}"#.into());
         }
@@ -2216,6 +2219,17 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     let export_vault = tempfile::tempdir().unwrap();
     // 导入/阅读器命令:second 预置受管 EPUB 文件;契约循环里的分块命令走原始请求体分支
     std::fs::write(state.import_store().book_path(second), fake_epub()).unwrap();
+    // 脉络图命令用 first(second 会在 library_delete_book 处被删):给 first 落一章 spine,
+    // 配合更早的 reader_position_set(first, ch0.xhtml) → progress_seq=0 → 有已读章可生成。
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章','生产者社会与消费者社会的转向')",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
     let app = book_learner_app::register_commands(mock_builder().manage(state))
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -2443,6 +2457,11 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 "bookId": first, "topicId": null, "clientMsgId": "wire-q0", "text": "第一问",
                 "quote": "", "spineHref": "ch0.xhtml", "blockId": null
             }),
+            "lineage_get" => json!({"bookId": first}),
+            "lineage_generate" => json!({"bookId": first}),
+            "lineage_save" => {
+                json!({"bookId": first, "graph": {"nodes":[{"id":"a","title":"手改节点","summary":"x","userEdited":true}],"edges":[]}})
+            }
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
                 let sent = commands::reading_send_inner(
@@ -3031,4 +3050,44 @@ fn reading_chat_roundtrip_through_commands() {
             .code,
         ErrorCode::NotFound
     );
+}
+
+#[test]
+fn lineage_roundtrip_through_commands() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _mock) = state_with_mock(&directory.path().join("lineage.db"));
+    let (first, _second, _block) = seed_books(&state);
+    // first 已有块(seed_books),不能再走 seed_map(会 apply_draft_map 冲突);直接落一章 spine
+    // (ch0.xhtml, idx0)→ 无位置时 progress_seq=0,有已读章可生成
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章','正文')",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    // 无图时 get 返回 None
+    assert!(commands::lineage_get_inner(&state, first)
+        .unwrap()
+        .is_none());
+    // 生成(EngineMock 出图)
+    let g = commands::lineage_generate_inner(&state, first).unwrap();
+    assert_eq!(g.graph.nodes.len(), 2);
+    assert_eq!(g.graph.edges.len(), 1);
+    assert!(g.generated_at.is_some());
+    // get 拿回同图
+    let got = commands::lineage_get_inner(&state, first).unwrap().unwrap();
+    assert_eq!(got.graph.nodes[0].title, "生产者社会");
+    // 手改保存:改名 + userEdited + 坐标
+    let mut data = got.graph.clone();
+    data.nodes[0].title = "我改的".into();
+    data.nodes[0].user_edited = true;
+    data.nodes[0].x = Some(50.0);
+    commands::lineage_save_inner(&state, first, data).unwrap();
+    let after = commands::lineage_get_inner(&state, first).unwrap().unwrap();
+    assert_eq!(after.graph.nodes[0].title, "我改的");
+    assert!(after.graph.nodes[0].user_edited);
+    assert_eq!(after.graph.nodes[0].x, Some(50.0));
 }

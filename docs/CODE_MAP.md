@@ -43,6 +43,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
 | 问书没回复 / 一直"思考中" | `ai_request` 表 `reading:<topic>:<clientMsgId>` 行的 status/error;用户消息 `reading_message.status`(failed → 气泡有「重试」);「取消」只是停止等待,后端照常落库 | `core/src/reading_chat.rs::send_message`;`web/src/features/reader/ReadingChatPanel.tsx` |
 | 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |
+| 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>` 行;"先读一部分再生成"= 无已读章(`up_to_seq` 对应 spine 无 idx≤ 的章);`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
@@ -123,6 +124,7 @@ select * from setting;
 | `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
 | `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
+| ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,`layout.ts` 分层布局)| 点节点改名·改摘要·删节点 → `lineageSave`(保留手改);hidden 不卸载 |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession` | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
 | `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试) | — |
@@ -174,8 +176,9 @@ select * from setting;
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
 | `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
+| `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`generate`(已读章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>`,非事务)、`get`(带 current_seq)、`save`(保留 up_to_seq 与手改)、`parse_graph`(清洗:空标题/重 id/悬空自环边/截 40) | lineage_graph |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
-| `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt` | — |
+| `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON) | — |
 
 **Schema 演进**:v1 基础八表 → v2 计划唯一索引 → v3 `book_single_active` + 子表补外键 → v4 `map_revision/import_state`、`spine_item`、`block_anchor(exact|chapter_fallback)`、`map_job`、`ai_request`、`session_turn`、`projection_outbox`、会话 `state/version/client_request_id/verdict_*` → v5 `extra_kind`、`study_minutes` → v6 `feynman_session.book_id`(终评唯一)→ v7 outbox `lane/next_retry_at` → v8 `reader_mark`。**只做加法**(重建 `feynman_session` 会级联删光回合)。
 

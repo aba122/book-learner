@@ -143,6 +143,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'readingSend', command: 'reading_send', payloadKeys: ['bookId', 'topicId', 'clientMsgId', 'text', 'quote', 'spineHref', 'blockId'] },
       { method: 'readingTopicEnd', command: 'reading_topic_end', payloadKeys: ['topicId'] },
       { method: 'readingDistill', command: 'reading_distill', payloadKeys: ['topicId'] },
+      { method: 'lineageGet', command: 'lineage_get', payloadKeys: ['bookId'] },
+      { method: 'lineageGenerate', command: 'lineage_generate', payloadKeys: ['bookId'] },
+      { method: 'lineageSave', command: 'lineage_save', payloadKeys: ['bookId', 'graph'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
@@ -424,5 +427,28 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     await expect(b.readingSend({ bookId: 1, topicId: null, clientMsgId: 'q3', text: '   ', quote: '', spineHref: '', blockId: null })).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(b.readingMessages(999)).rejects.toMatchObject({ code: 'not_found' })
     await expect(b.readingSend({ bookId: 999, topicId: null, clientMsgId: 'q4', text: 'x', quote: '', spineHref: '', blockId: null })).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('脉络图:生成→取回→手改保存→保留手改;删书级联(plan 2026-09-19)', async () => {
+    const b = new MockBackend()
+    expect(await b.lineageGet(1)).toBeNull()
+    const g = await b.lineageGenerate(1)
+    expect(g.graph.nodes).toHaveLength(2)
+    expect(g.graph.edges).toHaveLength(1)
+    expect(g.generatedAt).not.toBeNull()
+    expect(g.currentSeq).toBeGreaterThanOrEqual(g.upToSeq)
+    const got = (await b.lineageGet(1))!
+    expect(got.graph.nodes[0].title).toBe('生产者社会')
+    const edited = structuredClone(got.graph)
+    edited.nodes[0].title = '我改的'
+    edited.nodes[0].userEdited = true
+    edited.nodes[0].x = 42
+    await b.lineageSave(1, edited)
+    const after = (await b.lineageGet(1))!
+    expect(after.graph.nodes[0]).toMatchObject({ title: '我改的', userEdited: true, x: 42 })
+    expect(after.upToSeq).toBe(g.upToSeq) // save 不改覆盖进度
+    await expect(b.lineageGenerate(999)).rejects.toMatchObject({ code: 'not_found' })
+    await b.deleteBook(1, '2026-09-19')
+    expect(await b.lineageGet(1)).toBeNull()
   })
 })

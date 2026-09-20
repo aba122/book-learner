@@ -34,7 +34,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 当前 schema 版本(快照恢复只接受 ≤ 此版本的库)。
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -76,6 +76,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 9 {
         tx.execute_batch(SCHEMA_V9)?;
         tx.pragma_update(None, "user_version", 9)?;
+    }
+    if v < 10 {
+        tx.execute_batch(SCHEMA_V10)?;
+        tx.pragma_update(None, "user_version", 10)?;
     }
     tx.commit()
 }
@@ -339,6 +343,16 @@ CREATE INDEX reading_message_topic ON reading_message(topic_id, id);
 CREATE UNIQUE INDEX reading_message_client ON reading_message(topic_id, client_msg_id) WHERE client_msg_id IS NOT NULL;
 "#;
 
+/// v10(脉络图,plan 2026-09-19):按阅读进度合成的一张图/书;graph_json 内含 nodes/edges 与 userEdited 标记
+const SCHEMA_V10: &str = r#"
+CREATE TABLE lineage_graph(
+  id INTEGER PRIMARY KEY,
+  book_id INTEGER NOT NULL UNIQUE REFERENCES book(id) ON DELETE CASCADE,
+  up_to_seq INTEGER NOT NULL DEFAULT 0,
+  graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+  generated_at TEXT, updated_at TEXT NOT NULL);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -385,7 +399,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 9);
+        assert_eq!(v, 10);
         for t in [
             "book",
             "knowledge_block",
@@ -660,7 +674,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -794,7 +808,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -844,7 +858,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         for t in [
             "spine_item",
             "block_anchor",
@@ -899,7 +913,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1075,7 +1089,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v6_and_v5_rows_survive() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         assert!(has_column(&conn, "feynman_session", "book_id"));
         let idx: i64 = conn
             .query_row(
@@ -1106,7 +1120,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
         let book_id: Option<i64> = conn
             .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
@@ -1125,13 +1139,13 @@ mod tests {
         conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
         drop(conn);
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 9);
+        assert_eq!(user_version(&again), 10);
     }
 
     #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1205,7 +1219,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 9);
+        assert_eq!(user_version(&conn), 10);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1230,7 +1244,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 9);
+        assert_eq!(user_version(&again), 10);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 
@@ -1240,7 +1254,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 9);
+        assert_eq!(v, 10);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1276,5 +1290,37 @@ mod tests {
             .query_row("SELECT count(*) FROM reading_message", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0, "删书级联到消息");
+    }
+
+    #[test]
+    fn v10_creates_lineage_graph_with_cascade() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 10);
+        let book = crate::models::insert_book(
+            &conn,
+            "书",
+            "",
+            crate::models::BookType::Humanities,
+            "bk-lineage",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO lineage_graph(book_id,up_to_seq,graph_json,updated_at) VALUES(?1,3,'{\"nodes\":[],\"edges\":[]}','2026-09-19T00:00:00Z')",
+            [book],
+        )
+        .unwrap();
+        // 每书唯一
+        assert!(conn
+            .execute(
+                "INSERT INTO lineage_graph(book_id,up_to_seq,graph_json,updated_at) VALUES(?1,4,'{}','2026-09-19T00:00:01Z')",
+                [book],
+            )
+            .is_err());
+        conn.execute("DELETE FROM book WHERE id=?1", [book])
+            .unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM lineage_graph", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "删书级联到脉络图");
     }
 }

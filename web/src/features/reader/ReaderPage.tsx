@@ -14,6 +14,7 @@ import type { HighlightColor, KnowledgeBlock, ReaderMark } from '../../types'
 import EpubView, { type EpubHandle, type ReaderTheme, type ReaderTypography, type SelectionInfo } from './EpubView'
 import MarksPanel from './MarksPanel'
 import ReadingChatPanel from './ReadingChatPanel'
+import LineagePanel from './lineage/LineagePanel'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
   { name: 'paper', label: '纸白', swatchClass: 'bg-paper-2 border-line' },
@@ -101,7 +102,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
   /** 右栏标签(spec 2026-09-16):有任务默认学习模式,否则只有「问书」 */
-  const [sideTab, setSideTab] = useState<'learn' | 'chat'>(taskId !== null ? 'learn' : 'chat')
+  const [sideTab, setSideTab] = useState<'learn' | 'chat' | 'lineage'>(taskId !== null ? 'learn' : 'chat')
   /** BL-014:问书面板加宽切换 */
   const [chatWide, setChatWide] = useState(false)
   const [quoteDraft, setQuoteDraft] = useState<string | null>(null)
@@ -505,12 +506,12 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 className="my-auto mr-0 cursor-pointer rounded-l-m border border-line bg-paper-2 px-1.5 py-6 text-xs text-ink-3 shadow-card hover:text-ink-1"
                 onClick={() => setPanelOpen(true)}
               >
-                {learning && sideTab === 'learn' ? '学习模式' : '问书'}
+                {sideTab === 'learn' ? '学习模式' : sideTab === 'lineage' ? '脉络图' : '问书'}
               </button>
             )}
             {/* BL-017:收起只隐藏、不卸载,进行中的问书对话与「思考中」跨收起保留 */}
             <div hidden={!panelOpen}>
-              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'chat' ? (chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96') : 'w-72'}`}>
+              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'learn' ? 'w-72' : chatWide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1 rounded-m bg-paper-1 p-0.5" role="tablist" aria-label="侧栏">
                     {learning && (
@@ -531,12 +532,20 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     >
                       <span aria-hidden>💬</span>问书
                     </button>
+                    <button
+                      role="tab"
+                      aria-selected={sideTab === 'lineage'}
+                      className={`flex cursor-pointer items-center gap-1 rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'lineage' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
+                      onClick={() => setSideTab('lineage')}
+                    >
+                      <span aria-hidden>🗺</span>脉络图
+                    </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    {sideTab === 'chat' && (
+                    {sideTab !== 'learn' && (
                       <button
                         className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-                        aria-label={chatWide ? '收窄对话' : '放大对话'}
+                        aria-label={`${chatWide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
                         onClick={() => setChatWide(w => !w)}
                       >
                         {chatWide ? '⇥ 收窄' : '⇤ 放大'}
@@ -581,6 +590,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     quoteDraft={quoteDraft}
                     onQuoteConsumed={() => setQuoteDraft(null)}
                   />
+                </div>
+                {/* 脉络图(plan 2026-09-19):按进度合成图;收起只隐藏、不卸载,保留手改草稿 */}
+                <div hidden={sideTab !== 'lineage'} className="flex min-h-0 flex-1 flex-col" data-testid="lineage-panel">
+                  <LineagePanel bookId={block.bookId} />
                 </div>
               </Card>
             </div>

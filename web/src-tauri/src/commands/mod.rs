@@ -141,6 +141,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ),
     ("reading_topic_end", &["topicId"]),
     ("reading_distill", &["topicId"]),
+    ("lineage_get", &["bookId"]),
+    ("lineage_generate", &["bookId"]),
+    ("lineage_save", &["bookId", "graph"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1529,4 +1532,59 @@ pub async fn reading_distill<R: tauri::Runtime>(
     let result = reading_distill_inner(&state, topic_id)?;
     replay_projection_after(app, "阅读提炼");
     Ok(result)
+}
+
+// ---- 脉络图(plan 2026-09-19)----
+
+pub fn lineage_get_inner(
+    state: &AppState,
+    book_id: i64,
+) -> Result<Option<book_learner_core::lineage::LineageGraph>, IpcError> {
+    run_command(state, "lineage_get", || {
+        application::lineage_get(state, book_id)
+    })
+}
+
+pub fn lineage_generate_inner(
+    state: &AppState,
+    book_id: i64,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    run_command(state, "lineage_generate", || {
+        application::lineage_generate(state, book_id)
+    })
+}
+
+pub fn lineage_save_inner(
+    state: &AppState,
+    book_id: i64,
+    graph: book_learner_core::lineage::LineageGraphData,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    run_command(state, "lineage_save", || {
+        application::lineage_save(state, book_id, graph)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn lineage_get(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<Option<book_learner_core::lineage::LineageGraph>, IpcError> {
+    lineage_get_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_generate(
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    lineage_generate_inner(&state, book_id)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_save(
+    state: State<'_, AppState>,
+    book_id: i64,
+    graph: book_learner_core::lineage::LineageGraphData,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    lineage_save_inner(&state, book_id, graph)
 }

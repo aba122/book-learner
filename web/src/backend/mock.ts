@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -127,6 +127,8 @@ export class MockBackend implements Backend {
   private readingTopicRows: ReadingTopic[] = []
   private readingMessageRows: ReadingMessage[] = []
   private nextReadingId = 1
+  /** 脉络图:每书一张当前图(plan 2026-09-19) */
+  private lineageRows = new Map<number, { upToSeq: number; graph: LineageGraphData; generatedAt: string | null; updatedAt: string }>()
   private settings: AppSettings = { ...APP_DEFAULTS }
   private profile: Profile = {
     background: '经济学本科,读过曼昆《经济学原理》', mastered: '- 供需曲线与均衡', pitfalls: '- 容易把弹性和斜率混为一谈', context: '在做平台定价的研究,想把弹性分析用到实验设计上',
@@ -294,6 +296,7 @@ export class MockBackend implements Backend {
     this.readingTopicRows = this.readingTopicRows.filter(t => t.bookId !== bookId)
     this.readingMessageRows = this.readingMessageRows.filter(m => !topicIds.has(m.topicId))
     this.spines.delete(bookId)
+    this.lineageRows.delete(bookId)
     for (const [id, s] of this.v2Sessions) if (blockIds.has(s.blockId) || s.bookId === bookId) this.v2Sessions.delete(id)
     this.snapshots = [{ name: `app-${date}.db`, date, bytes: 204800 }, ...this.snapshots.filter(s => s.date !== date)]
   }
@@ -774,6 +777,34 @@ export class MockBackend implements Backend {
     const topic = this.readingTopicRows.find(t => t.id === topicId)
     if (!topic) throw notFound()
     return { distilled: this.mockDistill(topic) }
+  }
+
+  // ---- 脉络图(plan 2026-09-19):与 core::lineage 同语义;生成用固定小图 ----
+  private lineageView(bookId: number): LineageGraph {
+    const row = this.lineageRows.get(bookId)!
+    return { bookId, upToSeq: row.upToSeq, currentSeq: row.upToSeq, graph: structuredClone(row.graph), generatedAt: row.generatedAt, updatedAt: row.updatedAt }
+  }
+  async lineageGet(bookId: number): Promise<LineageGraph | null> {
+    return this.lineageRows.has(bookId) ? this.lineageView(bookId) : null
+  }
+  async lineageGenerate(bookId: number): Promise<LineageGraph> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    const now = new Date().toISOString()
+    const graph: LineageGraphData = {
+      nodes: [
+        { id: 'a', title: '生产者社会', summary: '以工作定义身份', kind: '阶段', blockIds: [], spineHrefs: ['chap1.xhtml'], x: null, y: null, userEdited: false },
+        { id: 'b', title: '消费者社会', summary: '以消费定义身份', kind: '阶段', blockIds: [], spineHrefs: ['chap2.xhtml'], x: null, y: null, userEdited: false },
+      ],
+      edges: [{ from: 'a', to: 'b', label: '转向' }],
+    }
+    this.lineageRows.set(bookId, { upToSeq: 1, graph, generatedAt: now, updatedAt: now })
+    return this.lineageView(bookId)
+  }
+  async lineageSave(bookId: number, graph: LineageGraphData): Promise<LineageGraph> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    const prev = this.lineageRows.get(bookId)
+    this.lineageRows.set(bookId, { upToSeq: prev?.upToSeq ?? 0, graph: structuredClone(graph), generatedAt: prev?.generatedAt ?? null, updatedAt: new Date().toISOString() })
+    return this.lineageView(bookId)
   }
 
   // ---- 诊断:固定信息;前端事件记录在内存供用例断言 ----
