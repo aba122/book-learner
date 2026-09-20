@@ -655,3 +655,11 @@
 - 前端 `features/reader/lineage/`:`layout.ts` 分层 DAG 布局纯函数(最长路径分层、同层居中、成环退化不死循环、保留手改坐标)+ 6 单测;`LineageGraph.tsx` 底层 SVG 贝塞尔连线 + 绝对定位卡片节点(主题感知,CSS 变量);`LineagePanel.tsx` 空态生成 / 看图 / 点节点改名·改摘要·删节点 / 保存手改 + 2 组件测试。`ReaderPage` sideTab 增 `'lineage'`,🗺 脉络图 药丸标签 + 面板(hidden 不卸载),复用「放大/收窄」(aria-label 对话态才带"对话")。
 - **取舍**:本批手改仅改名/改摘要/删节点(拖动定位、加节点、连线编辑、AI 修正入第二批);「重新生成」直接覆盖(增量保留手改为第二批);节点详情里「看原文」「问一问」占位待第二批。
 - 门禁(Linux 侧):core lib 187 通过/1 ignored(+6 lineage/v10);web 384/2 skipped(+layout 6、+LineagePanel 2、+契约/解码用例)、tsc、oxlint 0、build。foundation/clippy/mac-foundation 待 Mac 门禁与真 codex 实测。
+
+## 2026-09-20 · 脉络图优化一批(review 后)
+- 起因:批次一装机后用户要"仔细 review 还有没有可优化美化的";按"该修 → 视觉 → 交互 → 生成质量"列了清单,先做前两组。
+- **该修**:①"覆盖到第 8 章"实为 spine 序号 +1(封面/版权/目录也占号),真实书读到 part0006 是第二章——`LineageGraph` 增 `upToTitle/currentTitle`(取 `spine_item.title`),前端显示"覆盖到:第二章 …";②喂 AI 的"已读章节"混着封面/书名页/版权/目录/分部页——`generate` 加 `is_content_chapter`(标题命中关键字或正文 <200 字的剔除),全被剔则仍报"先阅读一部分";③连线锚点用固定 88px、卡片实际更高,箭头从卡片中间冒出——`layout(graph, heights)` 按真实 DOM 高度定层距与锚点,`LineageGraph` 用 ref 回调 + ResizeObserver 量高(jsdom 无 RO 只量一次);④「重新生成」静默覆盖手改——有 `userEdited` 或未落库改动时先弹行内确认(显示手改处数);⑤未保存手改离开即丢——去掉「保存手改」按钮,改为 800 ms 防抖自动保存(`LINEAGE_AUTOSAVE_MS`),卸载时补写,生成前清掉待写(避免旧图覆盖新图/与生成锁冲突);保存后 working 以本地为准,不用服务端清洗后的副本回填(否则正在清空重打的标题会从画布上消失)。
+- **视觉**:进脉络图标签默认放大(`lineageWide`,与问书宽窄各记各的);节点按性质配左侧色条与徽标(阶段 new / 主题 review / 概念 ok / 转折 warn / 事件 weak);阅读顺序编号;手改过标 ✎;连线标签加纸色描边(`paint-order: stroke`);生成中显示计时 + 骨架卡片。
+- **生成质量**:`LineageNode` 增 `detail`(1–3 句给详情框,`summary` ≤30 字给卡片);prompt 要求节点按书中先后排列、每节点至少一个 `spineHrefs`、边要连成主线、`kind` 放宽为 阶段|主题|概念|转折|事件;`parse_graph` 拆出 `clean_graph`,AI 一条边不给时按顺序串链;`save` 也走 `clean_graph`(空标题/重 id/悬空边清掉,但不串链)。
+- **暂缓(第二批)**:节点详情做成浮层/抽屉(现在仍在画布下方)、整体缩放、键盘导航。
+- 门禁:core lib 191/1 ignored(+4 lineage);web 388/2(layout +2、LineagePanel 重写 4 条)、tsc、oxlint 0、build。
