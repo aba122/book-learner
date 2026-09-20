@@ -90,7 +90,7 @@ echo "artifact=$(sql "select id,kind,length(content_md) from artifact where kind
 sleep 4; ls $D/memory/books/*/; head -8 $D/memory/books/*/_report.md; git -C $D/memory log --oneline | head -3
 
 echo "== §2 导出到 Obsidian $(ts)"
-a go /library >/dev/null; a wait "导出到 Obsidian" 30 >/dev/null; a click "导出到 Obsidian" exact >/dev/null
+a go /library >/dev/null; a wait "的更多操作" 30 >/dev/null; a click "的更多操作" >/dev/null; sleep 0.5; a wait "导出到 Obsidian" 10 >/dev/null; a click "导出到 Obsidian" exact >/dev/null
 a wait "确认导出" 30 >/dev/null; a js "const d=document.querySelector('[aria-label=\"导出到 Obsidian\"]'); return d.innerText.split('\n').slice(0,10).join(' | ')"
 dclick "导出到 Obsidian" "确认导出" >/dev/null; a wait "在 Finder 中显示" 60 >/dev/null
 a js "const d=document.querySelector('[aria-label=\"导出到 Obsidian\"]'); return d.innerText.split('\n').filter(l=>/写入|未变|个文件/.test(l)).join(' | ')"

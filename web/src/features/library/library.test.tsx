@@ -70,6 +70,12 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+/** 视觉改版第二批:卡片操作收进「更多操作」菜单 */
+async function openMenu(user: ReturnType<typeof userEvent.setup>, title: string) {
+  await user.click(screen.getByRole('button', { name: `《${title}》的更多操作` }))
+  return screen.findByRole('menu')
+}
+
 describe('单主攻书补完(M2 T8)', () => {
   it('暂停书显示"计划冻结 · 复习照常";标记为已学完经确认调用 finishBook 并更新徽标', async () => {
     const user = userEvent.setup()
@@ -83,9 +89,9 @@ describe('单主攻书补完(M2 T8)', () => {
     expect(screen.getByText('已暂停')).toBeInTheDocument()
     expect(screen.getByText('计划冻结 · 复习照常')).toBeInTheDocument()
 
-    const buttons = screen.getAllByRole('button', { name: '标记为已学完' })
-    await user.click(buttons[buttons.length - 1])
-    const dialog = screen.getByRole('dialog', { name: '标记为已学完?' })
+    await openMenu(user, '系统之美')
+    await user.click(screen.getByRole('menuitem', { name: '标记为已学完' }))
+    const dialog = await screen.findByRole('dialog', { name: '标记为已学完?' })
     expect(dialog).toHaveTextContent('复习照常')
     await user.click(within(dialog).getByRole('button', { name: '标记为已学完' }))
     expect(finishBook).toHaveBeenCalledWith(bookId)
@@ -178,7 +184,9 @@ describe('书架页', () => {
     const user = userEvent.setup()
     const deleteBook = vi.spyOn(backendModule.backend, 'deleteBook')
     renderLibrary()
-    await user.click(await screen.findByRole('button', { name: '删除《微观经济学》' }))
+    await screen.findByText('微观经济学')
+    await openMenu(user, '微观经济学')
+    await user.click(screen.getByRole('menuitem', { name: '删除《微观经济学》' }))
     const dialog = await screen.findByRole('dialog', { name: '删除《微观经济学》?' })
     expect(dialog).toHaveTextContent('删除前会更新今日快照')
     await user.click(within(dialog).getByRole('button', { name: '删除' }))
@@ -192,7 +200,8 @@ describe('书架页', () => {
     await backendModule.backend.importEpub(new File(['epub'], '半途.epub', { type: 'application/epub+zip' }), 'textbook')
     renderLibrary()
     expect(await screen.findByText('导入未完成')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '删除《半途》' }))
+    await openMenu(user, '半途')
+    await user.click(screen.getByRole('menuitem', { name: '删除《半途》' }))
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(screen.queryByText('半途')).toBeNull())
     expect(screen.getByText('微观经济学')).toBeInTheDocument()
@@ -385,7 +394,8 @@ describe('书架 · 导出到 Obsidian(M3 T2)', () => {
     const reveal = vi.spyOn(backendModule.backend, 'exportReveal')
     renderLibrary()
     expect(await screen.findByText('微观经济学')).toBeInTheDocument()
-    await user.click(screen.getAllByRole('button', { name: '导出到 Obsidian' })[0])
+    await openMenu(user, '微观经济学')
+    await user.click(screen.getByRole('menuitem', { name: '导出到 Obsidian' }))
     const dialog = await screen.findByRole('dialog', { name: '导出到 Obsidian' })
     expect(preview).toHaveBeenCalledWith(1)
     const files = await within(dialog).findByTestId('export-files')
@@ -402,7 +412,8 @@ describe('书架 · 导出到 Obsidian(M3 T2)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     preview.mockResolvedValueOnce({ target: '/nope', targetExists: false, dir: '/nope/微观经济学', files: ['微观经济学/00-学习报告.md'] })
-    await user.click(screen.getAllByRole('button', { name: '导出到 Obsidian' })[0])
+    await openMenu(user, '微观经济学')
+    await user.click(screen.getByRole('menuitem', { name: '导出到 Obsidian' }))
     const again = await screen.findByRole('dialog', { name: '导出到 Obsidian' })
     expect(await within(again).findByRole('alert')).toHaveTextContent('目录不存在')
     expect(within(again).getByRole('button', { name: '确认导出' })).toBeDisabled()
@@ -414,7 +425,8 @@ describe('书架 · 导出到 Obsidian(M3 T2)', () => {
       .mockRejectedValueOnce(new BackendError({ code: 'io_failure', message: '无法访问本地文件', retryable: true }))
     renderLibrary()
     expect(await screen.findByText('微观经济学')).toBeInTheDocument()
-    await user.click(screen.getAllByRole('button', { name: '导出到 Obsidian' })[0])
+    await openMenu(user, '微观经济学')
+    await user.click(screen.getByRole('menuitem', { name: '导出到 Obsidian' }))
     const dialog = await screen.findByRole('dialog', { name: '导出到 Obsidian' })
     await within(dialog).findByTestId('export-files')
     await user.click(within(dialog).getByRole('button', { name: '确认导出' }))

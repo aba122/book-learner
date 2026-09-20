@@ -4,7 +4,9 @@ import { backend } from '../../backend'
 import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Card from '../../components/Card'
+import Dialog from '../../components/Dialog'
+import Icon from '../../components/icons/Icon'
+import ProgressBar from '../../components/ProgressBar'
 import { anchorBlocks } from '../../epub/anchorBlocks'
 import { extractSpine, openEpub } from '../../epub/extract'
 import { newClientId } from '../../lib/ids'
@@ -40,6 +42,10 @@ async function extractChapters(file: File, onProgress: (label: string) => void):
   }
 }
 
+/**
+ * 导入向导(视觉改版第二批):Dialog 原语(忙态不可关);拖放区可键盘触发;
+ * 三种书型是大行按钮;忙态用不定进度条 + 进度文案(文案钉在测试里,不改)。
+ */
 export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
@@ -48,6 +54,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
   const [progress, setProgress] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
   const importedBookId = useRef<number | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   // 导入 → 抽取 spine → storeSpine → 地图作业(进度)为一个操作;每步成果记进 attempt,失败重试只重跑未完成的步骤
   const importOp = useBackendOperation(
@@ -89,12 +96,11 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
   const busy = importOp.pending.has('import')
   const failure = importOp.errors.get('import')
 
-  if (!open) return null
-
   const close = () => {
     if (busy) return
     importOp.clearError('import')
     setFile(null)
+    setPdfName(null)
     setProgress(null)
     setAttempt(null)
     onClose()
@@ -111,99 +117,106 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
     runAttempt({ file, type, jobId: newClientId() })
   }
 
+  const stage = busy ? 'busy' : failure && attempt ? 'failed' : !file ? 'pick' : 'type'
+  const title = stage === 'busy' ? '导入书籍' : stage === 'failed' ? '导入未完成' : stage === 'pick' ? '导入 EPUB' : '这是哪一类书?'
+  const description =
+    stage === 'failed' && attempt
+      ? `《${attempt.file.name.replace(/\.epub$/i, '')}》· ${TYPES.find(t => t.type === attempt.type)?.label}`
+      : stage === 'pick'
+        ? '选择一本书,交给 AI 拆分知识地图'
+        : stage === 'type' && file
+          ? `《${file.name.replace(/\.epub$/i, '')}》——类型决定拆块与讲授的模板`
+          : undefined
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="导入书籍"
-      className="fixed inset-0 z-50 flex items-center justify-center"
+    <Dialog
+      open={open}
+      title={title}
+      label="导入书籍"
+      closeButton={false}
+      description={description}
+      size="lg"
+      dismissible={!busy}
+      onClose={close}
+      footer={
+        stage === 'failed' ? (
+          <Button onClick={close}>关闭</Button>
+        ) : stage === 'pick' ? (
+          <Button onClick={close}>取消</Button>
+        ) : stage === 'type' ? (
+          <>
+            <Button onClick={() => setFile(null)}>重选文件</Button>
+            <Button onClick={close}>取消</Button>
+          </>
+        ) : undefined
+      }
     >
-      <div className="absolute inset-0 bg-ink-1/25" onClick={busy ? undefined : close} />
-      <Card className="relative w-130 max-w-[92vw] p-8 shadow-pop">
-        {busy ? (
-          <div className="py-6 text-center">
-            <div
-              aria-hidden
-              className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-line border-t-new"
+      {stage === 'busy' ? (
+        <div className="py-4" aria-busy="true">
+          <ProgressBar label="导入进度" value={null} />
+          <p className="mt-4 font-serif text-title3 text-label-1">{progress ?? '正在处理…'}</p>
+          <p className="mt-1 text-callout text-label-3">AI 正在通读目录并拆分知识块,请稍候</p>
+        </div>
+      ) : stage === 'failed' && failure && attempt ? (
+        <AsyncError error={failure} onRetry={() => runAttempt(attempt)} />
+      ) : stage === 'pick' ? (
+        <>
+          <label
+            tabIndex={0}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                fileInput.current?.click()
+              }
+            }}
+            className="flex cursor-pointer flex-col items-center gap-2 rounded-l border-2 border-dashed border-sep bg-inset px-6 py-10 text-center transition-colors duration-[var(--dur-fast)] hover:border-accent focus-visible:border-accent"
+          >
+            <Icon name="doc-plus" size={28} className="text-label-3" />
+            <span className="font-serif text-title3 text-label-1">选择 EPUB 文件</span>
+            <span className="text-footnote text-label-3">点击浏览本机文件(.epub;PDF 请先转成 EPUB)</span>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".epub,.pdf"
+              className="sr-only"
+              onChange={e => {
+                const picked = e.target.files?.[0] ?? null
+                if (picked && /\.pdf$/i.test(picked.name)) {
+                  setPdfName(picked.name)
+                  setFile(null)
+                } else {
+                  setPdfName(null)
+                  setFile(picked)
+                }
+              }}
             />
-            <p className="font-serif text-lg text-ink-1">{progress ?? '正在处理…'}</p>
-            <p className="mt-2 text-xs text-ink-3">AI 正在通读目录并拆分知识块,请稍候</p>
-          </div>
-        ) : failure && attempt ? (
-          <>
-            <h2 className="font-serif text-xl font-semibold text-ink-1">导入未完成</h2>
-            <p className="mt-1 text-sm text-ink-3">
-              《{attempt.file.name.replace(/\.epub$/i, '')}》· {TYPES.find(t => t.type === attempt.type)?.label}
-            </p>
-            <div className="mt-6">
-              <AsyncError error={failure} onRetry={() => runAttempt(attempt)} />
+          </label>
+          {pdfName && (
+            <div role="alert" className="mt-4 rounded-m bg-inset px-4 py-3 text-body leading-relaxed text-label-2">
+              《{pdfName.replace(/\.pdf$/i, '')}》是 PDF。攻书目前只读 EPUB,请先用 Calibre 转换后再导入(终端执行):
+              <code className="mt-2 block select-all rounded-s bg-card px-3 py-2 font-mono text-footnote text-label-1">
+                ebook-convert "{pdfName}" "{pdfName.replace(/\.pdf$/i, '')}.epub" --enable-heuristics
+              </code>
+              <span className="mt-2 block text-footnote text-label-3">扫描版 PDF 没有文字层,需先 OCR;转换说明与常见问题见仓库 docs/pdf-import.md。</span>
             </div>
-            <div className="mt-5 flex justify-end">
-              <Button onClick={close}>关闭</Button>
-            </div>
-          </>
-        ) : !file ? (
-          <>
-            <h2 className="font-serif text-xl font-semibold text-ink-1">导入 EPUB</h2>
-            <p className="mt-1 text-sm text-ink-3">选择一本书,交给 AI 拆分知识地图</p>
-            <label className="mt-6 block cursor-pointer rounded-l border-2 border-dashed border-line bg-paper-1 px-6 py-12 text-center transition-colors hover:border-new hover:bg-paper-3/40">
-              <span className="font-serif text-lg text-ink-2">选择 EPUB 文件</span>
-              <span className="mt-1 block text-xs text-ink-4">点击浏览本机文件(.epub;PDF 请先转成 EPUB)</span>
-              <input
-                type="file"
-                accept=".epub,.pdf"
-                className="sr-only"
-                onChange={e => {
-                  const picked = e.target.files?.[0] ?? null
-                  if (picked && /\.pdf$/i.test(picked.name)) {
-                    setPdfName(picked.name)
-                    setFile(null)
-                  } else {
-                    setPdfName(null)
-                    setFile(picked)
-                  }
-                }}
-              />
-            </label>
-            {pdfName && (
-              <div role="alert" className="mt-4 rounded-m bg-paper-3/60 px-4 py-3 text-sm leading-relaxed text-ink-2">
-                《{pdfName.replace(/\.pdf$/i, '')}》是 PDF。攻书目前只读 EPUB,请先用 Calibre 转换后再导入(终端执行):
-                <code className="mt-2 block select-all rounded-s bg-paper-1 px-3 py-2 text-xs text-ink-1">
-                  ebook-convert "{pdfName}" "{pdfName.replace(/\.pdf$/i, '')}.epub" --enable-heuristics
-                </code>
-                <span className="mt-2 block text-xs text-ink-4">扫描版 PDF 没有文字层,需先 OCR;转换说明与常见问题见仓库 docs/pdf-import.md。</span>
-              </div>
-            )}
-            <div className="mt-5 flex justify-end">
-              <Button onClick={close}>取消</Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <h2 className="font-serif text-xl font-semibold text-ink-1">这是哪一类书?</h2>
-            <p className="mt-1 text-sm text-ink-3">
-              《{file.name.replace(/\.epub$/i, '')}》——类型决定拆块与讲授的模板
-            </p>
-            <div className="mt-6 flex flex-col gap-3">
-              {TYPES.map(t => (
-                <button
-                  key={t.type}
-                  aria-label={t.label}
-                  onClick={() => chooseType(t.type)}
-                  className="cursor-pointer rounded-m border border-line bg-paper-1 px-5 py-4 text-left transition-colors hover:border-new hover:bg-paper-3/40"
-                >
-                  <span className="font-serif text-base font-medium text-ink-1">{t.label}</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{t.desc}</span>
-                </button>
-              ))}
-            </div>
-            <div className="mt-5 flex justify-between">
-              <Button onClick={() => setFile(null)}>重选文件</Button>
-              <Button onClick={close}>取消</Button>
-            </div>
-          </>
-        )}
-      </Card>
-    </div>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {TYPES.map(t => (
+            <button
+              key={t.type}
+              type="button"
+              aria-label={t.label}
+              onClick={() => chooseType(t.type)}
+              className="cursor-pointer rounded-m border border-sep bg-card px-4 py-3 text-left transition-colors duration-[var(--dur-fast)] hover:border-accent hover:bg-fill-hover"
+            >
+              <span className="font-serif text-title3 font-medium text-label-1">{t.label}</span>
+              <span className="mt-0.5 block text-callout leading-relaxed text-label-2">{t.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Dialog>
   )
 }

@@ -4,7 +4,7 @@ import { BackendError } from '../../backend/errors'
 import Button from '../../components/Button'
 import { READING_POLL_MAX_MS, READING_POLL_MS, READING_QUOTE_MAX_CHARS, READING_TEXT_MAX_CHARS } from '../../config'
 import type { ReadingMessage, ReadingTopic } from '../../types'
-import Markdown from './markdown'
+import Markdown from '../../components/Markdown'
 
 /** clientMsgId:过 outboundClientId(字母数字 . _ -,≤ 64) */
 function newClientMsgId(): string {

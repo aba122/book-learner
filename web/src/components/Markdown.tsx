@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { type Inline, parseBlocks, parseInline } from './markdownParse'
+import { type Inline, parseBlocks, parseInline } from '../lib/markdownParse'
 
 /** 轻量 Markdown 渲染(BL-015):把解析结果渲染成 React 元素,不用 dangerouslySetInnerHTML(React 自动转义)。 */
 
