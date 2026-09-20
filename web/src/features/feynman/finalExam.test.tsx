@@ -142,3 +142,21 @@ describe('整书终评(M3 T1)', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^学习报告:/)
   })
 })
+
+describe('视觉改版第三批:终评页', () => {
+  it('终评工具栏含「生成学习报告」;报告用 Markdown 渲染(二级标题成段落,只有一个 h1)', async () => {
+    await passAllBlocks()
+    await renderAt('/final/1')
+    const toolbar = screen.getByRole('toolbar', { name: '终评工具栏' })
+    expect(within(toolbar).getByRole('button', { name: '生成学习报告' })).toBeDisabled()
+    const box = screen.getByRole('textbox', { name: '终评输入' })
+    for (const text of ['全书分三个模块', '价格上限会造成短缺']) {
+      fireEvent.change(box, { target: { value: text } })
+      await click(screen.getByRole('button', { name: '发送' }))
+    }
+    await click(screen.getByRole('button', { name: '生成学习报告' }))
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByText('最强模块').tagName).not.toBe('PRE')
+    expect(screen.getByText(/能用弹性解释定价决策/).closest('li')).not.toBeNull()
+  })
+})

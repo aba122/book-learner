@@ -5,8 +5,13 @@ import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
+import Markdown from '../../components/Markdown'
 import PageHeader from '../../components/PageHeader'
+import Skeleton from '../../components/Skeleton'
+import Spinner from '../../components/Spinner'
 import Tag from '../../components/Tag'
+import Textarea from '../../components/Textarea'
+import Toolbar, { ToolbarSpacer } from '../../components/Toolbar'
 import { FINAL_EXAM_MIN_ANSWERS, FINAL_EXAM_REQUEST_ID, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT } from '../../config'
 import { newClientId } from '../../lib/ids'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
@@ -41,14 +46,17 @@ export default function FinalExamPage() {
 
   if (init.data === null) {
     return (
-      <div className="mx-auto max-w-3xl px-10 py-12">
-        <PageHeader title="整书终评" subtitle="先讲全书框架,再答跨章节综合题" />
-        <Card className="p-6">
-          {init.error
-            ? <AsyncError error={init.error} onRetry={init.reload} />
-            : <p className="text-sm text-ink-3">正在准备终评…</p>}
-          <div className="mt-4 flex justify-end"><Button onClick={() => navigate('/library')}>返回书架</Button></div>
-        </Card>
+      <div className="flex h-full min-h-0 flex-col">
+        <Toolbar aria-label="终评工具栏" />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[40rem] px-8 pt-6 pb-16">
+            <PageHeader title="整书终评" subtitle="先讲全书框架,再答跨章节综合题" />
+            {init.error
+              ? <AsyncError error={init.error} onRetry={init.reload} />
+              : <div aria-busy="true" className="rounded-l border border-sep bg-card p-4"><Skeleton lines={4} /></div>}
+            <div className="mt-6 flex justify-end"><Button onClick={() => navigate('/library')}>返回书架</Button></div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -132,47 +140,56 @@ function ExamRoom({ session }: { session: ExamSession }) {
 
   if (report) {
     return (
-      <div className="mx-auto max-w-3xl px-10 py-12">
-        <PageHeader
-          title={`学习报告:${book.title}`}
-          subtitle={`总体掌握度 ${report.overall}/5 · 最强:${report.strongestModule} · 最弱:${report.weakestModule}`}
-          actions={<Button variant="primary" onClick={() => navigate('/library')}>返回书架</Button>}
-        />
-        <Card className="p-6">
-          <div className="mb-3 flex items-center gap-3">
-            <Tag tone="ok">已学完</Tag>
-            <span data-testid="final-overall" aria-label={`${report.overall} 星`} className="text-review">
-              {'★'.repeat(report.overall)}<span className="text-ink-4">{'☆'.repeat(Math.max(0, 5 - report.overall))}</span>
-            </span>
+      <div className="flex h-full min-h-0 flex-col">
+        <Toolbar aria-label="终评工具栏">
+          <ToolbarSpacer />
+          <Button size="sm" variant="primary" onClick={() => navigate('/library')}>返回书架</Button>
+        </Toolbar>
+        <div className="min-h-0 flex-1 overflow-y-auto @container">
+          <div className="mx-auto w-full max-w-[48rem] px-8 pt-6 pb-16">
+            <PageHeader
+              title={`学习报告:${book.title}`}
+              subtitle={`总体掌握度 ${report.overall}/5 · 最强:${report.strongestModule} · 最弱:${report.weakestModule}`}
+            />
+            <Card className="p-6">
+              <div className="mb-4 flex items-center gap-3">
+                <Tag tone="ok">已学完</Tag>
+                <span data-testid="final-overall" role="img" aria-label={`${report.overall} 星`} className="text-callout tracking-wider text-review">
+                  {'★'.repeat(report.overall)}<span className="text-label-4">{'☆'.repeat(Math.max(0, 5 - report.overall))}</span>
+                </span>
+              </div>
+              <div className="font-reading text-body leading-relaxed text-label-1">
+                <Markdown text={report.contentMd.split('\n').slice(1).join('\n').trim()} />
+              </div>
+              <p className="mt-5 border-t border-sep pt-3 text-footnote text-label-3">报告已写入学习档案,并归档到记忆库 books/{book.slug}/_report.md;本书已标记为已学完(间隔复习照常)。</p>
+            </Card>
           </div>
-          <pre className="whitespace-pre-wrap text-sm leading-relaxed text-ink-1">{report.contentMd.split('\n').slice(1).join('\n').trim()}</pre>
-          <p className="mt-4 text-xs text-ink-3">报告已写入学习档案,并归档到记忆库 books/{book.slug}/_report.md;本书已标记为已学完(间隔复习照常)。</p>
-        </Card>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-line bg-paper-2/70 px-6 py-3">
-        <Tag tone="new">整书终评</Tag>
-        <h1 className="min-w-0 flex-1 truncate font-serif text-base font-semibold text-ink-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <Toolbar aria-label="终评工具栏">
+        <Tag tone="new" className="shrink-0">整书终评</Tag>
+        <h1 className="min-w-0 flex-1 truncate font-serif text-body font-semibold text-label-1">
           终评:{book.title}
-          <span className="ml-3 text-xs font-normal text-ink-3">{SESSION_HINT.final_exam}</span>
         </h1>
+        <span className="hidden max-w-64 truncate text-footnote text-label-3 @xl:inline">{SESSION_HINT.final_exam}</span>
         <Button
-          variant={readyToEnd ? 'primary' : 'ghost'}
+          size="sm"
+          variant={readyToEnd ? 'primary' : 'secondary'}
           data-ready={readyToEnd ? 'true' : 'false'}
-          className="px-3 py-1.5 text-xs"
           disabled={answers < FINAL_EXAM_MIN_ANSWERS || thinking || finishing}
           onClick={finish}
         >
           {finishing ? '生成报告中…' : '生成学习报告'}
         </Button>
-        <Button className="px-3 py-1.5 text-xs" disabled={finishing} onClick={() => navigate(`/map/${book.id}`)}>回到地图</Button>
-      </header>
+        <Button size="sm" disabled={finishing} onClick={() => navigate(`/map/${book.id}`)}>回到地图</Button>
+      </Toolbar>
       {finishError && (
-        <div className="border-b border-line bg-paper-2/70 px-6 py-3">
+        <div className="border-b border-sep bg-content px-6 py-3">
           <AsyncError error={finishError} onRetry={finish} variant="compact" />
         </div>
       )}
@@ -180,19 +197,20 @@ function ExamRoom({ session }: { session: ExamSession }) {
         <div className="mx-auto flex max-w-2xl flex-col gap-4">
           <TranscriptLines lines={transcript} />
           {thinking && (
-            <div className="flex items-center gap-2.5 self-start text-sm text-ink-3">
+            <div className="flex items-center gap-2.5 self-start text-callout text-label-3">
               <StudentAvatar />
-              考官思考中<span className="animate-pulse">…</span>
+              <Spinner size={14} />
+              <span>考官思考中…</span>
             </div>
           )}
           {sendError && <div className="self-start"><AsyncError error={sendError} onRetry={() => void sendOp.retry('send')} variant="compact" /></div>}
           <div ref={scrollAnchor} />
         </div>
       </div>
-      <div className="border-t border-line bg-paper-2/70 px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-end gap-3">
+      <div className="border-t border-sep bg-content px-6 py-3">
+        <div className="mx-auto flex max-w-2xl items-end gap-2">
           <VoiceInput hint={book.title} disabled={inputLocked} onText={appendDraft} />
-          <textarea
+          <Textarea
             aria-label="终评输入"
             rows={2}
             value={draft}
@@ -205,7 +223,7 @@ function ExamRoom({ session }: { session: ExamSession }) {
                 send()
               }
             }}
-            className="min-h-0 flex-1 resize-none rounded-m border border-line bg-paper-1 px-4 py-2.5 text-sm leading-relaxed text-ink-1 placeholder:text-ink-4 disabled:opacity-60"
+            className="min-h-0 flex-1 resize-none"
           />
           <Button variant="primary" disabled={!draft.trim() || inputLocked} onClick={send}>发送</Button>
         </div>

@@ -176,3 +176,18 @@ describe('统计页 · 三区详情(M2 T7)', () => {
     expect(detail).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('视觉改版第三批:统计页', () => {
+  it('图表经 aria-describedby 指向读屏数据表;工具栏带存在;hero 标签唯一', async () => {
+    render(<StatsPage />)
+    const effort = await screen.findByTestId('section-effort')
+    const chart = within(effort).getByRole('img', { name: '近 14 天每日投入分钟' })
+    const tableId = chart.getAttribute('aria-describedby')!
+    const table = document.getElementById(tableId)!
+    expect(table.tagName).toBe('TABLE')
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(14)
+    expect(within(effort).getByRole('img', { name: '打卡日历' })).toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('toolbar', { name: '统计工具栏' })).toBeInTheDocument()
+    expect(screen.getAllByText('攻克进度')).toHaveLength(1)
+  })
+})

@@ -551,3 +551,32 @@ describe('StrictMode 下的 opener(开发构建模拟卸载→重挂载)', () =>
     expect(screen.getByRole('textbox')).not.toBeDisabled()
   })
 })
+
+describe('视觉改版第三批:讲授页', () => {
+  it('讲授工具栏含 结束讲授/放弃本次;「原文参考」钮切换侧栏(aria-pressed)', async () => {
+    await renderFeynman()
+    const toolbar = screen.getByRole('toolbar', { name: '讲授工具栏' })
+    expect(within(toolbar).getByRole('button', { name: '结束讲授' })).toBeInTheDocument()
+    expect(within(toolbar).getByRole('button', { name: '放弃本次' })).toBeInTheDocument()
+    expect(within(toolbar).getByRole('heading', { level: 1 })).toHaveTextContent(/^讲授:/)
+    expect(screen.getByRole('complementary', { name: '原文参考' })).toBeInTheDocument()
+    const toggle = within(toolbar).getByRole('button', { name: '原文参考' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await click(toggle)
+    expect(screen.queryByRole('complementary', { name: '原文参考' })).toBeNull()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await click(toggle)
+    expect(screen.getByRole('complementary', { name: '原文参考' })).toBeInTheDocument()
+  })
+
+  it('评估卡是不可关的对话框:Esc 不关闭,焦点困在卡内', async () => {
+    await renderFeynman()
+    await sendOne('需求曲线向右下方倾斜,因为价格上升时需求量减少')
+    await click(screen.getByRole('button', { name: '结束讲授' }))
+    const card = screen.getByRole('dialog', { name: '讲授评估' })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: '讲授评估' })).toBe(card)
+    expect(document.documentElement).toHaveAttribute('data-modal-open')
+    expect(card.contains(document.activeElement)).toBe(true)
+  })
+})

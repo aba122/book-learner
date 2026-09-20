@@ -4,18 +4,26 @@ import { backend } from '../../backend'
 import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Card from '../../components/Card'
 import Confirm from '../../components/Confirm'
+import EmptyState from '../../components/EmptyState'
+import IconButton from '../../components/IconButton'
+import PageHeader from '../../components/PageHeader'
+import Skeleton from '../../components/Skeleton'
+import Spinner from '../../components/Spinner'
 import Tag from '../../components/Tag'
-import { KIND_LABEL, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT, TYPEWRITER_CHAR_MS } from '../../config'
+import Textarea from '../../components/Textarea'
+import Toolbar from '../../components/Toolbar'
+import { FEYNMAN_SOURCE_KEY, KIND_LABEL, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT, TYPEWRITER_CHAR_MS } from '../../config'
 import { newClientId } from '../../lib/ids'
 import { localCalendarDate } from '../../lib/localDate'
+import { useReducedMotion } from '../../lib/motion'
+import { readPref, writePref } from '../../lib/prefs'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { DailyTask, EvalResult, EvaluationView, KnowledgeBlock, SessionView, TurnResult } from '../../types'
 import EvalCard from './EvalCard'
 import ExtraStage from './ExtraStage'
-import TranscriptLines, { StudentAvatar, type Line } from './Transcript'
+import TranscriptLines, { STUDENT_BUBBLE, StudentAvatar, USER_BUBBLE, type Line } from './Transcript'
 import VoiceInput from './VoiceInput'
 
 /**
@@ -68,23 +76,23 @@ export default function FeynmanPage() {
 
   if (init.data === null) {
     return (
-      <div className="flex h-full items-center justify-center px-8 py-12">
-        <Card className="w-full max-w-xl p-8">
-          <h1 className="font-serif text-xl font-semibold text-ink-1">准备费曼讲授</h1>
-          <p className="mt-2 text-sm leading-relaxed text-ink-3">
-            正在读取今日任务、原文和讲授上下文,准备好后即可开始讲授。
-          </p>
-          <div className="mt-6">
+      <div className="flex h-full min-h-0 flex-col">
+        <Toolbar aria-label="讲授工具栏" />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[40rem] px-8 pt-6 pb-16">
+            <PageHeader title="准备费曼讲授" subtitle="正在读取今日任务、原文和讲授上下文,准备好后即可开始讲授。" />
             {init.error ? (
               <AsyncError error={init.error} onRetry={init.reload} />
             ) : (
-              <p className="text-sm text-ink-3">正在准备讲授…</p>
+              <div aria-busy="true" className="rounded-l border border-sep bg-card p-4">
+                <Skeleton lines={4} />
+              </div>
             )}
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => navigate('/')}>返回今日</Button>
+            </div>
           </div>
-          <div className="mt-6 flex justify-end">
-            <Button onClick={() => navigate('/')}>返回今日</Button>
-          </div>
-        </Card>
+        </div>
       </div>
     )
   }
@@ -136,7 +144,13 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const [typingKey, setTypingKey] = useState(0)
   const typingFull = useRef('')
   const [abandonOpen, setAbandonOpen] = useState(false)
-  const [sourceOpen, setSourceOpen] = useState(true)
+  // 原文参考栏开/收:每台设备记住(默认开);HIG 侧栏可隐藏
+  const [sourceOpen, setSourceOpenState] = useState(() => readPref(FEYNMAN_SOURCE_KEY) !== 'closed')
+  const setSourceOpen = (open: boolean) => {
+    setSourceOpenState(open)
+    writePref(FEYNMAN_SOURCE_KEY, open ? 'open' : 'closed')
+  }
+  const reducedMotion = useReducedMotion()
   const scrollAnchor = useRef<HTMLDivElement>(null)
 
   // 发送:id 在触发时生成一次进入 args,重试(hook 复用 lastArgs)即同 id、同旧版本 → 服务端重放/续跑
@@ -151,7 +165,8 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
         if (!reply) return
         setVersion(reply.version)
         typingFull.current = reply.studentText
-        setTyping('')
+        // 减弱动态:不打字机,首拍直接出全文(下方"渐显完成"effect 会把它落入对话流)
+        setTyping(reducedMotion ? reply.studentText : '')
         setTypingKey(k => k + 1)
         if (reply.readyToEnd) setReadyToEnd(true)
       },
@@ -279,144 +294,127 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const endLabel = evaluating ? (ending ? '评估中…' : '继续评估') : ending ? '评估中…' : '结束讲授'
 
   return (
-    <div className="flex h-full">
-      {/* 左:可折叠原文参考 */}
-      {sourceOpen ? (
-        <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-paper-2/60 p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xs font-medium tracking-wide text-ink-3">原文参考</h2>
-            <button
-              className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-              onClick={() => setSourceOpen(false)}
-            >
-              ‹ 收起
-            </button>
-          </div>
-          <p className="overflow-y-auto text-sm leading-loose text-ink-2">{source.text}</p>
-          <p className="mt-4 border-t border-line pt-3 text-xs leading-relaxed text-ink-4">
-            尽量先不看参考;卡住了再瞄一眼,讲完记得把它折起来。
-          </p>
-        </aside>
-      ) : (
-        <button
-          className="shrink-0 cursor-pointer border-r border-line bg-paper-2/60 px-1.5 text-xs text-ink-3 hover:text-ink-1"
-          onClick={() => setSourceOpen(true)}
+    <div className="flex h-full min-h-0 flex-col">
+      <Toolbar aria-label="讲授工具栏">
+        <IconButton icon="sidebar-left" label="原文参考" active={sourceOpen} onClick={() => setSourceOpen(!sourceOpen)} className="-ml-1" />
+        <Tag tone={task.kind === 'new' ? 'new' : 'weak'} className="ml-1 shrink-0">{KIND_LABEL[task.kind]}</Tag>
+        <h1 className="min-w-0 flex-1 truncate font-serif text-body font-semibold text-label-1">
+          {quiz ? '复习' : '讲授'}:{block.title}
+        </h1>
+        {SESSION_HINT[view.kind] && (
+          <span className="hidden max-w-64 truncate text-footnote text-label-3 @xl:inline">{SESSION_HINT[view.kind]}</span>
+        )}
+        <Button size="sm" onClick={() => navigate(`/reader/${block.id}?back=${taskId}`)}>
+          回读原文
+        </Button>
+        <Button
+          size="sm"
+          variant={readyToEnd || evaluating ? 'primary' : 'secondary'}
+          data-ready={readyToEnd ? 'true' : 'false'}
+          disabled={ending || pendingTurn !== null}
+          onClick={endTeaching}
         >
-          原文
-        </button>
+          {endLabel}
+        </Button>
+        <Button size="sm" disabled={anyPending} onClick={() => setAbandonOpen(true)}>
+          放弃本次
+        </Button>
+      </Toolbar>
+
+      {(endError || abandonError) && (
+        <div className="flex flex-col gap-2 border-b border-sep bg-content px-6 py-3">
+          {endError && <AsyncError error={endError} onRetry={() => void endOp.retry('end')} variant="compact" />}
+          {abandonError && (
+            <AsyncError error={abandonError} onRetry={() => void abandonOp.retry('abandon')} variant="compact" />
+          )}
+        </div>
       )}
 
-      {/* 中:对话 */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-line bg-paper-2/70 px-6 py-3">
-          <Tag tone={task.kind === 'new' ? 'new' : 'weak'}>{KIND_LABEL[task.kind]}</Tag>
-          <h1 className="min-w-0 flex-1 truncate font-serif text-base font-semibold text-ink-1">
-            {quiz ? '复习' : '讲授'}:{block.title}
-            {SESSION_HINT[view.kind] && (
-              <span className="ml-3 text-xs font-normal text-ink-3">{SESSION_HINT[view.kind]}</span>
-            )}
-          </h1>
-          <Button
-            className="px-3 py-1.5 text-xs"
-            onClick={() => navigate(`/reader/${block.id}?back=${taskId}`)}
-          >
-            回读原文
-          </Button>
-          <Button
-            variant={readyToEnd || evaluating ? 'primary' : 'ghost'}
-            data-ready={readyToEnd ? 'true' : 'false'}
-            className="px-3 py-1.5 text-xs"
-            disabled={ending || pendingTurn !== null}
-            onClick={endTeaching}
-          >
-            {endLabel}
-          </Button>
-          <Button
-            className="px-3 py-1.5 text-xs"
-            disabled={anyPending}
-            onClick={() => setAbandonOpen(true)}
-          >
-            放弃本次
-          </Button>
-        </header>
-
-        {(endError || abandonError) && (
-          <div className="flex flex-col gap-2 border-b border-line bg-paper-2/70 px-6 py-3">
-            {endError && <AsyncError error={endError} onRetry={() => void endOp.retry('end')} variant="compact" />}
-            {abandonError && (
-              <AsyncError error={abandonError} onRetry={() => void abandonOp.retry('abandon')} variant="compact" />
-            )}
-          </div>
+      <div className="flex min-h-0 flex-1">
+        {/* 左:可隐藏的原文参考栏 */}
+        {sourceOpen && (
+          <aside aria-label="原文参考" className="flex w-72 shrink-0 flex-col border-r border-sep bg-inset/50">
+            <h2 className="px-4 pt-4 pb-2 text-footnote font-medium text-label-3">原文参考</h2>
+            <p className="min-h-0 flex-1 overflow-y-auto px-4 font-reading text-body leading-loose text-label-1">{source.text}</p>
+            <p className="border-t border-sep px-4 py-3 text-footnote leading-relaxed text-label-3">
+              尽量先不看参考;卡住了再瞄一眼,讲完记得把它收起来。
+            </p>
+          </aside>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          <div className="mx-auto flex max-w-2xl flex-col gap-4">
-            {transcript.length === 0 && pendingTurn === null && typing === null && !thinking && (
-              <div className="rounded-m bg-paper-3/50 px-5 py-4 text-sm leading-relaxed text-ink-3">
-                你的学生已经坐好了。用自己的话,把「{block.title}
-                」讲给 TA 听——讲不清的地方,就是要回补的漏洞。
-              </div>
-            )}
-            <TranscriptLines lines={transcript} />
-            {pendingTurn && (
-              <div className="flex flex-col items-end gap-2 self-end">
-                <div className="max-w-md rounded-m rounded-br-s bg-ink-1 px-4 py-2.5 text-sm leading-relaxed text-paper-2 opacity-80">
-                  {pendingTurn.text}
+        {/* 中:对话 */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+            <div className="mx-auto flex max-w-2xl flex-col gap-4">
+              {transcript.length === 0 && pendingTurn === null && typing === null && !thinking && (
+                <EmptyState
+                  compact
+                  emoji="🪑"
+                  title="你的学生已经坐好了。"
+                  body={`用自己的话,把「${block.title}」讲给 TA 听——讲不清的地方,就是要回补的漏洞。`}
+                  className="py-8"
+                />
+              )}
+              <TranscriptLines lines={transcript} />
+              {pendingTurn && (
+                <div className="flex flex-col items-end gap-2 self-end">
+                  <div className={`${USER_BUBBLE} opacity-80`}>{pendingTurn.text}</div>
+                  <AsyncError error={PENDING_TURN_NOTICE()} onRetry={retryPending} variant="compact" />
                 </div>
-                <AsyncError error={PENDING_TURN_NOTICE()} onRetry={retryPending} variant="compact" />
-              </div>
-            )}
-            {thinking && (
-              <div className="flex items-center gap-2.5 self-start text-sm text-ink-3">
-                <StudentAvatar />
-                学生思考中<span className="animate-pulse">…</span>
-              </div>
-            )}
-            {typing !== null && !thinking && (
-              <div className="flex items-start gap-2.5 self-start">
-                <StudentAvatar />
-                <div className="max-w-md rounded-m rounded-tl-s border border-line bg-paper-2 px-4 py-2.5 text-sm leading-relaxed text-ink-1 shadow-card">
-                  {typing}
-                  <span className="animate-pulse text-ink-4">▍</span>
+              )}
+              {thinking && (
+                <div className="flex items-center gap-2.5 self-start text-callout text-label-3">
+                  <StudentAvatar />
+                  <Spinner size={14} />
+                  <span>学生思考中…</span>
                 </div>
-              </div>
-            )}
-            {sendError && (
-              <div className="self-start">
-                <AsyncError error={sendError} onRetry={() => void sendOp.retry('send')} variant="compact" />
-              </div>
-            )}
-            <div ref={scrollAnchor} />
+              )}
+              {typing !== null && !thinking && (
+                <div className="flex items-start gap-2.5 self-start">
+                  <StudentAvatar />
+                  <div className={STUDENT_BUBBLE}>
+                    {typing}
+                    <span className="animate-pulse text-label-3">▍</span>
+                  </div>
+                </div>
+              )}
+              {sendError && (
+                <div className="self-start">
+                  <AsyncError error={sendError} onRetry={() => void sendOp.retry('send')} variant="compact" />
+                </div>
+              )}
+              <div ref={scrollAnchor} />
+            </div>
           </div>
-        </div>
 
-        <div className="border-t border-line bg-paper-2/70 px-6 py-4">
-          <div className="mx-auto flex max-w-2xl items-end gap-3">
-            <VoiceInput hint={block.title} disabled={inputLocked} onText={appendDraft} />
-            <textarea
-              aria-label="复述输入"
-              rows={2}
-              value={draft}
-              disabled={inputLocked}
-              placeholder={
-                evaluating
-                  ? '上次评估被中断,请点"继续评估"'
-                  : pendingTurn
-                    ? '上一条还没送达,先重试发送'
-                    : '用自己的话讲给学生听…(Cmd/Ctrl + Enter 发送)'
-              }
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault()
-                  send()
+          <div className="border-t border-sep bg-content px-6 py-3">
+            <div className="mx-auto flex max-w-2xl items-end gap-2">
+              <VoiceInput hint={block.title} disabled={inputLocked} onText={appendDraft} />
+              <Textarea
+                aria-label="复述输入"
+                rows={2}
+                value={draft}
+                disabled={inputLocked}
+                placeholder={
+                  evaluating
+                    ? '上次评估被中断,请点"继续评估"'
+                    : pendingTurn
+                      ? '上一条还没送达,先重试发送'
+                      : '用自己的话讲给学生听…(Cmd/Ctrl + Enter 发送)'
                 }
-              }}
-              className="min-h-0 flex-1 resize-none rounded-m border border-line bg-paper-1 px-4 py-2.5 text-sm leading-relaxed text-ink-1 placeholder:text-ink-4 disabled:opacity-60"
-            />
-            <Button variant="primary" disabled={!draft.trim() || inputLocked} onClick={send}>
-              发送
-            </Button>
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+                className="min-h-0 flex-1 resize-none"
+              />
+              <Button variant="primary" disabled={!draft.trim() || inputLocked} onClick={send}>
+                发送
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 /**
  * 令牌政策棘轮(视觉改版第一批):
  * label-4(别名 ink-4,#b6ab95 on #f6f1e6 ≈ 2.0:1)只准装饰,不准出现在可点元素上。
- * 基线 17 处(2026-09-20);第二批后剩 2(费曼页,第三批收 0)。只许往下压,不许往上加。
+ * 基线 17 处(2026-09-20);第二批后剩 2,第三批收到 0。只许往下压,不许往上加。
  */
-const MAX_INTERACTIVE_LABEL4_LINES = 2
+const MAX_INTERACTIVE_LABEL4_LINES = 0
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
