@@ -70,7 +70,10 @@
     { "method": "readingMessages", "command": "reading_messages", "payloadKeys": ["topicId"] },
     { "method": "readingSend", "command": "reading_send", "payloadKeys": ["bookId", "topicId", "clientMsgId", "text", "quote", "spineHref", "blockId"] },
     { "method": "readingTopicEnd", "command": "reading_topic_end", "payloadKeys": ["topicId"] },
-    { "method": "readingDistill", "command": "reading_distill", "payloadKeys": ["topicId"] }
+    { "method": "readingDistill", "command": "reading_distill", "payloadKeys": ["topicId"] },
+    { "method": "lineageGet", "command": "lineage_get", "payloadKeys": ["bookId"] },
+    { "method": "lineageGenerate", "command": "lineage_generate", "payloadKeys": ["bookId"] },
+    { "method": "lineageSave", "command": "lineage_save", "payloadKeys": ["bookId", "graph"] }
   ],
   "unsupportedCapabilities": [
     "completeTask"

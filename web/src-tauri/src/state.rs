@@ -153,6 +153,8 @@ pub struct AppState {
     provider_override: Option<SharedProvider>,
     /// 问书:正在处理(发送/提炼/结束)的话题 id,同一话题串行
     reading_busy: Arc<Mutex<HashSet<i64>>>,
+    /// 脉络图:正在生成/保存的 book_id,按书串行
+    lineage_busy: Arc<Mutex<HashSet<i64>>>,
 }
 
 impl AppState {
@@ -178,6 +180,7 @@ impl AppState {
             import,
             jobs: Arc::new(JobRegistry::default()),
             reading_busy: Arc::new(Mutex::new(HashSet::new())),
+            lineage_busy: Arc::new(Mutex::new(HashSet::new())),
             pomodoro: Mutex::new(Machine::new()),
             provider_override: None,
         })
@@ -243,6 +246,10 @@ impl AppState {
     /// 慢命令在调用 core 前 `begin()` 持有守卫;退出时 `wait_idle`。
     pub fn reading_busy(&self) -> &Arc<Mutex<HashSet<i64>>> {
         &self.reading_busy
+    }
+
+    pub fn lineage_busy(&self) -> &Arc<Mutex<HashSet<i64>>> {
+        &self.lineage_busy
     }
 
     pub fn jobs(&self) -> &Arc<JobRegistry> {

@@ -1025,3 +1025,46 @@ pub fn distill_pending_reading_topics(state: &AppState) -> usize {
     }
     done
 }
+
+// ---- 脉络图(阅读进度合成图,plan 2026-09-19)----
+
+use book_learner_core::lineage::{LineageGraph, LineageGraphData};
+
+/// 按 book_id 串行(生成/保存互斥),复用 TopicGuard;忙则 conflict
+fn lock_book(state: &AppState, book_id: i64) -> Result<TopicGuard, IpcError> {
+    let busy = state.lineage_busy().clone();
+    {
+        let mut set = busy
+            .lock()
+            .map_err(|_| IpcError::internal("lineage_busy mutex poisoned"))?;
+        if !set.insert(book_id) {
+            return Err(IpcError::conflict(
+                "脉络图正在处理,请稍等",
+                format!("lineage book {book_id} busy"),
+            ));
+        }
+    }
+    Ok(TopicGuard { busy, id: book_id })
+}
+
+pub fn lineage_get(state: &AppState, book_id: i64) -> Result<Option<LineageGraph>, IpcError> {
+    state
+        .with_connection(|c| book_learner_core::lineage::get(c, book_id))
+        .map_err(Into::into)
+}
+
+pub fn lineage_generate(state: &AppState, book_id: i64) -> Result<LineageGraph, IpcError> {
+    let _guard = lock_book(state, book_id)?;
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::lineage::generate(&connection, provider.as_ref(), state.memory_root(), &policy, book_id)
+        .map_err(Into::into)
+}
+
+pub fn lineage_save(state: &AppState, book_id: i64, graph: LineageGraphData) -> Result<LineageGraph, IpcError> {
+    let _guard = lock_book(state, book_id)?;
+    state
+        .with_connection(|c| book_learner_core::lineage::save(c, book_id, &graph))
+        .map_err(Into::into)
+}

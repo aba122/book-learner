@@ -98,6 +98,9 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::reading_send,
         commands::reading_topic_end,
         commands::reading_distill,
+        commands::lineage_get,
+        commands::lineage_generate,
+        commands::lineage_save,
         commands::automation_report,
     ])
 }
