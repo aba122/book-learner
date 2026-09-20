@@ -43,7 +43,7 @@
   --fill-selected: rgb(34 28 20 / 0.09);
 
   /* ── 强调(控件专用)── */
-  --accent: #3b5aa6;         /* 5.8:1;白字 6.6:1 */
+  --accent: #3b5aa6;         /* 5.8:1;白字 6.6:1。Mac 实测 WKWebView 的 AccentColor 关键字解析成 currentColor,不跟随系统强调色 */
   --focus-ring: var(--accent);
   --selection-bg: color-mix(in srgb, var(--accent) 28%, transparent);
 
@@ -138,14 +138,6 @@
   --shadow-pop: var(--elev-popover);
 }
 
-/* 跟随系统强调色(WebKit 16.4+);不支持时保持上面的靛色回退 */
-@supports (color: AccentColor) {
-  :root {
-    --accent: AccentColor;
-    --label-on-accent: AccentColorText;
-  }
-}
-
 [data-theme='dark'] {
   color-scheme: dark;
 
@@ -190,13 +182,6 @@
   --elev-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
   --elev-popover: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 8px 24px rgb(0 0 0 / 0.5);
   --elev-sheet: 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 24px 64px rgb(0 0 0 / 0.6);
-}
-
-@supports (color: AccentColor) {
-  [data-theme='dark'] {
-    --accent: AccentColor;
-    --label-on-accent: AccentColorText;
-  }
 }
 
 /* 增强对比度:分隔线与三级文字加深 */
