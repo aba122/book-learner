@@ -668,3 +668,10 @@
 - Mac 实测优化批时发现:副本库里已有你在正式版生成的图(`lineage:1:s7` done),点「重新生成」瞬间"完成"、无骨架、`detail` 全空——`run_ai_json` 以 request_id 为幂等键,同一进度的 id 固定,直接重放了 07:43 的旧结果,codex 根本没被调。CI/单测都用新库测不出。
 - 修法:`generate` 先数 `ai_request` 里同前缀的行数作尝试号,id 改为 `lineage:<book>:s<seq>:r<n>`;单测「同进度连生成两次 provider 被调两次、第二次结果入库」。老 id(无 `:r`)按前缀计数也算在内。
 - 门禁:core lib 192/1 ignored(+1)。
+
+## 2026-09-20 · 脉络图第二批(增量更新 / AI 修正 / 看原文 / 问一问 / 投影与导出 / 浮层缩放键盘)
+- core `lineage.rs`:`update`(旧图 + 只喂新读的正文章节 → AI 出完整图 → `merge_preserving`:userEdited 节点整体覆盖同 id、被 AI 删的补回原位、触及它们的旧边保留;进度没前进 → InvalidInput;新进度里没正文章 → 只推进 up_to_seq)、`revise`(现图 + 指令(可聚焦节点)→ 完整图;内容有变/新增的节点标 userEdited——读者要求的修正在增量更新时保留;指令空/>2000 字拒绝)、`node_source`(章节标题 + 块标题 + 首章 600 字节选)、`render_markdown`(`_lineage.md` 与导出共用)。请求 id 都带尝试号(BL-022 同款)。生成/更新/修正/保存统一在 `upsert` 末尾入队 `sync_lineage`,op_id 带图 JSON 的 FNV 哈希:同内容幂等、不同内容不被 INSERT OR IGNORE 吞。
+- 投影 `sync_lineage` → `memory.sync_lineage` 整文件重生成 `books/<slug>/_lineage.md`(INDEX 说明补 `_lineage.md`,老记忆库幂等补);导出多一份 `02-脉络图.md`(有图才出)。
+- 壳层:`lineage_update[bookId]`、`lineage_revise[bookId,nodeId,instruction]`、`lineage_node_source[bookId,nodeId]`(共 77 命令);生成/保存/更新/修正命令成功后 `spawn_blocking(run_startup_recovery)` 排空 outbox。foundation:EngineMock 两分支、wire 三条(update 前给 first 再落一章并推进位置)、roundtrip 补 update 保留手改 / revise 标记 / node_source / outbox 待办。
+- 前端:`LineagePanel` 读到更后面显示「已读到「x」」+「更新到最新进度」(增量,不弹确认;重生成确认框顺带提示可用更新);「✎ 让 AI 按我的理解修正」折叠区(选中节点则只改它);节点详情改为画布内底部浮层(不再挤矮画布),里面「看原文:章节」→ `epubRef.display(href)`、「问一问这部分」→ 标题+摘要+详情作 quoteDraft 切到问书;`LineageGraph` 加缩放条(−/+/适配,scale 变换,量高不受影响)与键盘导航(←→↑↓/Home/End 按阅读顺序选节点、Esc 取消;`preventDefault` 让 ReaderPage 的翻页监听让路,ReaderPage 检查 `defaultPrevented`)。Mock 加 `lineageBehind` 开关模拟"读到更后面"。
+- 门禁:core lib 201/1 ignored(+7);web 392/2(LineagePanel +4、契约/解码用例)、tsc、oxlint 0、build。foundation/clippy 待 CI。

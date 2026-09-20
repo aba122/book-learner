@@ -124,7 +124,7 @@ select * from setting;
 | `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
 | `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
-| ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,按真实卡高布局,`layout.ts`)| 点节点改名·摘要·详情·删节点 → 800 ms 防抖 `lineageSave`,卸载补写;有手改时重新生成先确认;hidden 不卸载 |
+| ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,按真实卡高布局,`layout.ts`)| 点节点开底部浮层:改名·摘要·详情·删节点 → 800 ms 防抖 `lineageSave`,卸载补写;「看原文」`lineageNodeSource` → `epubRef.display`;「问一问」→ quoteDraft 切问书;读到更后面 →「更新到最新进度」`lineageUpdate`;「让 AI 按我的理解修正」`lineageRevise`;缩放/方向键选节点;hidden 不卸载 |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession` | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
 | `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试) | — |
@@ -176,9 +176,9 @@ select * from setting;
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
 | `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
-| `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`is_content_chapter`(剔封面/版权/目录/分部页与 <200 字页)、`generate`(已读正文章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>:r<n>`(n=同前缀已有行数,否则同进度重生成会重放旧结果),非事务)、`get`(带 current_seq 与两端章节标题)、`save`(清洗后保留 up_to_seq)、`clean_graph`(空标题/重 id/悬空自环边/截 40;AI 无边时串链) | lineage_graph |
+| `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`is_content_chapter`(剔封面/版权/目录/分部页与 <200 字页)、`generate`(已读正文章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>:r<n>`(n=同前缀已有行数,否则同进度重生成会重放旧结果),非事务)、`get`(带 current_seq 与两端章节标题)、`save`(清洗后保留 up_to_seq)、`update`(只喂新读章节,`merge_preserving` 保留 userEdited 节点与其旧边)、`revise`(指令 + 可聚焦节点,改动节点标 userEdited)、`node_source`(章节/块/节选)、`render_markdown`;`clean_graph`(空标题/重 id/悬空自环边/截 40;AI 无边时串链);所有写库经 `upsert` 入队 `sync_lineage`(op_id 带内容哈希) | lineage_graph |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
-| `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON) | — |
+| `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON)、`lineage_update_prompt`(旧图 + 新章,userEdited 不许改)、`lineage_revise_prompt`(指令 + 现图) | — |
 
 **Schema 演进**:v1 基础八表 → v2 计划唯一索引 → v3 `book_single_active` + 子表补外键 → v4 `map_revision/import_state`、`spine_item`、`block_anchor(exact|chapter_fallback)`、`map_job`、`ai_request`、`session_turn`、`projection_outbox`、会话 `state/version/client_request_id/verdict_*` → v5 `extra_kind`、`study_minutes` → v6 `feynman_session.book_id`(终评唯一)→ v7 outbox `lane/next_retry_at` → v8 `reader_mark`。**只做加法**(重建 `feynman_session` 会级联删光回合)。
 
@@ -188,7 +188,7 @@ select * from setting;
 
 **超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、`--version` 10。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
 
-**投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`sync_reading`(`_reading.md`,问书提炼,op_id 带消息水位 `reading:<book>:t<topic>:m<id>`)、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
+**投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`sync_reading`(`_reading.md`,问书提炼,op_id 带消息水位 `reading:<book>:t<topic>:m<id>`)、`sync_lineage`(`_lineage.md`,脉络图,op_id `lineage:<book>:h<hash>`)、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
 
 **测试**:`cargo test --manifest-path core/Cargo.toml --all-targets`(单测 167 + 集成 29:`tests/foundation.rs`、`lifecycle.rs`、`m1_engine.rs`);`#[ignore]` 的 `codex_real_smoke` 需本机 codex。
 
