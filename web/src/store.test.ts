@@ -34,3 +34,73 @@ describe('会话 store:夜读模式持久化(BL-003)', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
   })
 })
+
+describe('外观跟随系统(视觉改版第一批)', () => {
+  type Listener = (e: { matches: boolean }) => void
+  function stubMatchMedia(dark: boolean) {
+    const listeners: Listener[] = []
+    const mql = {
+      matches: dark,
+      addEventListener: (_: string, fn: Listener) => listeners.push(fn),
+      removeEventListener: () => {},
+    }
+    vi.stubGlobal('matchMedia', vi.fn(() => mql))
+    return {
+      flip(next: boolean) {
+        mql.matches = next
+        listeners.forEach(fn => fn({ matches: next }))
+      },
+    }
+  }
+  beforeEach(() => {
+    vi.resetModules()
+    localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+  })
+
+  it('无持久化值 = 跟随系统:系统深色 → 解析为 dark', async () => {
+    stubMatchMedia(true)
+    const { useSession } = await import('./store')
+    expect(useSession.getState().themePreference).toBe('system')
+    expect(useSession.getState().theme).toBe('dark')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('跟随系统时系统外观切换即刻生效', async () => {
+    const media = stubMatchMedia(false)
+    const { useSession } = await import('./store')
+    expect(useSession.getState().theme).toBe('light')
+    media.flip(true)
+    expect(useSession.getState().theme).toBe('dark')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('手动选浅色时无视系统深色;切回跟随系统会删掉持久化键', async () => {
+    const media = stubMatchMedia(true)
+    const { useSession } = await import('./store')
+    useSession.getState().setTheme('light')
+    expect(localStorage.getItem(THEME_KEY)).toBe('light')
+    expect(useSession.getState().theme).toBe('light')
+    media.flip(false)
+    media.flip(true)
+    expect(useSession.getState().theme).toBe('light')
+    useSession.getState().setTheme('system')
+    expect(localStorage.getItem(THEME_KEY)).toBeNull()
+    expect(useSession.getState().theme).toBe('dark')
+  })
+
+  it('侧栏折叠状态持久化', async () => {
+    const { useSession } = await import('./store')
+    expect(useSession.getState().sidebarCollapsed).toBe(false)
+    useSession.getState().toggleSidebar()
+    expect(useSession.getState().sidebarCollapsed).toBe(true)
+    vi.resetModules()
+    const again = await import('./store')
+    expect(again.useSession.getState().sidebarCollapsed).toBe(true)
+  })
+})

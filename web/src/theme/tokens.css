@@ -25,6 +25,7 @@
   --surface-inset: #ece4d2;                   /* 分段槽、输入框内嵌、hover 底 */
   --surface-popover: #fdfaf2;
   --surface-scrim: rgb(34 28 20 / 0.28);
+  --surface-knob: #ffffff;                    /* 开关钮,亮暗都是白(macOS 惯例) */
 
   /* ── 文字(对比度以 surface-content 为底)── */
   --label-1: #221c14;        /* 15.0:1 */
@@ -156,6 +157,7 @@
   --surface-inset: #2b2619;
   --surface-popover: #2b2619;
   --surface-scrim: rgb(0 0 0 / 0.5);
+  --surface-knob: #ffffff;
 
   --label-1: #e9e1cf;        /* 14.0:1 */
   --label-2: #c3b8a1;        /*  9.3:1 */

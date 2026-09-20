@@ -15,6 +15,7 @@ import EpubView, { type EpubHandle, type ReaderTheme, type ReaderTypography, typ
 import MarksPanel from './MarksPanel'
 import ReadingChatPanel from './ReadingChatPanel'
 import LineagePanel from './lineage/LineagePanel'
+import { isModalOpen } from '../../lib/modalStack'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
   { name: 'paper', label: '纸白', swatchClass: 'bg-paper-2 border-line' },
@@ -151,6 +152,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
       // 脉络图画布用方向键选节点(它会 preventDefault),不翻页
       if (e.defaultPrevented) return
+      // 有对话框开着(components/Dialog 在 <html> 打 data-modal-open)时不翻页
+      if (isModalOpen()) return
       if (e.key === 'ArrowRight') epubRef.current?.next()
       if (e.key === 'ArrowLeft') epubRef.current?.prev()
     }

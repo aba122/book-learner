@@ -12,6 +12,7 @@
   --color-inset: var(--surface-inset);
   --color-popover: var(--surface-popover);
   --color-scrim: var(--surface-scrim);
+  --color-knob: var(--surface-knob);
   --color-label-1: var(--label-1);
   --color-label-2: var(--label-2);
   --color-label-3: var(--label-3);
