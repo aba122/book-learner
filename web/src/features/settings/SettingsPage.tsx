@@ -391,21 +391,27 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
     if (result === 'ok' && revision === formRevision.current) setSaved(true)
   }
 
-  // 滚动跟随:哪个分区标题过了滚动区上沿 1/4 处,左列就点亮谁(jsdom 无 IntersectionObserver → 只响应点击)
+  // 滚动跟随:最后一个"标题已过滚动区上沿 1/4 线"的分区点亮(每次回调按当前几何重算,不存旧值);
+  // 点击后 1s 内忽略回调,免得平滑滚动途中把高亮抢走。jsdom 无 IntersectionObserver → 只响应点击。
+  const pinUntil = useRef(0)
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return
     const root = document.querySelector<HTMLElement>('[data-testid=settings-scroll]')
-    const visible = new Map<string, number>()
+    if (!root) return
     const io = new IntersectionObserver(
-      entries => {
-        for (const e of entries) {
-          if (e.isIntersecting) visible.set(e.target.id, e.boundingClientRect.top)
-          else visible.delete(e.target.id)
+      () => {
+        if (Date.now() < pinUntil.current) return
+        const line = root.getBoundingClientRect().top + root.clientHeight * 0.25
+        let best: SettingsSectionId = SETTINGS_SECTIONS[0].id
+        for (const s of SETTINGS_SECTIONS) {
+          const el = document.getElementById(sectionDomId(s.id))
+          if (el && el.getBoundingClientRect().top <= line + 1) best = s.id
         }
-        const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0]
-        if (top) setActive(top[0].replace('settings-', '') as SettingsSectionId)
+        // 滚到底:末尾的短分区永远过不了 1/4 线,直接点亮最后一个
+        if (root.scrollTop + root.clientHeight >= root.scrollHeight - 2) best = SETTINGS_SECTIONS[SETTINGS_SECTIONS.length - 1].id
+        setActive(best)
       },
-      { root, rootMargin: '-25% 0px -60% 0px' },
+      { root, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] },
     )
     for (const s of SETTINGS_SECTIONS) {
       const el = document.getElementById(sectionDomId(s.id))
@@ -415,6 +421,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
   }, [])
 
   const pick = (id: SettingsSectionId) => {
+    pinUntil.current = Date.now() + 1000
     setActive(id)
     document.getElementById(sectionDomId(id))?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
   }
