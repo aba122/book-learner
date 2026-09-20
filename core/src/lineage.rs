@@ -1151,4 +1151,25 @@ mod tests {
         save(&conn, book, &changed).unwrap();
         assert_eq!(count(&conn), 2, "内容变了才入队新 op");
     }
+
+    #[test]
+    fn sync_lineage_projection_writes_memory_file_and_index_hint() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let m = crate::memory::MemoryStore::init(dir.path()).unwrap();
+        let n = crate::projection::run_pending(&conn, &m).unwrap();
+        assert!(n >= 1);
+        let md = std::fs::read_to_string(dir.path().join("books/poor/_lineage.md")).unwrap();
+        assert!(md.contains("# 《工作与新穷人》阅读脉络图"));
+        assert!(md.contains("覆盖到:第1章"));
+        assert!(md.contains("1. **生产者社会** — 以工作定义身份"));
+        assert!(md.contains("- 生产者社会 →(转向) 消费者社会"));
+        let index = std::fs::read_to_string(dir.path().join("INDEX.md")).unwrap();
+        assert!(index.contains("_lineage.md"));
+        // 再跑一次:无待办,文件不变
+        assert_eq!(crate::projection::run_pending(&conn, &m).unwrap(), 0);
+    }
 }

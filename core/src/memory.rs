@@ -1084,4 +1084,28 @@ mod tests {
         store.remove_book("gone").unwrap(); // 幂等
         assert!(store.remove_book("../etc").is_err());
     }
+
+    #[test]
+    fn sync_lineage_writes_file_and_old_index_gets_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = super::MemoryStore::init(dir.path()).unwrap();
+        // 模拟老记忆库:INDEX 没有 _lineage.md 说明
+        let index_path = dir.path().join("INDEX.md");
+        let old = std::fs::read_to_string(&index_path).unwrap().replace(
+            "`_lineage.md` 阅读脉络图(读者按进度梳理的主线,含手改)、",
+            "",
+        );
+        assert!(!old.contains("_lineage.md"));
+        std::fs::write(&index_path, old).unwrap();
+        m.ensure_book("micro", "微观经济学").unwrap();
+        assert!(std::fs::read_to_string(&index_path)
+            .unwrap()
+            .contains("`_lineage.md` 阅读脉络图、"));
+        m.sync_lineage("micro", "# 图\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("books/micro/_lineage.md")).unwrap(),
+            "# 图\n"
+        );
+        assert!(m.sync_lineage("../x", "#").is_err());
+    }
 }

@@ -614,4 +614,34 @@ mod tests {
             "keep"
         );
     }
+
+    #[test]
+    fn plan_includes_lineage_file_only_when_graph_exists() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let (book, _) = seed(&conn);
+        let before = plan(&conn, book, Path::new("/vault")).unwrap();
+        assert!(!before
+            .files
+            .iter()
+            .any(|f| f.rel_path.ends_with("02-脉络图.md")));
+        let data = crate::lineage::LineageGraphData {
+            nodes: vec![crate::lineage::LineageNode {
+                id: "a".into(),
+                title: "供需".into(),
+                summary: "价格调节".into(),
+                ..Default::default()
+            }],
+            edges: vec![],
+        };
+        crate::lineage::save(&conn, book, &data).unwrap();
+        let after = plan(&conn, book, Path::new("/vault")).unwrap();
+        let f = after
+            .files
+            .iter()
+            .find(|f| f.rel_path.ends_with("02-脉络图.md"))
+            .expect("lineage export file");
+        assert!(f.content.starts_with("---\n"));
+        assert!(f.content.contains("kind: lineage"));
+        assert!(f.content.contains("1. **供需** — 价格调节"));
+    }
 }
