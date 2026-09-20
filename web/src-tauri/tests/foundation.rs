@@ -2459,7 +2459,9 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             }),
             "lineage_get" => json!({"bookId": first}),
             "lineage_generate" => json!({"bookId": first}),
-            "lineage_save" => json!({"bookId": first, "graph": {"nodes":[{"id":"a","title":"手改节点","summary":"x","userEdited":true}],"edges":[]}}),
+            "lineage_save" => {
+                json!({"bookId": first, "graph": {"nodes":[{"id":"a","title":"手改节点","summary":"x","userEdited":true}],"edges":[]}})
+            }
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
                 let sent = commands::reading_send_inner(
@@ -3056,8 +3058,10 @@ fn lineage_roundtrip_through_commands() {
     let (state, _mock) = state_with_mock(&directory.path().join("lineage.db"));
     let (first, _second, _block) = seed_books(&state);
     seed_map(&state, first); // 落一章 spine(ch0.xhtml, idx0)→ 无位置时 progress_seq=0 有已读章
-    // 无图时 get 返回 None
-    assert!(commands::lineage_get_inner(&state, first).unwrap().is_none());
+                             // 无图时 get 返回 None
+    assert!(commands::lineage_get_inner(&state, first)
+        .unwrap()
+        .is_none());
     // 生成(EngineMock 出图)
     let g = commands::lineage_generate_inner(&state, first).unwrap();
     assert_eq!(g.graph.nodes.len(), 2);

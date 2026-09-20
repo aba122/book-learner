@@ -1058,11 +1058,21 @@ pub fn lineage_generate(state: &AppState, book_id: i64) -> Result<LineageGraph, 
     let _job = state.jobs().begin();
     let (provider, policy) = state.ai_provider()?;
     let connection = state.open_connection()?;
-    book_learner_core::lineage::generate(&connection, provider.as_ref(), state.memory_root(), &policy, book_id)
-        .map_err(Into::into)
+    book_learner_core::lineage::generate(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        book_id,
+    )
+    .map_err(Into::into)
 }
 
-pub fn lineage_save(state: &AppState, book_id: i64, graph: LineageGraphData) -> Result<LineageGraph, IpcError> {
+pub fn lineage_save(
+    state: &AppState,
+    book_id: i64,
+    graph: LineageGraphData,
+) -> Result<LineageGraph, IpcError> {
     let _guard = lock_book(state, book_id)?;
     state
         .with_connection(|c| book_learner_core::lineage::save(c, book_id, &graph))

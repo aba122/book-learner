@@ -1540,14 +1540,18 @@ pub fn lineage_get_inner(
     state: &AppState,
     book_id: i64,
 ) -> Result<Option<book_learner_core::lineage::LineageGraph>, IpcError> {
-    run_command(state, "lineage_get", || application::lineage_get(state, book_id))
+    run_command(state, "lineage_get", || {
+        application::lineage_get(state, book_id)
+    })
 }
 
 pub fn lineage_generate_inner(
     state: &AppState,
     book_id: i64,
 ) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
-    run_command(state, "lineage_generate", || application::lineage_generate(state, book_id))
+    run_command(state, "lineage_generate", || {
+        application::lineage_generate(state, book_id)
+    })
 }
 
 pub fn lineage_save_inner(
@@ -1555,7 +1559,9 @@ pub fn lineage_save_inner(
     book_id: i64,
     graph: book_learner_core::lineage::LineageGraphData,
 ) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
-    run_command(state, "lineage_save", || application::lineage_save(state, book_id, graph))
+    run_command(state, "lineage_save", || {
+        application::lineage_save(state, book_id, graph)
+    })
 }
 
 #[tauri::command(async)]
