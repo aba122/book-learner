@@ -123,10 +123,10 @@ a go /settings >/dev/null; a wait "立即快照" 30 >/dev/null; a js "return doc
 echo "books after restore=$(sql "select count(*) from book") blocks=$(sql "select count(*) from knowledge_block")"
 
 echo "== §7 codex 路径设置 $(ts)"
-a type 'input[id="field-codex 可执行路径"]' "codex" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1; a text | grep -m1 "绝对路径"
-CODEX=$(which codex); a type 'input[id="field-codex 可执行路径"]' "$CODEX" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1
+a type 'input#codex-bin' "codex" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1; a text | grep -m1 "绝对路径"
+CODEX=$(which codex); a type 'input#codex-bin' "$CODEX" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1
 a js "return document.querySelector('[data-testid=codex-status]')?.innerText"; sql "select value from setting where key='codexBin'"
-a type 'input[id="field-codex 可执行路径"]' "" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1; sql "select count(*) from setting where key='codexBin'"
+a type 'input#codex-bin' "" >/dev/null; a click "保存路径" exact >/dev/null; sleep 1; sql "select count(*) from setting where key='codexBin'"
 
 a quit >/dev/null; sleep 2
 echo "GATE-M3-DONE"

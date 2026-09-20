@@ -366,9 +366,9 @@ const EpubView = forwardRef<
       <div ref={pointerRef} className="bl-pointer" data-testid="pointer-layer" aria-hidden />
       {!ready && (
         <div data-testid="epub-skeleton" className="pointer-events-none absolute inset-0 flex flex-col gap-3 px-16 py-14" aria-hidden>
-          <div className="h-5 w-1/3 animate-pulse rounded-s bg-paper-3" />
+          <div className="h-5 w-1/3 animate-pulse rounded-s bg-inset" />
           {[92, 100, 96, 88, 100, 70].map((w, i) => (
-            <div key={i} className="h-3.5 animate-pulse rounded-s bg-paper-3" style={{ width: `${w}%` }} />
+            <div key={i} className="h-3.5 animate-pulse rounded-s bg-inset" style={{ width: `${w}%` }} />
           ))}
         </div>
       )}

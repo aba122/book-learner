@@ -435,3 +435,35 @@ describe('设置页 · 外观(视觉改版第一批)', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
   })
 })
+
+describe('设置页 · 分区导航(视觉改版第三批)', () => {
+  it('左列六个分区,点「画像」滚到分区并标为当前;工具栏带里有「保存」', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    render(<SettingsPage />)
+    await screen.findByLabelText('番茄钟(分钟)')
+    const nav = screen.getByRole('navigation', { name: '设置分区' })
+    expect(within(nav).getAllByRole('button').map(b => b.textContent)).toEqual(['通用', 'AI 与导出', '语音', '画像', '数据', '诊断'])
+    expect(within(nav).getByRole('button', { name: '通用' })).toHaveAttribute('aria-current', 'true')
+    await user.click(within(nav).getByRole('button', { name: '画像' }))
+    expect(scrollIntoView).toHaveBeenCalled()
+    expect(within(nav).getByRole('button', { name: '画像' })).toHaveAttribute('aria-current', 'true')
+    expect(within(nav).getByRole('button', { name: '通用' })).not.toHaveAttribute('aria-current')
+    const toolbar = screen.getByRole('toolbar', { name: '设置工具栏' })
+    expect(within(toolbar).getByRole('button', { name: '保存' })).toBeInTheDocument()
+    // 六个分区全部渲染(不隐藏),标题顺序固定
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['通用', 'AI 与导出', '语音', '学习者画像', '数据', '诊断'])
+  })
+
+  it('校验提示仍是 role=alert,分区里的行是分组列表', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    const pomo = await screen.findByLabelText('番茄钟(分钟)')
+    await user.clear(pomo)
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入正整数')
+    const general = screen.getByRole('region', { name: '通用' })
+    expect(within(general).getByRole('radiogroup', { name: '外观' })).toBeInTheDocument()
+    expect(within(general).getByLabelText('提醒时间')).toBeInTheDocument()
+  })
+})

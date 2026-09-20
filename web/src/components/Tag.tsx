@@ -6,8 +6,8 @@ const TONE: Record<TagTone, string> = {
   weak: 'bg-weak-soft text-weak',
   review: 'bg-review-soft text-review',
   new: 'bg-new-soft text-new',
-  ok: 'bg-paper-3 text-ok',
-  neutral: 'bg-paper-3 text-ink-3',
+  ok: 'bg-inset text-ok',
+  neutral: 'bg-inset text-label-3',
 }
 
 export default function Tag({

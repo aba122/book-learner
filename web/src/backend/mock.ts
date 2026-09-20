@@ -780,7 +780,10 @@ export class MockBackend implements Backend {
   /** 与 core distill_topic 同语义:有新回复才提炼,标记 distilledAt(第二批) */
   private mockDistill(topic: ReadingTopic): boolean {
     if (!this.readingNeedsDistill(topic)) return false
-    topic.distilledAt = new Date().toISOString()
+    // 回复的 createdAt 比发送时刻晚 1ms(见 readingSend);同一毫秒内结束话题时 distilledAt 不能落在回复之前,否则仍算"待整理"(CI 快机器上曾偶发)
+    const last = this.readingMessageRows.filter(m => m.topicId === topic.id && m.role === 'assistant' && m.status === 'done').at(-1)
+    const now = new Date().toISOString()
+    topic.distilledAt = last && last.createdAt > now ? last.createdAt : now
     return true
   }
   async readingTopicEnd(topicId: number): Promise<{ distilled: boolean }> {

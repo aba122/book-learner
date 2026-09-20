@@ -117,25 +117,6 @@
   --reader-night-bg: #171512;
   --reader-night-ink: #cfc6b3;
 
-  /* ── 兼容别名(第三批末删除)── */
-  --ink-1: var(--label-1);
-  --ink-2: var(--label-2);
-  --ink-3: var(--label-3);
-  --ink-4: var(--label-4);
-  --paper-1: var(--surface-content);
-  --paper-2: var(--surface-card);
-  --paper-3: var(--surface-inset);
-  --line: var(--separator);
-  --c-weak: var(--signal-weak);
-  --c-review: var(--signal-review);
-  --c-new: var(--signal-new);
-  --c-weak-soft: var(--signal-weak-soft);
-  --c-review-soft: var(--signal-review-soft);
-  --c-new-soft: var(--signal-new-soft);
-  --c-ok: var(--signal-ok);
-  --c-warn: var(--signal-warn);
-  --shadow-card: var(--elev-card);
-  --shadow-pop: var(--elev-popover);
 }
 
 [data-theme='dark'] {

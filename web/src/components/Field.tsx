@@ -15,6 +15,7 @@ export default function Field({
   hint,
   error,
   layout = 'row',
+  id: idProp,
   className = '',
   children,
 }: {
@@ -22,10 +23,13 @@ export default function Field({
   hint?: string
   error?: string
   layout?: 'row' | 'stack'
+  /** 固定 id(门禁脚本按 CSS 选择器找控件时用);默认 useId */
+  id?: string
   className?: string
   children: (ctl: FieldControlProps) => ReactNode
 }) {
-  const id = useId()
+  const autoId = useId()
+  const id = idProp ?? autoId
   const hintId = useId()
   const errId = useId()
   const describedBy = [error ? errId : null, hint ? hintId : null].filter(Boolean).join(' ') || undefined

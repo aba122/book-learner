@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { captureMicrophone, type CaptureFn, type Recorder } from '../../audio/pcm'
 import { backend } from '../../backend'
+import Button from '../../components/Button'
+import Icon from '../../components/icons/Icon'
+import IconButton from '../../components/IconButton'
+import Spinner from '../../components/Spinner'
 import { VOICE_MAX_SECONDS } from '../../config'
 import { describeVoiceError, storedVoiceDevice } from './voiceSupport'
 
@@ -110,45 +114,47 @@ export default function VoiceInput({
   const meter = Math.min(1, level * 4)
   return (
     <div className="flex flex-col items-start gap-1" data-testid="voice-input" data-phase={phase}>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         {phase === 'recording' ? (
           <>
             <button
               type="button"
               aria-label="停止录音"
               onClick={() => void finish()}
-              className="flex cursor-pointer items-center gap-2 rounded-m border border-weak bg-weak-soft px-3 py-2 text-sm text-ink-1"
+              className="flex h-7 cursor-pointer items-center gap-2 rounded-full bg-weak-soft pr-3 pl-2.5 text-callout text-label-1 ring-1 ring-weak/40 transition-colors duration-[var(--dur-fast)] hover:ring-weak"
             >
-              <span aria-hidden className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-weak" />
+              <span aria-hidden className="inline-block size-2 animate-pulse rounded-full bg-weak" />
               <span className="tabular-nums">{formatClock(elapsed)}</span>
-              <span aria-hidden className="relative h-1.5 w-12 overflow-hidden rounded-full bg-paper-3">
-                <span data-testid="voice-level" className="absolute inset-y-0 left-0 rounded-full bg-ink-2" style={{ width: `${Math.round(meter * 100)}%` }} />
+              <span aria-hidden className="relative h-1 w-10 overflow-hidden rounded-full bg-card">
+                <span data-testid="voice-level" className="absolute inset-y-0 left-0 rounded-full bg-weak" style={{ width: `${Math.round(meter * 100)}%` }} />
               </span>
+              <Icon name="stop-fill" size={12} className="text-weak" />
             </button>
-            <button type="button" className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={cancel}>
+            <Button variant="ghost" size="sm" onClick={cancel}>
               取消
-            </button>
+            </Button>
           </>
-        ) : (
+        ) : phase === 'transcribing' ? (
           <button
             type="button"
-            aria-label={phase === 'transcribing' ? '转写中' : '语音输入'}
-            title={phase === 'transcribing' ? '本机 whisper 转写中…' : `按一下开始说话,再按一下结束(最长 ${VOICE_MAX_SECONDS} 秒)`}
-            disabled={disabled || phase === 'transcribing'}
-            onClick={() => void start()}
-            className="cursor-pointer rounded-m border border-line px-3 py-2 text-sm text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="转写中"
+            disabled
+            className="flex h-7 cursor-not-allowed items-center gap-1.5 rounded-full bg-inset px-2.5 text-callout text-label-2"
           >
-            {phase === 'transcribing' ? <span className="animate-pulse">转写中…</span> : '🎙'}
+            <Spinner size={14} />
+            转写中…
           </button>
+        ) : (
+          <IconButton icon="mic" label="语音输入" disabled={disabled} onClick={() => void start()} />
         )}
       </div>
       {error && (
-        <span role="alert" className="max-w-md text-xs text-weak">
+        <span role="alert" className="max-w-md text-footnote text-weak">
           {error}
         </span>
       )}
       {notice && !error && (
-        <span role="status" className="text-xs text-ink-4">
+        <span role="status" className="text-footnote text-label-3">
           {notice}
         </span>
       )}
