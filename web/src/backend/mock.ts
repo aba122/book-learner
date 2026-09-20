@@ -782,7 +782,7 @@ export class MockBackend implements Backend {
   // ---- 脉络图(plan 2026-09-19):与 core::lineage 同语义;生成用固定小图 ----
   private lineageView(bookId: number): LineageGraph {
     const row = this.lineageRows.get(bookId)!
-    return { bookId, upToSeq: row.upToSeq, currentSeq: row.upToSeq, graph: structuredClone(row.graph), generatedAt: row.generatedAt, updatedAt: row.updatedAt }
+    return { bookId, upToSeq: row.upToSeq, currentSeq: row.upToSeq, upToTitle: '第二章 从工作伦理到消费美学', currentTitle: '第二章 从工作伦理到消费美学', graph: structuredClone(row.graph), generatedAt: row.generatedAt, updatedAt: row.updatedAt }
   }
   async lineageGet(bookId: number): Promise<LineageGraph | null> {
     return this.lineageRows.has(bookId) ? this.lineageView(bookId) : null
@@ -792,8 +792,8 @@ export class MockBackend implements Backend {
     const now = new Date().toISOString()
     const graph: LineageGraphData = {
       nodes: [
-        { id: 'a', title: '生产者社会', summary: '以工作定义身份', kind: '阶段', blockIds: [], spineHrefs: ['chap1.xhtml'], x: null, y: null, userEdited: false },
-        { id: 'b', title: '消费者社会', summary: '以消费定义身份', kind: '阶段', blockIds: [], spineHrefs: ['chap2.xhtml'], x: null, y: null, userEdited: false },
+        { id: 'a', title: '生产者社会', summary: '以工作定义身份', detail: '工作伦理把有纪律的劳动规定为正常生活的核心。', kind: '阶段', blockIds: [], spineHrefs: ['chap1.xhtml'], x: null, y: null, userEdited: false },
+        { id: 'b', title: '消费者社会', summary: '以消费定义身份', detail: '社会整合的重心转向消费能力与选择。', kind: '转折', blockIds: [], spineHrefs: ['chap2.xhtml'], x: null, y: null, userEdited: false },
       ],
       edges: [{ from: 'a', to: 'b', label: '转向' }],
     }

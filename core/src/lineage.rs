@@ -16,7 +16,10 @@ pub struct LineageNode {
     pub title: String,
     #[serde(default)]
     pub summary: String,
-    /// 节点性质(阶段/主题/概念/事件…),仅作前端配色提示,可空
+    /// 详情(1-3 句,给节点详情框;卡片只放 summary)
+    #[serde(default)]
+    pub detail: String,
+    /// 节点性质(阶段/主题/概念/转折/事件),前端按此配色,可空
     #[serde(default)]
     pub kind: String,
     #[serde(default)]
@@ -58,6 +61,9 @@ pub struct LineageGraph {
     pub up_to_seq: i64,
     /// 当前阅读进度序(> up_to_seq 时前端提示"更新到最新进度")
     pub current_seq: i64,
+    /// 对应章节标题(spine_item.title,可空);spine 序号含封面/目录,直接显示序号会误导
+    pub up_to_title: String,
+    pub current_title: String,
     pub graph: LineageGraphData,
     pub generated_at: Option<String>,
     pub updated_at: String,
@@ -88,17 +94,37 @@ pub fn progress_seq(conn: &Connection, book_id: i64) -> Result<i64> {
     Ok(idx.unwrap_or(0))
 }
 
-/// 去围栏、解析并清洗 graph:去空标题节点、id 去重、边只保留两端都存在的
-pub fn parse_graph(text: &str) -> Result<LineageGraphData> {
-    let t = text.trim();
-    let json = t
-        .strip_prefix("```json")
-        .or_else(|| t.strip_prefix("```"))
-        .and_then(|x| x.strip_suffix("```"))
-        .unwrap_or(t)
-        .trim();
-    let mut g: LineageGraphData =
-        serde_json::from_str(json).map_err(|e| CoreError::Ai(format!("lineage json: {e}")))?;
+fn spine_title(conn: &Connection, book_id: i64, idx: i64) -> Result<String> {
+    Ok(conn
+        .query_row(
+            "SELECT title FROM spine_item WHERE book_id=?1 AND idx=?2",
+            rusqlite::params![book_id, idx],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// 封面/书名页/版权页/目录/分部页不是正文:标题命中关键字或正文太短的都不喂给 AI
+fn is_content_chapter(c: &crate::mapgen::SpineChapter) -> bool {
+    const JUNK: [&str; 8] = [
+        "封面",
+        "书名页",
+        "版权",
+        "目录",
+        "cover",
+        "copyright",
+        "contents",
+        "toc",
+    ];
+    let title = c.title.trim().to_lowercase();
+    let short = c.text.chars().count() < 200;
+    !short && !JUNK.iter().any(|k| title.contains(k))
+}
+
+/// 清洗 graph:去空标题节点、id 去重、边只保留两端都存在且非自环的、截到上限;
+/// `chain_if_no_edges`:AI 一条边都没给时按节点顺序串成链(手改保存不做)
+pub fn clean_graph(mut g: LineageGraphData, chain_if_no_edges: bool) -> LineageGraphData {
     let mut seen = std::collections::HashSet::new();
     let mut i = 0;
     g.nodes.retain_mut(|n| {
@@ -109,16 +135,38 @@ pub fn parse_graph(text: &str) -> Result<LineageGraphData> {
         n.title = n.title.trim().to_string();
         !n.title.is_empty() && seen.insert(n.id.clone())
     });
+    if g.nodes.len() > LINEAGE_NODES_MAX {
+        g.nodes.truncate(LINEAGE_NODES_MAX);
+    }
     let ids: std::collections::HashSet<&str> = g.nodes.iter().map(|n| n.id.as_str()).collect();
     g.edges
         .retain(|e| e.from != e.to && ids.contains(e.from.as_str()) && ids.contains(e.to.as_str()));
-    if g.nodes.len() > LINEAGE_NODES_MAX {
-        g.nodes.truncate(LINEAGE_NODES_MAX);
-        let ids: std::collections::HashSet<&str> = g.nodes.iter().map(|n| n.id.as_str()).collect();
-        g.edges
-            .retain(|e| ids.contains(e.from.as_str()) && ids.contains(e.to.as_str()));
+    if chain_if_no_edges && g.edges.is_empty() && g.nodes.len() > 1 {
+        g.edges = g
+            .nodes
+            .windows(2)
+            .map(|w| LineageEdge {
+                from: w[0].id.clone(),
+                to: w[1].id.clone(),
+                label: String::new(),
+            })
+            .collect();
     }
-    Ok(g)
+    g
+}
+
+/// 去围栏、解析并清洗 AI 输出
+pub fn parse_graph(text: &str) -> Result<LineageGraphData> {
+    let t = text.trim();
+    let json = t
+        .strip_prefix("```json")
+        .or_else(|| t.strip_prefix("```"))
+        .and_then(|x| x.strip_suffix("```"))
+        .unwrap_or(t)
+        .trim();
+    let g: LineageGraphData =
+        serde_json::from_str(json).map_err(|e| CoreError::Ai(format!("lineage json: {e}")))?;
+    Ok(clean_graph(g, true))
 }
 
 /// (up_to_seq, graph_json, generated_at, updated_at)
@@ -145,6 +193,8 @@ pub fn get(conn: &Connection, book_id: i64) -> Result<Option<LineageGraph>> {
         book_id,
         up_to_seq,
         current_seq,
+        up_to_title: spine_title(conn, book_id, up_to_seq)?,
+        current_title: spine_title(conn, book_id, current_seq)?,
         graph,
         generated_at,
         updated_at,
@@ -195,7 +245,8 @@ fn upsert(
 pub fn save(conn: &Connection, book_id: i64, graph: &LineageGraphData) -> Result<LineageGraph> {
     crate::models::get_book_slug_type(conn, book_id)?;
     let up_to_seq = read_row(conn, book_id)?.map(|r| r.0).unwrap_or(0);
-    upsert(conn, book_id, up_to_seq, graph, false)?;
+    let graph = clean_graph(graph.clone(), false);
+    upsert(conn, book_id, up_to_seq, &graph, false)?;
     Ok(get(conn, book_id)?.expect("just saved"))
 }
 
@@ -218,8 +269,10 @@ pub fn generate(
     })?;
     let up_to = progress_seq(conn, book_id)?;
     let chapters = crate::mapgen::list_spine(conn, book_id)?;
-    let read: Vec<&crate::mapgen::SpineChapter> =
-        chapters.iter().filter(|c| c.idx <= up_to).collect();
+    let read: Vec<&crate::mapgen::SpineChapter> = chapters
+        .iter()
+        .filter(|c| c.idx <= up_to && is_content_chapter(c))
+        .collect();
     if read.is_empty() {
         return Err(CoreError::InvalidInput("先阅读一部分再生成脉络图".into()));
     }
@@ -312,7 +365,7 @@ mod tests {
                 idx: i,
                 href: format!("ch{i}.xhtml"),
                 title: format!("第{i}章"),
-                text: "正文".repeat(20),
+                text: "正文".repeat(120),
             })
             .collect();
         store_spine(&conn, book, &chapters).unwrap();
@@ -390,5 +443,144 @@ mod tests {
         assert_eq!(after.graph.nodes[0].title, "我改的标题");
         assert!(after.graph.nodes[0].user_edited);
         assert_eq!(after.graph.nodes[0].x, Some(120.0));
+    }
+
+    /// 记住最后一次 system prompt 的 provider
+    struct Capture(Mutex<Option<String>>, String);
+    impl AiProvider for Capture {
+        fn complete(&self, req: &CompletionRequest) -> crate::Result<String> {
+            *self.0.lock().unwrap() = Some(req.system.clone());
+            Ok(self.1.clone())
+        }
+    }
+
+    #[test]
+    fn generate_skips_cover_and_short_pages_in_prompt() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let book = crate::models::insert_book(
+            &conn,
+            "书",
+            "",
+            crate::models::BookType::Humanities,
+            "cover-book",
+        )
+        .unwrap();
+        let chapters = vec![
+            SpineChapter {
+                idx: 0,
+                href: "cover.xhtml".into(),
+                title: "封面".into(),
+                text: "x".into(),
+            },
+            SpineChapter {
+                idx: 1,
+                href: "toc.xhtml".into(),
+                title: "目录".into(),
+                text: "正文".repeat(200),
+            },
+            SpineChapter {
+                idx: 2,
+                href: "part.xhtml".into(),
+                title: "第一部分".into(),
+                text: "短".into(),
+            },
+            SpineChapter {
+                idx: 3,
+                href: "c1.xhtml".into(),
+                title: "第一章 工作伦理".into(),
+                text: "正文".repeat(200),
+            },
+        ];
+        store_spine(&conn, book, &chapters).unwrap();
+        crate::reader_marks::set_position(&conn, book, "c1.xhtml", "epubcfi(/6/8!/4/2)").unwrap();
+        let p = Capture(Mutex::new(None), GRAPH.into());
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let sys = p.0.lock().unwrap().clone().unwrap();
+        assert!(sys.contains("第一章 工作伦理"));
+        for junk in ["封面", "cover.xhtml", "toc.xhtml", "part.xhtml"] {
+            assert!(
+                !sys.contains(&format!("[{junk}]")) && !sys.contains(&format!("] {junk}")),
+                "{junk} 不该进 prompt: {sys}"
+            );
+        }
+        // 只读到封面 → 没有正文章 → 拒绝
+        crate::reader_marks::set_position(&conn, book, "cover.xhtml", "epubcfi(/6/2!/4/2)")
+            .unwrap();
+        assert!(matches!(
+            generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap_err(),
+            CoreError::InvalidInput(_)
+        ));
+    }
+
+    #[test]
+    fn get_reports_chapter_titles_for_progress() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        let g = generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        assert_eq!(g.up_to_title, "第1章");
+        crate::reader_marks::set_position(&conn, book, "ch3.xhtml", "epubcfi(/6/8!/4/2)").unwrap();
+        let got = get(&conn, book).unwrap().unwrap();
+        assert_eq!(
+            (got.up_to_title.as_str(), got.current_title.as_str()),
+            ("第1章", "第3章")
+        );
+    }
+
+    #[test]
+    fn parse_graph_chains_nodes_when_ai_gives_no_edges() {
+        let g = parse_graph(r#"{"nodes":[{"id":"a","title":"甲"},{"id":"b","title":"乙"},{"id":"c","title":"丙"}],"edges":[]}"#).unwrap();
+        assert_eq!(g.edges.len(), 2);
+        assert_eq!(
+            (g.edges[0].from.as_str(), g.edges[0].to.as_str()),
+            ("a", "b")
+        );
+        assert_eq!(
+            (g.edges[1].from.as_str(), g.edges[1].to.as_str()),
+            ("b", "c")
+        );
+    }
+
+    #[test]
+    fn save_cleans_empty_titles_but_does_not_chain() {
+        let (conn, book) = setup();
+        let data = LineageGraphData {
+            nodes: vec![
+                LineageNode {
+                    id: "a".into(),
+                    title: "甲".into(),
+                    ..Default::default()
+                },
+                LineageNode {
+                    id: "b".into(),
+                    title: "  ".into(),
+                    ..Default::default()
+                },
+                LineageNode {
+                    id: "c".into(),
+                    title: "丙".into(),
+                    ..Default::default()
+                },
+            ],
+            edges: vec![LineageEdge {
+                from: "a".into(),
+                to: "b".into(),
+                label: String::new(),
+            }],
+        };
+        let saved = save(&conn, book, &data).unwrap();
+        assert_eq!(
+            saved
+                .graph
+                .nodes
+                .iter()
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "c"]
+        );
+        assert!(
+            saved.graph.edges.is_empty(),
+            "指向被删节点的边去掉;手改保存不自动串链"
+        );
     }
 }

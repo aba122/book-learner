@@ -2220,11 +2220,11 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
     // 导入/阅读器命令:second 预置受管 EPUB 文件;契约循环里的分块命令走原始请求体分支
     std::fs::write(state.import_store().book_path(second), fake_epub()).unwrap();
     // 脉络图命令用 first(second 会在 library_delete_book 处被删):给 first 落一章 spine,
-    // 配合更早的 reader_position_set(first, ch0.xhtml) → progress_seq=0 → 有已读章可生成。
+    // 配合更早的 reader_position_set(first, ch0.xhtml) → progress_seq=0 → 有已读章可生成(正文须 ≥200 字,否则被当封面/目录剔掉)。
     state
         .with_connection(|c| {
             c.execute(
-                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章','生产者社会与消费者社会的转向')",
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章',replace(hex(zeroblob(120)),'00','正文'))",
                 [first],
             )?;
             Ok(())
@@ -3062,7 +3062,7 @@ fn lineage_roundtrip_through_commands() {
     state
         .with_connection(|c| {
             c.execute(
-                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章','正文')",
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章',replace(hex(zeroblob(120)),'00','正文'))",
                 [first],
             )?;
             Ok(())
