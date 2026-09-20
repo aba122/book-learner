@@ -16,7 +16,7 @@ describe('AsyncError', () => {
 
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('暂时无法连接后端')
-    expect(alert).toHaveClass('rounded-l', 'border', 'border-line', 'bg-paper-2')
+    expect(alert).toHaveClass('rounded-l', 'border', 'border-sep', 'bg-card')
   })
 
   it('可重试错误提供重试操作', async () => {
@@ -89,6 +89,6 @@ describe('AsyncError', () => {
     render(<AsyncError error={error} variant="compact" onRetry={() => undefined} />)
 
     expect(screen.getByRole('alert')).toHaveClass('flex', 'items-center')
-    expect(screen.getByRole('alert')).not.toHaveClass('border', 'bg-paper-2')
+    expect(screen.getByRole('alert')).not.toHaveClass('border', 'bg-card')
   })
 })

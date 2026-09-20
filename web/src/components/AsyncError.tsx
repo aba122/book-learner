@@ -17,7 +17,7 @@ export default function AsyncError({
       role="alert"
       className={variant === 'compact'
         ? 'flex items-center gap-3 text-sm text-weak'
-        : 'flex items-center justify-between gap-4 rounded-l border border-line bg-paper-2 p-4 text-sm text-weak'}
+        : 'flex items-center justify-between gap-4 rounded-l border border-sep bg-card p-4 text-sm text-weak'}
     >
       <span>{error.message}</span>
       {error.retryable && onRetry && (

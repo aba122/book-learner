@@ -7,9 +7,9 @@ function Inlines({ parts }: { parts: Inline[] }): ReactNode {
   return (
     <>
       {parts.map((p, i) => {
-        if (p.code) return <code key={i} className="rounded-s bg-paper-3 px-1 py-0.5 font-mono text-[0.85em] text-ink-1">{p.text}</code>
+        if (p.code) return <code key={i} className="rounded-s bg-inset px-1 py-0.5 font-mono text-[0.85em] text-label-1">{p.text}</code>
         if (p.href) return <a key={i} href={p.href} target="_blank" rel="noreferrer" className="text-new underline">{p.text}</a>
-        if (p.bold) return <strong key={i} className="font-semibold text-ink-1">{p.text}</strong>
+        if (p.bold) return <strong key={i} className="font-semibold text-label-1">{p.text}</strong>
         if (p.italic) return <em key={i}>{p.text}</em>
         return <span key={i}>{p.text}</span>
       })}
@@ -36,7 +36,7 @@ export default function Markdown({ text }: { text: string }): ReactNode {
         switch (b.kind) {
           case 'h':
             return (
-              <p key={i} className={`font-semibold text-ink-1 ${b.level === 1 ? 'text-[1.05em]' : 'text-[0.98em]'}`}>
+              <p key={i} className={`font-semibold text-label-1 ${b.level === 1 ? 'text-[1.05em]' : 'text-[0.98em]'}`}>
                 <Inlines parts={parseInline(b.text)} />
               </p>
             )
@@ -54,13 +54,13 @@ export default function Markdown({ text }: { text: string }): ReactNode {
             )
           case 'quote':
             return (
-              <blockquote key={i} className="border-l-2 border-line pl-3 text-ink-2">
+              <blockquote key={i} className="border-l-2 border-sep pl-3 text-label-2">
                 {withBreaks(b.lines)}
               </blockquote>
             )
           case 'code':
             return (
-              <pre key={i} className="overflow-x-auto rounded-s bg-paper-3 p-2 font-mono text-[0.82em] text-ink-1">
+              <pre key={i} className="overflow-x-auto rounded-s bg-inset p-2 font-mono text-[0.82em] text-label-1">
                 <code>{b.text}</code>
               </pre>
             )

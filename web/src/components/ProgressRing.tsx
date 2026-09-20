@@ -2,7 +2,7 @@ export default function ProgressRing({
   value,
   size = 64,
   stroke = 5,
-  color = 'var(--c-new)',
+  color = 'var(--signal-new)',
   label,
 }: {
   /** 0–1 */
@@ -27,7 +27,7 @@ export default function ProgressRing({
         cy={size / 2}
         r={r}
         fill="none"
-        stroke="var(--paper-3)"
+        stroke="var(--surface-inset)"
         strokeWidth={stroke}
       />
       <circle
@@ -48,7 +48,7 @@ export default function ProgressRing({
         y="50%"
         dominantBaseline="central"
         textAnchor="middle"
-        fill="var(--ink-2)"
+        fill="var(--label-2)"
         style={{ font: `600 ${size / 4.6}px var(--font-sans)` }}
       >
         {label ?? `${Math.round(clamped * 100)}%`}

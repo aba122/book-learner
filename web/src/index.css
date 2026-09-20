@@ -40,15 +40,6 @@
   --color-hl-green: var(--hl-green);
   --color-hl-blue: var(--hl-blue);
   --color-hl-pink: var(--hl-pink);
-  /* 兼容别名(第三批末删除) */
-  --color-ink-1: var(--label-1);
-  --color-ink-2: var(--label-2);
-  --color-ink-3: var(--label-3);
-  --color-ink-4: var(--label-4);
-  --color-paper-1: var(--surface-content);
-  --color-paper-2: var(--surface-card);
-  --color-paper-3: var(--surface-inset);
-  --color-line: var(--separator);
   /* 字阶 → text-large-title / text-title1..3 / text-body / text-callout / text-subhead / text-footnote */
   --text-large-title: var(--fs-large-title);
   --text-large-title--line-height: var(--lh-large-title);
@@ -78,7 +69,6 @@
   --shadow-card: var(--elev-card);
   --shadow-popover: var(--elev-popover);
   --shadow-sheet: var(--elev-sheet);
-  --shadow-pop: var(--elev-popover);
   --ease-out: var(--ease-out);
   --ease-in-out: var(--ease-in-out);
   --z-index-sidebar: var(--z-sidebar);
