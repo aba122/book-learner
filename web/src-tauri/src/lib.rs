@@ -101,6 +101,9 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::lineage_get,
         commands::lineage_generate,
         commands::lineage_save,
+        commands::lineage_update,
+        commands::lineage_revise,
+        commands::lineage_node_source,
         commands::automation_report,
     ])
 }

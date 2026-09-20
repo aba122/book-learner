@@ -1345,6 +1345,12 @@ impl AiProvider for EngineMock {
         if id.starts_with("reading:") {
             return Ok("需求定律说的是价格与需求量反向变动。".into());
         }
+        if id.starts_with("lineage_update:") {
+            return Ok(r#"{"nodes":[{"id":"a","title":"生产者社会","summary":"AI 想改掉"},{"id":"b","title":"消费者社会"},{"id":"c","title":"新穷人","spineHrefs":["ch1.xhtml"]}],"edges":[{"from":"a","to":"b","label":"转向"},{"from":"b","to":"c","label":"引出"}]}"#.into());
+        }
+        if id.starts_with("lineage_revise:") {
+            return Ok(r#"{"nodes":[{"id":"a","title":"生产者社会","summary":"以工作定义身份","spineHrefs":["ch0.xhtml"]},{"id":"b","title":"消费社会(修正)","summary":"以消费定义身份"}],"edges":[{"from":"a","to":"b","label":"转向"}]}"#.into());
+        }
         if id.starts_with("lineage:") {
             return Ok(r#"{"nodes":[{"id":"a","title":"生产者社会","summary":"以工作定义身份","spineHrefs":["ch0.xhtml"]},{"id":"b","title":"消费者社会","summary":"以消费定义身份"}],"edges":[{"from":"a","to":"b","label":"转向"}]}"#.into());
         }
@@ -2462,6 +2468,31 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "lineage_save" => {
                 json!({"bookId": first, "graph": {"nodes":[{"id":"a","title":"手改节点","summary":"x","userEdited":true}],"edges":[]}})
             }
+            "lineage_update" => {
+                // 增量更新要求进度前进:给 first 再落一章正文并把位置推到它
+                let state = app.state::<AppState>();
+                state
+                    .with_connection(|c| {
+                        c.execute(
+                            "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,1,'ch1.xhtml','第二章',replace(hex(zeroblob(120)),'00','正文'))",
+                            [first],
+                        )?;
+                        Ok(())
+                    })
+                    .unwrap();
+                commands::reader_position_set_inner(
+                    &state,
+                    first,
+                    "ch1.xhtml",
+                    "epubcfi(/6/4!/4/2)",
+                )
+                .unwrap();
+                json!({"bookId": first})
+            }
+            "lineage_revise" => {
+                json!({"bookId": first, "nodeId": null, "instruction": "把主线说清楚"})
+            }
+            "lineage_node_source" => json!({"bookId": first, "nodeId": "a"}),
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
                 let sent = commands::reading_send_inner(
@@ -3090,4 +3121,54 @@ fn lineage_roundtrip_through_commands() {
     assert_eq!(after.graph.nodes[0].title, "我改的");
     assert!(after.graph.nodes[0].user_edited);
     assert_eq!(after.graph.nodes[0].x, Some(50.0));
+
+    // 第二批:进度没前进 → update 拒绝;前进后增量更新保留手改
+    let err = commands::lineage_update_inner(&state, first).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidRequest, "{err:?}");
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,1,'ch1.xhtml','第二章',replace(hex(zeroblob(120)),'00','正文'))",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    commands::reader_position_set_inner(&state, first, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+    let updated = commands::lineage_update_inner(&state, first).unwrap();
+    assert_eq!(updated.up_to_seq, 1);
+    assert_eq!(updated.up_to_title, "第二章");
+    assert_eq!(updated.graph.nodes[0].title, "我改的", "增量更新保留手改");
+    assert!(
+        updated.graph.nodes.iter().any(|n| n.id == "c"),
+        "新章节点接进来"
+    );
+    // 修正:改了的节点标 userEdited;看原文给章节与节选
+    let revised =
+        commands::lineage_revise_inner(&state, first, Some("b".into()), "改准确".into()).unwrap();
+    assert!(
+        revised
+            .graph
+            .nodes
+            .iter()
+            .find(|n| n.id == "b")
+            .unwrap()
+            .user_edited
+    );
+    let err = commands::lineage_revise_inner(&state, first, None, "   ".into()).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidRequest);
+    let src = commands::lineage_node_source_inner(&state, first, "a".into()).unwrap();
+    assert_eq!(src.hrefs[0].href, "ch0.xhtml");
+    assert!(src.excerpt.starts_with("正文"));
+    // 投影:outbox 里有 sync_lineage 待办
+    let pending: i64 = state
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind='sync_lineage' AND done_at IS NULL",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert!(pending >= 1, "脉络图写库应入队 sync_lineage");
 }

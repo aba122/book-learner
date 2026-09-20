@@ -1028,7 +1028,7 @@ pub fn distill_pending_reading_topics(state: &AppState) -> usize {
 
 // ---- 脉络图(阅读进度合成图,plan 2026-09-19)----
 
-use book_learner_core::lineage::{LineageGraph, LineageGraphData};
+use book_learner_core::lineage::{LineageGraph, LineageGraphData, NodeSource};
 
 /// 按 book_id 串行(生成/保存互斥),复用 TopicGuard;忙则 conflict
 fn lock_book(state: &AppState, book_id: i64) -> Result<TopicGuard, IpcError> {
@@ -1073,4 +1073,52 @@ pub fn lineage_save(
 ) -> Result<LineageGraph, IpcError> {
     let _guard = lock_book(state, book_id)?;
     state.with_connection(|c| book_learner_core::lineage::save(c, book_id, &graph))
+}
+
+/// 增量更新到最新进度(第二批):保留 userEdited 节点;进度没前进 → invalid_request
+pub fn lineage_update(state: &AppState, book_id: i64) -> Result<LineageGraph, IpcError> {
+    let _guard = lock_book(state, book_id)?;
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::lineage::update(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        book_id,
+    )
+    .map_err(Into::into)
+}
+
+/// AI 按读者理解修正(第二批):可聚焦某节点
+pub fn lineage_revise(
+    state: &AppState,
+    book_id: i64,
+    node_id: Option<String>,
+    instruction: String,
+) -> Result<LineageGraph, IpcError> {
+    let _guard = lock_book(state, book_id)?;
+    let _job = state.jobs().begin();
+    let (provider, policy) = state.ai_provider()?;
+    let connection = state.open_connection()?;
+    book_learner_core::lineage::revise(
+        &connection,
+        provider.as_ref(),
+        state.memory_root(),
+        &policy,
+        book_id,
+        node_id.as_deref(),
+        &instruction,
+    )
+    .map_err(Into::into)
+}
+
+/// 「看原文」:节点对应章节/块与节选
+pub fn lineage_node_source(
+    state: &AppState,
+    book_id: i64,
+    node_id: String,
+) -> Result<NodeSource, IpcError> {
+    state.with_connection(|c| book_learner_core::lineage::node_source(c, book_id, &node_id))
 }
