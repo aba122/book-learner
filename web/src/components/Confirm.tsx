@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react'
 import Button from './Button'
-import Card from './Card'
+import Dialog from './Dialog'
 
+/**
+ * 确认框:Dialog 的薄壳(props 不变)。破坏性操作默认焦点落在「取消」(HIG:默认键是安全键);
+ * 取消被禁用(忙态)时不可 Esc/遮罩关闭。
+ */
 export default function Confirm({
   open,
   title,
@@ -27,30 +31,31 @@ export default function Confirm({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  if (!open) return null
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-    >
-      <div className="absolute inset-0 bg-ink-1/25" onClick={onCancel} />
-      <Card className="relative w-88 max-w-[90vw] p-6 shadow-pop">
-        <h2 className="font-serif text-lg font-semibold text-ink-1">{title}</h2>
-        {message && <p className="mt-2 text-sm leading-relaxed text-ink-2">{message}</p>}
-        {children}
-        <div className="mt-6 flex justify-end gap-2">
-          <Button disabled={cancelDisabled} onClick={onCancel}>{cancelText}</Button>
+    <Dialog
+      open={open}
+      title={title}
+      description={message}
+      size="sm"
+      dismissible={!cancelDisabled}
+      onClose={onCancel}
+      footer={
+        <>
+          <Button disabled={cancelDisabled} onClick={onCancel} data-autofocus={danger ? true : undefined}>
+            {cancelText}
+          </Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
             disabled={confirmDisabled}
             onClick={onConfirm}
+            data-autofocus={danger ? undefined : true}
           >
             {confirmText}
           </Button>
-        </div>
-      </Card>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </Dialog>
   )
 }

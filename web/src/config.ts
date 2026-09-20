@@ -26,8 +26,10 @@ export const READING_POLL_MS = 3000
 /** 脉络图手改自动保存防抖 */
 export const LINEAGE_AUTOSAVE_MS = 800
 export const READING_POLL_MAX_MS = 120_000
-/** 夜读/日读模式持久化键(每台设备,localStorage;BL-003) */
+/** 外观偏好持久化键(每台设备,localStorage;BL-003):值为 light|dark 表示手动覆盖,缺失 = 跟随系统 */
 export const THEME_KEY = 'bookLearner.theme'
+/** 侧栏折叠状态持久化键(视觉改版第一批) */
+export const SIDEBAR_KEY = 'bookLearner.sidebar'
 /** 阅读位置写回节流(毫秒):relocated 很密,只记最后一次 */
 export const READER_POSITION_DEBOUNCE_MS = 800
 /** 选区轮询间隔(毫秒):WKWebView 里 sandbox(无 allow-scripts)的 iframe 不派发 selectionchange,epub.js 的 selected 永不触发(BL-006) */

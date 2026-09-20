@@ -39,6 +39,8 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 翻页没有卷页动画、直接换页 | 拿不到快照:`rendition.getContents()` 为空/多视图,或系统开了减少动态效果;看 `epub-book` 是否短暂带 `data-turning` | `web/src/features/reader/pageCurlOverlay.ts` `snapshotVisiblePage`、`EpubView.turn` |
 | 翻页时纸面内容错位/空白 | 快照 iframe 的位置/尺寸与原 iframe 不一致,或大章克隆超过 250 ms 超时先开卷 | `pageCurlOverlay.ts`(`READER_PAGE_SNAPSHOT_MAX_MS`) |
 | 点正文不翻页 / 划不了选区 / 点高亮没反应 | 指针层 `.bl-pointer` 是否盖在正文上(z-index 5)且未被别的层遮住;单击被判成拖动(>4 px)/取消选区;`findVisibleFrame` 找不到可视 iframe | `web/src/features/reader/pointerLayer.ts` |
+| 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);`trafficLightPosition {14,20}` 对应 52px 带 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 外观不跟随系统 / 想手动改 | `store.ts` `themePreference`(存储键仅在手动覆盖时存在);设置页「外观」三态 | `web/src/store.ts`;`SettingsPage` `AppearanceRow` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
 | 问书没回复 / 一直"思考中" | `ai_request` 表 `reading:<topic>:<clientMsgId>` 行的 status/error;用户消息 `reading_message.status`(failed → 气泡有「重试」);「取消」只是停止等待,后端照常落库 | `core/src/reading_chat.rs::send_message`;`web/src/features/reader/ReadingChatPanel.tsx` |
@@ -154,6 +156,21 @@ select * from setting;
 **localStorage 键**:`bookLearner.readerPrefs`、`bookLearner.replanDismissed`、`bookLearner.voiceDevice`、`bookLearner.testDate`(仅 DEV)。
 
 **测试**:vitest 22 文件 / 322 用例(`pnpm -C web test -- --run`);Playwright `web/e2e/{anchors,cfi}-smoke.spec.ts`(需 `PLAYWRIGHT_BROWSERS_PATH`);`pnpm -C web build` 是唯一有效的类型门禁;oxlint 配置 `web/.oxlintrc.json`。
+
+### 4.1 共享组件与令牌(视觉改版第一批,2026-09-20)
+
+| 文件 | 作用 |
+|---|---|
+| `theme/tokens.css` | 语义令牌两层:`surface-*` / `label-1..4`(四级只准装饰,可点元素最低三级,`theme/tokensPolicy.test.ts` 棘轮)/ `separator` / `fill-*` / `accent`(跟随系统 AccentColor)/ `signal-*`(三任务色只标数据)/ `hl-*`(阅读高亮);旧名 `--ink-*`/`--paper-*`/`--line`/`--c-*` 为别名,第三批末删;字阶 `text-large-title…text-footnote`;`prefers-reduced-motion/contrast/reduced-transparency` 回退 |
+| `components/icons/` | `paths.ts` 52 个自绘 SF 风格图标 + `Icon`(无 label 即装饰) |
+| `components/Dialog` + `lib/useFocusTrap` + `lib/modalStack` | 模态原语:焦点陷阱/Esc/还原;打开时 `<html data-modal-open>`(阅读器翻页监听让路);`Confirm` 是它的薄壳 |
+| `components/Field/Input/Textarea/Select/Checkbox/Toggle` + `lib/formClasses` | 表单原语;焦点 3px 强调环;`Field` 用 `useId`,error 带 `role=alert` |
+| `components/Segmented` | radio/tabs 两种语义,逐项 `ariaLabel`,方向键 |
+| `components/Toolbar` / `IconButton` / `Tooltip` | 52px 工具栏带(拖动区,折叠时自带「显示侧栏」);28×28 图标钮(`aria-label` + sr-only 文字,桥按 innerText 点);提示为 render-prop、无 ref |
+| `components/EmptyState/Skeleton/Spinner` | 空态/骨架/转圈(`data-motion-essential`) |
+| `store.ts` | `themePreference`(system/light/dark,跟随系统)、`sidebarCollapsed`;`theme` 仍是解析值 |
+| `App.tsx` | 侧栏 52px 拖动带 + 图标导航 + `aria-current`;`MenuActions` 订阅 `backend.subscribeMenu`(Tauri 事件 `menu_action`:`open-settings`/`toggle-sidebar`;mock 用 ⌘, / ⌃⌘S) |
+| `web/src-tauri/tauri.conf.json` / `capabilities/default.json` / `lib.rs::install_app_menu` | 透明标题栏 + `windowEffects: sidebar` + `macOSPrivateApi`;拖动权限 `core:window:allow-start-dragging`;原生菜单栏(攻书/编辑/显示/窗口/帮助) |
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)
 

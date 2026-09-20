@@ -421,3 +421,17 @@ describe('设置页 · 数据(M3 T5)', () => {
   })
 })
 
+
+describe('设置页 · 外观(视觉改版第一批)', () => {
+  it('三态分段:选深色即刻打 data-theme=dark 并持久化;跟随系统删掉持久化键', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    const group = await screen.findByRole('radiogroup', { name: '外观' })
+    await user.click(within(group).getByRole('radio', { name: '深色' }))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(localStorage.getItem('bookLearner.theme')).toBe('dark')
+    await user.click(within(group).getByRole('radio', { name: '跟随系统' }))
+    expect(localStorage.getItem('bookLearner.theme')).toBeNull()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+})

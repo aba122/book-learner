@@ -255,7 +255,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await user.click(within(toolbar).getByRole('button', { name: '高亮:绿' }))
     await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
-    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, expect.any(Function), 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('rgba') })))
+    await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, expect.any(Function), 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('color-mix') })))
     expect(screen.queryByRole('toolbar')).toBeNull()
   })
 

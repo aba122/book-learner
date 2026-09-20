@@ -5,6 +5,8 @@
    复用下沉到 components/ 或 backend 契约。改一个页面只动一个目录。
 3. **视觉单点**:颜色/字体/圆角/阅读排版参数只写 theme/tokens.css(CSS 变量);
    组件内禁止硬编码色值。改视觉不触组件。
+   令牌按语义命名(`surface-*`/`label-1..4`/`separator`/`fill-*`/`accent`/`signal-*`/`hl-*`;旧名为别名,第三批末删);
+   **`label-4`(`ink-4`)只准装饰**,任何可点元素最低用 `label-3`(`theme/tokensPolicy.test.ts` 棘轮守卫);三任务色只标数据,控件强调用 `accent`。
 4. **行为单点**:一切可调参数(复习间隔/番茄钟/队列上限/任务预估时长)只写 config.ts;
    组件内禁止魔法数字。改规则不触页面。
 5. **异步边界(单点实现)**:读取一律经 `lib/useAsyncResource`(generation 失效 + 卸载守卫 + 错误归一化;多步 fetcher 在步间检查 `isCurrent()`),

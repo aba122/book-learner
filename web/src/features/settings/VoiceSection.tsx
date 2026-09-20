@@ -5,12 +5,13 @@ import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import Confirm from '../../components/Confirm'
+import Input from '../../components/Input'
+import Select from '../../components/Select'
 import { VOICE_DEVICE_KEY } from '../../config'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { VoiceModel } from '../../types'
 
-const inputCls = 'rounded-s border border-line bg-paper-1 px-3 py-1.5 text-sm text-ink-1 disabled:opacity-50'
 const formatMb = (bytes: number) => `${Math.round(bytes / (1 << 20))} MB`
 
 function readDevice(): string {
@@ -112,13 +113,13 @@ export default function VoiceSection() {
         </ul>
       )}
       <div className="mt-3 flex items-center gap-3">
-        <input
+        <Input
           aria-label="模型文件路径"
           type="text"
           value={pathDraft}
           placeholder="~/Downloads/ggml-large-v3-turbo-q5_0.bin"
           onChange={e => setPathDraft(e.target.value)}
-          className={`${inputCls} flex-1`}
+          className="flex-1"
         />
         <Button
           disabled={busy || !pathDraft.trim()}
@@ -143,12 +144,12 @@ export default function VoiceSection() {
       <div className="mt-5 border-t border-line pt-4">
         <label htmlFor="voice-device" className="text-sm text-ink-2">输入设备</label>
         <div className="mt-2 flex items-center gap-3">
-          <select id="voice-device" value={device} onChange={e => chooseDevice(e.target.value)} className={`${inputCls} w-72`} disabled={devices === null}>
+          <Select id="voice-device" value={device} onChange={e => chooseDevice(e.target.value)} className="w-72" disabled={devices === null}>
             <option value="">系统默认</option>
             {(devices ?? []).map(d => (
               <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
             ))}
-          </select>
+          </Select>
           <span className="text-xs text-ink-4">{devices !== null && devices.length === 0 ? '未发现麦克风(首次录音授权后会列出名称)' : '首次录音会请求系统麦克风权限'}</span>
         </div>
       </div>

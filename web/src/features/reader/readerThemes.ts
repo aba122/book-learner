@@ -4,11 +4,25 @@ import type { ReaderTypography } from './EpubView'
 /** 未传排版偏好时的默认(覆盖出版方样式、行高 1.8、段首缩进) */
 export const DEFAULT_TYPOGRAPHY: ReaderTypography = { lineHeight: 1.8, indent: true, overridePublisher: true }
 
-export const HIGHLIGHT_FILL: Record<string, string> = {
-  yellow: 'rgba(250, 204, 21, 0.45)',
-  green: 'rgba(74, 222, 128, 0.4)',
-  blue: 'rgba(96, 165, 250, 0.4)',
-  pink: 'rgba(244, 114, 182, 0.4)',
+/** 高亮四色的回退值(tokens.css 读不到时,如 jsdom);真实值来自 --hl-* 与 --hl-alpha,亮/暗各一套 */
+const HL_FALLBACK: Record<string, string> = { yellow: '#f2cf5b', green: '#a3d391', blue: '#9cc0ea', pink: '#f0a9c6' }
+
+function tokenValue(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+/** 高亮填充色(epub iframe 内需要具体值):`--hl-<color>` 按 `--hl-alpha` 取半透明 */
+export function highlightFill(color: string): string {
+  const key = color in HL_FALLBACK ? color : 'yellow'
+  const hex = tokenValue(`--hl-${key}`, HL_FALLBACK[key])
+  const alpha = tokenValue('--hl-alpha', '50%')
+  return `color-mix(in srgb, ${hex} ${alpha}, transparent)`
+}
+
+/** 知识块原文范围的下划线色(EpubView 注解) */
+export function blockUnderlineStroke(): string {
+  return tokenValue('--reader-block-underline', 'rgb(120 90 40 / 0.55)')
 }
 
 /** 从 tokens.css 读取阅读器主题(epub 在 iframe 中渲染,需要具体值);排版规则按开关注入 */

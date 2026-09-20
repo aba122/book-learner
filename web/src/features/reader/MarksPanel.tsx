@@ -2,10 +2,10 @@ import Button from '../../components/Button'
 import type { ReaderMark } from '../../types'
 
 const COLOR_DOT: Record<string, string> = {
-  yellow: 'bg-yellow-300',
-  green: 'bg-green-300',
-  blue: 'bg-blue-300',
-  pink: 'bg-pink-300',
+  yellow: 'bg-hl-yellow',
+  green: 'bg-hl-green',
+  blue: 'bg-hl-blue',
+  pink: 'bg-hl-pink',
 }
 
 /** 阅读器右侧抽屉:书签与高亮清单(跳转 / 删除);标记来自 SQLite,按创建时间 */

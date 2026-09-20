@@ -4,7 +4,8 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, us
 import { READER_PAGE_CURL_LIFT, READER_PAGE_CURL_MS, READER_PAGE_SNAPSHOT_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
 import { attachPointerLayer } from './pointerLayer'
 import { createCurlOverlay, snapshotVisiblePage, type CurlOverlay } from './pageCurlOverlay'
-import { DEFAULT_TYPOGRAPHY, HIGHLIGHT_FILL, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
+import { prefersReducedMotion } from '../../lib/motion'
+import { DEFAULT_TYPOGRAPHY, blockUnderlineStroke, highlightFill, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
 
 export interface EpubHandle {
   next: () => void
@@ -52,9 +53,6 @@ interface SelectionContents {
   cfiFromRange: (range: Range) => string
 }
 
-/** 系统「减少动态效果」:不卷页,直接换页 */
-const prefersReducedMotion = () =>
-  typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const EpubView = forwardRef<
   EpubHandle,
@@ -190,7 +188,7 @@ const EpubView = forwardRef<
         const cfiRange = rangeCfiFromPoints(section, doc, seg.cfiStart, seg.cfiEnd)
         if (!cfiRange) continue
         try {
-          rendition.annotations.underline(cfiRange, {}, undefined, 'bl-block', { stroke: 'rgba(120, 90, 40, 0.55)', 'stroke-width': '2px' })
+          rendition.annotations.underline(cfiRange, {}, undefined, 'bl-block', { stroke: blockUnderlineStroke(), 'stroke-width': '2px' })
           appliedSegments.current.add(key)
         } catch {
           /* 注解失败不影响阅读 */
@@ -293,7 +291,7 @@ const EpubView = forwardRef<
       if (appliedHighlights.current.has(cfi)) continue
       try {
         rendition.annotations.highlight(cfi, {}, () => onHighlightClickedRef.current?.(cfi), 'bl-highlight', {
-          fill: HIGHLIGHT_FILL[h.color] ?? HIGHLIGHT_FILL.yellow,
+          fill: highlightFill(h.color),
           'fill-opacity': '1',
           'mix-blend-mode': 'multiply',
         })

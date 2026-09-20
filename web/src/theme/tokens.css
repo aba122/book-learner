@@ -1,43 +1,115 @@
 /* ============================================================
    tokens.css — 全部设计代币(唯一视觉参数源,见 ARCHITECTURE.md 规则3)
+   v2(2026-09-20,视觉改版第一批):原语 → 语义两层。
    亮色 = 纸感书斋;暗色 = 夜读墨色。组件禁止硬编码任何色值。
+
+   命名与政策:
+   - surface-*  表面(window/sidebar/content/card/inset/popover/scrim)
+   - label-1..4 文字四级;label-4 只准装饰(aria-hidden、分隔、占位),可点元素最低用 label-3
+   - separator  分隔线;fill-*  中性填充(hover/active/selected)
+   - accent     控件强调(选中/焦点/主按钮/开关),跟随系统强调色,不用于数据
+   - signal-*   三任务色(weak 赤 / review 琥珀 / new 靛)+ ok / warn:只标数据(标签/色条/书脊/图表)
+   - hl-*       阅读高亮四色(iframe 内用 color-mix 取半透明)
+   - 旧名(--ink-N、--paper-N、--line、--c-xxx、--shadow-xxx)保留为别名,第三批末删除
    ============================================================ */
 
 :root {
-  /* 文字墨色阶(由深至浅) */
-  --ink-1: #221c14;
-  --ink-2: #4d4437;
-  --ink-3: #857a68;
-  --ink-4: #b6ab95;
+  color-scheme: light;
 
-  /* 背景纸感阶 */
-  --paper-1: #f6f1e6; /* 页面底 */
-  --paper-2: #fdfaf2; /* 卡面 */
-  --paper-3: #ece4d2; /* 内嵌/悬停 */
-  --line: #e2d8c3;    /* 分隔线 */
+  /* ── 表面 ── */
+  --surface-window: #f6f1e6;                  /* 浏览器 mock 时 html 底;Tauri 下 html/body 透明 */
+  --surface-sidebar: rgb(246 241 230 / 0.42); /* 叠在原生 sidebar 材质上,染成纸色 */
+  --surface-sidebar-opaque: #efe8da;          /* 减少透明度 / 浏览器回退 */
+  --surface-content: #f6f1e6;
+  --surface-card: #fdfaf2;
+  --surface-inset: #ece4d2;                   /* 分段槽、输入框内嵌、hover 底 */
+  --surface-popover: #fdfaf2;
+  --surface-scrim: rgb(34 28 20 / 0.28);
+  --surface-knob: #ffffff;                    /* 开关钮,亮暗都是白(macOS 惯例) */
 
-  /* 三任务色:薄弱=赤,复习=琥珀,新学=靛 */
-  --c-weak: #b0432a;
-  --c-review: #a8741f;
-  --c-new: #40538a;
-  /* 任务色淡底(左色条卡面/徽标底) */
-  --c-weak-soft: #f3e0da;
-  --c-review-soft: #f1e6cd;
-  --c-new-soft: #dfe3ef;
+  /* ── 文字(对比度以 surface-content 为底)── */
+  --label-1: #221c14;        /* 15.0:1 */
+  --label-2: #4d4437;        /*  8.5:1 */
+  --label-3: #6b6150;        /*  5.4:1(原 #857a68 3.7 不达标) */
+  --label-4: #b6ab95;        /*  2.0:1 —— 仅装饰 */
+  --label-on-ink: #fdfaf2;   /* 主按钮字 16.2:1 */
+  --label-on-accent: #ffffff;
 
-  /* 语义色 */
-  --c-ok: #48764d;
-  --c-warn: #b3542f;
+  /* ── 分隔 / 填充 ── */
+  --separator: #e2d8c3;
+  --separator-strong: #b6ab95;
+  --fill-hover: rgb(34 28 20 / 0.05);
+  --fill-active: rgb(34 28 20 / 0.09);
+  --fill-selected: rgb(34 28 20 / 0.09);
 
-  /* 字体栈:宋体标题,黑体正文 */
-  --font-serif: 'Songti SC', 'Noto Serif CJK SC', 'Noto Serif SC', 'Source Han Serif SC', serif;
-  --font-sans: 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Helvetica Neue', sans-serif;
+  /* ── 强调(控件专用)── */
+  --accent: #3b5aa6;         /* 5.8:1;白字 6.6:1 */
+  --focus-ring: var(--accent);
+  --selection-bg: color-mix(in srgb, var(--accent) 28%, transparent);
 
-  /* 阅读排版 */
-  --reading-max-width: 38em;
-  --reading-line-height: 1.9;
+  /* ── 信号色(三任务色是产品脊梁,只标数据)── */
+  --signal-weak: #b0432a;   --signal-weak-soft: #f3e0da;    /* 5.1:1 */
+  --signal-review: #8c5f12; --signal-review-soft: #f1e6cd;  /* 5.0:1(原 #a8741f 3.6) */
+  --signal-new: #40538a;    --signal-new-soft: #dfe3ef;     /* 6.6:1 */
+  --signal-ok: #3f6b45;     --signal-ok-soft: #e1ecdf;      /* 5.5:1 */
+  --signal-warn: #a84a27;   --signal-warn-soft: #f5e2d8;    /* 5.1:1 */
 
-  /* 阅读器三主题(注入 epub iframe,需具体值) */
+  /* ── 阅读高亮四色 ── */
+  --hl-yellow: #f2cf5b;
+  --hl-green: #a3d391;
+  --hl-blue: #9cc0ea;
+  --hl-pink: #f0a9c6;
+  --hl-alpha: 50%;
+  --reader-block-underline: rgb(120 90 40 / 0.55);
+
+  /* ── 字体 ── */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB',
+    'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Helvetica Neue', sans-serif;
+  --font-serif: 'Songti SC', 'STSong', 'Noto Serif CJK SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  --font-reading: 'Songti SC', 'STSong', 'Noto Serif CJK SC', 'Source Han Serif SC', 'PingFang SC', serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'PingFang SC', monospace;
+
+  /* ── 字阶(macOS 文字样式,px / 行高)── */
+  --fs-large-title: 26px; --lh-large-title: 32px;
+  --fs-title1: 22px;      --lh-title1: 26px;
+  --fs-title2: 17px;      --lh-title2: 22px;
+  --fs-title3: 15px;      --lh-title3: 20px;
+  --fs-body: 13px;        --lh-body: 16px;
+  --fs-callout: 12px;     --lh-callout: 15px;
+  --fs-subhead: 11px;     --lh-subhead: 14px;
+  --fs-footnote: 10px;    --lh-footnote: 13px;
+
+  /* ── 圆角 ── */
+  --r-xs: 4px;
+  --r-s: 6px;
+  --r-m: 8px;
+  --r-l: 12px;
+  --r-xl: 16px;
+
+  /* ── 层级阴影 ── */
+  --elev-card: 0 1px 2px rgb(60 48 30 / 0.06), 0 1px 1px rgb(60 48 30 / 0.04);
+  --elev-popover: 0 0 0 0.5px rgb(34 28 20 / 0.12), 0 8px 24px rgb(60 48 30 / 0.16);
+  --elev-sheet: 0 0 0 0.5px rgb(34 28 20 / 0.16), 0 24px 64px rgb(60 48 30 / 0.28);
+
+  /* ── 动效 ── */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── z 轴 ── */
+  --z-sidebar: 10;
+  --z-toolbar: 20;
+  --z-popover: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+
+  /* ── 间距基元(Tailwind spacing 统一倍率)── */
+  --sp-unit: 0.25rem;
+
+  /* ── 阅读器三主题(注入 epub iframe,需具体值)── */
   --reader-paper-bg: #fdfaf2;
   --reader-paper-ink: #221c14;
   --reader-sepia-bg: #f2e5c9;
@@ -45,47 +117,109 @@
   --reader-night-bg: #171512;
   --reader-night-ink: #cfc6b3;
 
-  /* 间距基元(Tailwind spacing 统一倍率) */
-  --sp-unit: 0.25rem;
+  /* ── 兼容别名(第三批末删除)── */
+  --ink-1: var(--label-1);
+  --ink-2: var(--label-2);
+  --ink-3: var(--label-3);
+  --ink-4: var(--label-4);
+  --paper-1: var(--surface-content);
+  --paper-2: var(--surface-card);
+  --paper-3: var(--surface-inset);
+  --line: var(--separator);
+  --c-weak: var(--signal-weak);
+  --c-review: var(--signal-review);
+  --c-new: var(--signal-new);
+  --c-weak-soft: var(--signal-weak-soft);
+  --c-review-soft: var(--signal-review-soft);
+  --c-new-soft: var(--signal-new-soft);
+  --c-ok: var(--signal-ok);
+  --c-warn: var(--signal-warn);
+  --shadow-card: var(--elev-card);
+  --shadow-pop: var(--elev-popover);
+}
 
-  /* 圆角阶 */
-  --r-s: 6px;
-  --r-m: 10px;
-  --r-l: 16px;
-
-  /* 阴影阶(暖墨投影) */
-  --shadow-card: 0 1px 2px rgb(60 48 30 / 0.06), 0 2px 8px rgb(60 48 30 / 0.05);
-  --shadow-pop: 0 4px 12px rgb(60 48 30 / 0.12), 0 12px 32px rgb(60 48 30 / 0.14);
-
-  /* 页面氛围:纸纹肌理(极淡斜纹) */
-  --paper-grain:
-    repeating-linear-gradient(-45deg, rgb(120 96 60 / 0.016) 0 2px, transparent 2px 6px);
+/* 跟随系统强调色(WebKit 16.4+);不支持时保持上面的靛色回退 */
+@supports (color: AccentColor) {
+  :root {
+    --accent: AccentColor;
+    --label-on-accent: AccentColorText;
+  }
 }
 
 [data-theme='dark'] {
-  --ink-1: #e9e1cf;
-  --ink-2: #c3b8a1;
-  --ink-3: #90866f;
-  --ink-4: #635a48;
+  color-scheme: dark;
 
-  --paper-1: #16130e;
-  --paper-2: #201c15;
-  --paper-3: #2b2619;
-  --line: #362f21;
+  --surface-window: #16130e;
+  --surface-sidebar: rgb(25 21 15 / 0.5);
+  --surface-sidebar-opaque: #1e1912;
+  --surface-content: #19150f;
+  --surface-card: #211c14;
+  --surface-inset: #2b2619;
+  --surface-popover: #2b2619;
+  --surface-scrim: rgb(0 0 0 / 0.5);
+  --surface-knob: #ffffff;
 
-  --c-weak: #d4735a;
-  --c-review: #cf9f43;
-  --c-new: #8b9fd4;
-  --c-weak-soft: #3a251f;
-  --c-review-soft: #362c18;
-  --c-new-soft: #222839;
+  --label-1: #e9e1cf;        /* 14.0:1 */
+  --label-2: #c3b8a1;        /*  9.3:1 */
+  --label-3: #9a8f77;        /*  5.7:1 */
+  --label-4: #635a48;        /*  2.7:1 装饰 */
+  --label-on-ink: #19150f;
+  --label-on-accent: #19150f;
 
-  --c-ok: #7fae84;
-  --c-warn: #cf7d55;
+  --separator: #362f21;
+  --separator-strong: #635a48;
+  --fill-hover: rgb(233 225 207 / 0.06);
+  --fill-active: rgb(233 225 207 / 0.11);
+  --fill-selected: rgb(233 225 207 / 0.11);
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
-  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.55);
+  --accent: #9db3ea;         /* 8.7:1 */
 
-  --paper-grain:
-    repeating-linear-gradient(-45deg, rgb(255 240 200 / 0.008) 0 2px, transparent 2px 6px);
+  --signal-weak: #d4735a;   --signal-weak-soft: #3a251f;   /* 5.5 */
+  --signal-review: #cf9f43; --signal-review-soft: #362c18; /* 7.5 */
+  --signal-new: #8b9fd4;    --signal-new-soft: #222839;    /* 6.9 */
+  --signal-ok: #7fae84;     --signal-ok-soft: #1f2f22;     /* 7.2 */
+  --signal-warn: #cf7d55;   --signal-warn-soft: #3a2419;   /* 5.8 */
+
+  --hl-yellow: #8a6f1f;
+  --hl-green: #3f6b3a;
+  --hl-blue: #34527e;
+  --hl-pink: #7a3d5a;
+  --hl-alpha: 55%;
+  --reader-block-underline: rgb(207 198 179 / 0.45);
+
+  --elev-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  --elev-popover: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 8px 24px rgb(0 0 0 / 0.5);
+  --elev-sheet: 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 24px 64px rgb(0 0 0 / 0.6);
+}
+
+@supports (color: AccentColor) {
+  [data-theme='dark'] {
+    --accent: AccentColor;
+    --label-on-accent: AccentColorText;
+  }
+}
+
+/* 增强对比度:分隔线与三级文字加深 */
+@media (prefers-contrast: more) {
+  :root {
+    --separator: #b6ab95;
+    --separator-strong: #857a68;
+    --label-3: #4d4437;
+    --fill-hover: rgb(34 28 20 / 0.1);
+    --fill-selected: rgb(34 28 20 / 0.16);
+  }
+  [data-theme='dark'] {
+    --separator: #635a48;
+    --separator-strong: #90866f;
+    --label-3: #c3b8a1;
+    --fill-selected: rgb(233 225 207 / 0.2);
+  }
+}
+
+/* 减少透明度:侧栏不透明 */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  [data-theme='dark'] {
+    --surface-sidebar: var(--surface-sidebar-opaque);
+  }
 }

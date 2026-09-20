@@ -1,33 +1,92 @@
 @import './theme/tokens.css';
 @import 'tailwindcss';
 
-/* 代币 → Tailwind 色名/字体/圆角/阴影(inline 保留 var() 间接,
-   使 [data-theme='dark'] 的代币覆盖生效)。 */
+/* 代币 → Tailwind 色名/字阶/字体/圆角/阴影/层级(inline 保留 var() 间接,
+   使 [data-theme='dark'] 与媒体查询里的代币覆盖生效)。 */
 @theme inline {
-  --color-ink-1: var(--ink-1);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-ink-4: var(--ink-4);
-  --color-paper-1: var(--paper-1);
-  --color-paper-2: var(--paper-2);
-  --color-paper-3: var(--paper-3);
-  --color-line: var(--line);
-  --color-weak: var(--c-weak);
-  --color-review: var(--c-review);
-  --color-new: var(--c-new);
-  --color-weak-soft: var(--c-weak-soft);
-  --color-review-soft: var(--c-review-soft);
-  --color-new-soft: var(--c-new-soft);
-  --color-ok: var(--c-ok);
-  --color-warn: var(--c-warn);
+  /* 语义色 */
+  --color-window: var(--surface-window);
+  --color-sidebar: var(--surface-sidebar);
+  --color-content: var(--surface-content);
+  --color-card: var(--surface-card);
+  --color-inset: var(--surface-inset);
+  --color-popover: var(--surface-popover);
+  --color-scrim: var(--surface-scrim);
+  --color-knob: var(--surface-knob);
+  --color-label-1: var(--label-1);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-label-4: var(--label-4);
+  --color-on-ink: var(--label-on-ink);
+  --color-on-accent: var(--label-on-accent);
+  --color-sep: var(--separator);
+  --color-sep-strong: var(--separator-strong);
+  --color-fill-hover: var(--fill-hover);
+  --color-fill-active: var(--fill-active);
+  --color-fill-selected: var(--fill-selected);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus-ring);
+  --color-weak: var(--signal-weak);
+  --color-review: var(--signal-review);
+  --color-new: var(--signal-new);
+  --color-ok: var(--signal-ok);
+  --color-warn: var(--signal-warn);
+  --color-weak-soft: var(--signal-weak-soft);
+  --color-review-soft: var(--signal-review-soft);
+  --color-new-soft: var(--signal-new-soft);
+  --color-ok-soft: var(--signal-ok-soft);
+  --color-warn-soft: var(--signal-warn-soft);
+  --color-hl-yellow: var(--hl-yellow);
+  --color-hl-green: var(--hl-green);
+  --color-hl-blue: var(--hl-blue);
+  --color-hl-pink: var(--hl-pink);
+  /* 兼容别名(第三批末删除) */
+  --color-ink-1: var(--label-1);
+  --color-ink-2: var(--label-2);
+  --color-ink-3: var(--label-3);
+  --color-ink-4: var(--label-4);
+  --color-paper-1: var(--surface-content);
+  --color-paper-2: var(--surface-card);
+  --color-paper-3: var(--surface-inset);
+  --color-line: var(--separator);
+  /* 字阶 → text-large-title / text-title1..3 / text-body / text-callout / text-subhead / text-footnote */
+  --text-large-title: var(--fs-large-title);
+  --text-large-title--line-height: var(--lh-large-title);
+  --text-title1: var(--fs-title1);
+  --text-title1--line-height: var(--lh-title1);
+  --text-title2: var(--fs-title2);
+  --text-title2--line-height: var(--lh-title2);
+  --text-title3: var(--fs-title3);
+  --text-title3--line-height: var(--lh-title3);
+  --text-body: var(--fs-body);
+  --text-body--line-height: var(--lh-body);
+  --text-callout: var(--fs-callout);
+  --text-callout--line-height: var(--lh-callout);
+  --text-subhead: var(--fs-subhead);
+  --text-subhead--line-height: var(--lh-subhead);
+  --text-footnote: var(--fs-footnote);
+  --text-footnote--line-height: var(--lh-footnote);
   --font-serif: var(--font-serif);
   --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
   --spacing: var(--sp-unit);
+  --radius-xs: var(--r-xs);
   --radius-s: var(--r-s);
   --radius-m: var(--r-m);
   --radius-l: var(--r-l);
-  --shadow-card: var(--shadow-card);
-  --shadow-pop: var(--shadow-pop);
+  --radius-xl: var(--r-xl);
+  --shadow-card: var(--elev-card);
+  --shadow-popover: var(--elev-popover);
+  --shadow-sheet: var(--elev-sheet);
+  --shadow-pop: var(--elev-popover);
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+  --z-index-sidebar: var(--z-sidebar);
+  --z-index-toolbar: var(--z-toolbar);
+  --z-index-popover: var(--z-popover);
+  --z-index-dialog: var(--z-dialog);
+  --z-index-toast: var(--z-toast);
+  --z-index-tooltip: var(--z-tooltip);
 }
 
 html,
@@ -36,24 +95,59 @@ body,
   height: 100%;
 }
 
+html {
+  background: var(--surface-window);
+}
+/* Tauri 下 html/body 透明,让 NSVisualEffectView 材质从侧栏透出;主内容区自己铺 bg-content */
+html[data-shell='tauri'],
+html[data-shell='tauri'] body {
+  background: transparent;
+}
+
 body {
   margin: 0;
-  font-family: var(--font-sans);
-  color: var(--ink-1);
-  background-color: var(--paper-1);
-  background-image: var(--paper-grain);
+  font: 400 var(--fs-body) / var(--lh-body) var(--font-sans);
+  color: var(--label-1);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background: var(--c-new);
-  color: var(--paper-2);
+  background: var(--selection-bg);
 }
 
 :focus-visible {
-  outline: 2px solid var(--c-new);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* 减少动态效果:除标了 data-motion-essential 的元素(如 Spinner)外,动画/过渡压到 1ms */
+@media (prefers-reduced-motion: reduce) {
+  *:not([data-motion-essential]),
+  *:not([data-motion-essential])::before,
+  *:not([data-motion-essential])::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 入场动效(对话框/浮层/提示) */
+@keyframes bl-fade-in {
+  from { opacity: 0; }
+}
+@keyframes bl-pop-in {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+}
+@keyframes bl-spin {
+  to { transform: rotate(360deg); }
+}
+.bl-fade { animation: bl-fade-in var(--dur-base) var(--ease-out) both; }
+.bl-pop { animation: bl-pop-in var(--dur-base) var(--ease-out) both; }
+.bl-spin { animation: bl-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bl-spin { animation-duration: 1.4s; }
 }
 
 /* 阅读器卷页翻页(BL-010):正面/纸背两层快照 + 沿折线的阴影带,几何见 features/reader/pageCurl.ts */

@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { backend } from './backend'
+import Icon from './components/icons/Icon'
+import type { IconName } from './components/icons/paths'
+import IconButton from './components/IconButton'
 import FeynmanPage from './features/feynman/FeynmanPage'
 import FinalExamPage from './features/feynman/FinalExamPage'
 import LibraryPage from './features/library/LibraryPage'
@@ -20,53 +23,89 @@ function RouteLogger() {
   return null
 }
 
+/** 原生菜单栏动作(设置… ⌘, / 隐藏·显示侧栏 ⌃⌘S)→ 路由 / 侧栏状态;浏览器 mock 用同样快捷键 */
+function MenuActions() {
+  const navigate = useNavigate()
+  const toggleSidebar = useSession(s => s.toggleSidebar)
+  useEffect(() => {
+    let dispose: (() => void) | null = null
+    let alive = true
+    void backend
+      .subscribeMenu(action => {
+        if (action === 'open-settings') navigate('/settings')
+        else if (action === 'toggle-sidebar') toggleSidebar()
+      })
+      .then(off => {
+        if (alive) dispose = off
+        else off()
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+      dispose?.()
+    }
+  }, [navigate, toggleSidebar])
+  return null
+}
+
+/**
+ * 侧栏(视觉改版第一批):顶部 52px 是标题栏带(透明标题栏下红绿灯落在这里,整条可拖动窗口);
+ * 图标 + 文字导航,选中态中性填充 + 强调色图标(三任务色只标数据);底部不放任何操作;
+ * 原生材质从 bg-sidebar 半透明纸色下透出;可隐藏(⌃⌘S / 菜单 / 右上按钮)。
+ */
 function Sidebar() {
   const activeBookId = useSession(s => s.activeBookId)
-  const theme = useSession(s => s.theme)
-  const setTheme = useSession(s => s.setTheme)
+  const collapsed = useSession(s => s.sidebarCollapsed)
+  const toggleSidebar = useSession(s => s.toggleSidebar)
 
-  const items = [
-    { to: '/', label: '今日学习', end: true },
-    { to: '/library', label: '书架', end: true },
-    { to: activeBookId ? `/map/${activeBookId}` : '/library', label: '知识地图', end: false },
-    { to: '/stats', label: '统计', end: true },
-    { to: '/settings', label: '设置', end: true },
+  const items: { to: string; label: string; icon: IconName; end: boolean }[] = [
+    { to: '/', label: '今日学习', icon: 'sun', end: true },
+    { to: '/library', label: '书架', icon: 'books', end: true },
+    { to: activeBookId ? `/map/${activeBookId}` : '/library', label: '知识地图', icon: 'map', end: false },
+    { to: '/stats', label: '统计', icon: 'chart-bar', end: true },
+    { to: '/settings', label: '设置', icon: 'gear', end: true },
   ]
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-paper-2/60 px-4 py-8">
-      <div className="mb-10 px-4">
-        <div className="font-serif text-[1.6rem] font-bold tracking-[0.35em] text-ink-1">攻书</div>
-        <div className="mt-1 text-[11px] tracking-[0.18em] text-ink-4 uppercase">book-learner</div>
+    <aside aria-label="侧栏" hidden={collapsed} className="relative flex w-60 shrink-0 flex-col bg-sidebar">
+      <div data-tauri-drag-region className="h-13 shrink-0" />
+      <IconButton icon="sidebar-left" label="隐藏侧栏" onClick={toggleSidebar} className="absolute top-3 right-2" />
+      <div className="px-5 pb-3">
+        <span className="font-serif text-title2 font-semibold tracking-[0.3em] text-label-1">攻书</span>
       </div>
-      <nav className="flex flex-1 flex-col gap-1">
+      <nav aria-label="主导航" className="flex flex-col gap-0.5 px-3">
         {items.map(item => (
-          <NavLink key={item.label} to={item.to} end={item.end}>
+          <NavLink
+            key={item.label}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `group flex h-7 items-center gap-2.5 rounded-s px-2 text-body transition-colors duration-[var(--dur-fast)] ${
+                isActive ? 'bg-fill-selected font-medium text-label-1' : 'text-label-2 hover:bg-fill-hover hover:text-label-1'
+              }`
+            }
+          >
             {({ isActive }) => (
-              <span
-                className={`flex items-center gap-3 rounded-m px-4 py-2.5 text-sm transition-colors duration-150 ${
-                  isActive
-                    ? 'bg-paper-3 font-medium text-ink-1'
-                    : 'text-ink-3 hover:bg-paper-3/50 hover:text-ink-1'
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className={`h-4 w-0.5 rounded-full ${isActive ? 'bg-weak' : 'bg-transparent'}`}
-                />
+              <>
+                <Icon name={item.icon} size={16} className={isActive ? 'text-accent' : 'text-label-3 group-hover:text-label-2'} />
                 {item.label}
-              </span>
+              </>
             )}
           </NavLink>
         ))}
       </nav>
-      <button
-        className="mt-6 cursor-pointer rounded-m border border-line px-4 py-2 text-xs text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-1"
-        onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-      >
-        {theme === 'light' ? '◐ 夜读模式' : '◑ 日读模式'}
-      </button>
     </aside>
+  )
+}
+
+/** 第一批过渡:主区顶部 52px 拖动带;侧栏折叠时在这里给「显示侧栏」(左留 72px 让开红绿灯)。第二批起由各页 Toolbar 取代。 */
+function MainTitleBand() {
+  const collapsed = useSession(s => s.sidebarCollapsed)
+  const toggleSidebar = useSession(s => s.toggleSidebar)
+  return (
+    <div data-tauri-drag-region className={`flex h-13 shrink-0 items-center ${collapsed ? 'pl-[72px]' : 'px-3'}`}>
+      {collapsed && <IconButton icon="sidebar-left" label="显示侧栏" onClick={toggleSidebar} />}
+    </div>
   )
 }
 
@@ -91,9 +130,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <RouteLogger />
+      <MenuActions />
       <div className="flex h-full">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        {/* 主区不透明。第二三批各页面自己渲染 52px 的 Toolbar 带(components/Toolbar);
+            第一批页面还没有,先由外壳给一条同高的拖动带,免得内容顶到透明标题栏下 */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-content">
+          <MainTitleBand />
           <Routes>
             <Route path="/" element={<TodayPage />} />
             <Route path="/library" element={<LibraryPage />} />
