@@ -1,7 +1,7 @@
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Card from '../../components/Card'
+import Dialog from '../../components/Dialog'
 import { APP_DEFAULTS, DAILY_CAP_DEFAULT, REPLAN_DISMISSED_KEY } from '../../config'
 import { addCalendarDays } from '../../lib/localDate'
 import { writePref } from '../../lib/prefs'
@@ -12,7 +12,7 @@ type Choice = 'extend' | 'trim'
 
 /**
  * 落后重排确认(PRODUCT_SPEC §6):均摊结果超过每日上限时,由用户决定顺延截止日或缩减地图;
- * 截止日永不被静默修改。"本日不再提醒"只记偏好,不改任何计划。
+ * 截止日永不被静默修改。"本日不再提醒"只记偏好,不改任何计划(Esc / 点遮罩同义;忙态不可关)。
  */
 export default function ReplanDialog({
   book,
@@ -64,43 +64,44 @@ export default function ReplanDialog({
     onDismiss()
   }
 
+  const choiceCls = 'cursor-pointer rounded-m border border-sep bg-card px-4 py-3 text-left transition-colors duration-[var(--dur-fast)] hover:border-accent hover:bg-fill-hover disabled:cursor-not-allowed disabled:opacity-60'
+
   return (
-    <div role="dialog" aria-modal="true" aria-label="进度落后,需要你决定" className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-ink-1/25" onClick={dismiss} />
-      <Card className="relative w-130 max-w-[92vw] p-7 shadow-pop">
-        <h2 className="font-serif text-xl font-semibold text-ink-1">进度落后,需要你决定</h2>
-        <p className="mt-2 text-sm leading-relaxed text-ink-3">
-          《{book.title}》已连续两天没完成新块配额。剩余 {replan.remainingBlocks} 块要在 {Math.max(1, replan.remainingDays)} 天内学完,
-          均摊后每日需 {replan.requiredDaily ?? Math.ceil(replan.remainingBlocks / Math.max(1, replan.remainingDays))} 块,超过每日上限 {cap} 块。
-          截止日不会被静默修改——请选一种处理方式。
-        </p>
-        <div className="mt-5 flex flex-col gap-3">
-          <button
-            disabled={busy}
-            onClick={() => { decide.clearError('decide'); void decide.run('decide', 'extend') }}
-            className="cursor-pointer rounded-m border border-line bg-paper-1 px-5 py-4 text-left transition-colors hover:border-new hover:bg-paper-3/40 disabled:opacity-60"
-          >
-            <span className="font-serif text-base font-medium text-ink-1">顺延截止日期到 {newDeadline}</span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">按每日 {cap} 块的上限重新均摊,地图不变。</span>
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => { decide.clearError('decide'); void decide.run('decide', 'trim') }}
-            className="cursor-pointer rounded-m border border-line bg-paper-1 px-5 py-4 text-left transition-colors hover:border-new hover:bg-paper-3/40 disabled:opacity-60"
-          >
-            <span className="font-serif text-base font-medium text-ink-1">缩减地图:跳过 {excess} 个靠后的未学块</span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">标记为跳过而非删除,随时可在地图页恢复;截止日不变。</span>
-          </button>
+    <Dialog
+      open
+      title="进度落后,需要你决定"
+      description={`《${book.title}》已连续两天没完成新块配额。剩余 ${replan.remainingBlocks} 块要在 ${Math.max(1, replan.remainingDays)} 天内学完,均摊后每日需 ${replan.requiredDaily ?? Math.ceil(replan.remainingBlocks / Math.max(1, replan.remainingDays))} 块,超过每日上限 ${cap} 块。截止日不会被静默修改——请选一种处理方式。`}
+      size="lg"
+      closeButton={false}
+      dismissible={!busy}
+      onClose={dismiss}
+      footer={<Button disabled={busy} onClick={dismiss}>本日不再提醒</Button>}
+    >
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { decide.clearError('decide'); void decide.run('decide', 'extend') }}
+          className={choiceCls}
+        >
+          <span className="font-serif text-title3 font-medium text-label-1">顺延截止日期到 {newDeadline}</span>
+          <span className="mt-0.5 block text-callout leading-relaxed text-label-2">按每日 {cap} 块的上限重新均摊,地图不变。</span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { decide.clearError('decide'); void decide.run('decide', 'trim') }}
+          className={choiceCls}
+        >
+          <span className="font-serif text-title3 font-medium text-label-1">缩减地图:跳过 {excess} 个靠后的未学块</span>
+          <span className="mt-0.5 block text-callout leading-relaxed text-label-2">标记为跳过而非删除,随时可在地图页恢复;截止日不变。</span>
+        </button>
+      </div>
+      {failure && (
+        <div className="mt-4">
+          <AsyncError error={failure} onRetry={() => void decide.retry('decide')} variant="compact" />
         </div>
-        {failure && (
-          <div className="mt-4">
-            <AsyncError error={failure} onRetry={() => void decide.retry('decide')} variant="compact" />
-          </div>
-        )}
-        <div className="mt-5 flex justify-end">
-          <Button disabled={busy} onClick={dismiss}>本日不再提醒</Button>
-        </div>
-      </Card>
-    </div>
+      )}
+    </Dialog>
   )
 }

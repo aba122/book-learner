@@ -2,13 +2,16 @@ import { useCallback, useEffect, useState } from 'react'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Card from '../../components/Card'
+import Icon from '../../components/icons/Icon'
+import IconButton from '../../components/IconButton'
+import Popover from '../../components/Popover'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { PomodoroSnapshot } from '../../types'
 
 /**
- * 番茄钟面板(M2 T3):状态机在后端,本组件只按快照渲染。倒计时用 endsAt − Date.now() 本地计算
- * (每秒重绘),阶段切换经 subscribePomodoro 推送;暂停/继续/结束经 useBackendOperation。
+ * 番茄钟胶囊(M2 T3;视觉改版第二批从右下浮动卡搬进工具栏带):状态机在后端,本组件只按快照渲染。
+ * 倒计时用 endsAt − Date.now() 本地计算(每秒重绘),阶段切换经 subscribePomodoro 推送;
+ * 暂停/继续/结束经 useBackendOperation,失败在胶囊尾部给出警示钮 → Popover 里重试。
  */
 export default function Pomodoro({
   snapshot,
@@ -56,6 +59,11 @@ export default function Pomodoro({
     void control.run('control', action)
   }, [control])
 
+  // 控制失败:胶囊尾部出现警示钮并自动展开浮层;关掉后记住"已看过这个错误",再点警示钮可重开
+  const [errorAnchor, setErrorAnchor] = useState<HTMLElement | null>(null)
+  const [seenFailure, setSeenFailure] = useState<unknown>(null)
+  const errorOpen = failure !== undefined && seenFailure !== failure
+
   const remaining = snapshot.endsAt === null
     ? snapshot.remainingSecs
     : Math.max(0, snapshot.endsAt - Math.floor(now / 1000))
@@ -64,22 +72,33 @@ export default function Pomodoro({
   const label = snapshot.phase === 'work' ? '专注中' : snapshot.phase === 'break' ? '小憩片刻' : '已暂停'
 
   return (
-    <Card className="fixed right-8 bottom-8 z-40 flex items-center gap-5 px-6 py-4 shadow-pop" data-testid="pomodoro">
-      <div>
-        <div className="text-xs text-ink-3">
-          {label} · {taskTitle}
-        </div>
-        <div className="font-serif text-3xl font-semibold text-ink-1 tabular-nums">
-          {mm}:{ss}
-        </div>
-        {failure && <AsyncError error={failure} onRetry={() => void control.retry('control')} variant="compact" />}
-      </div>
+    <div
+      data-testid="pomodoro"
+      className="flex h-7 max-w-full items-center gap-1.5 rounded-full bg-inset pr-1 pl-2.5 ring-1 ring-sep/60"
+    >
+      <Icon name="timer" size={14} className={snapshot.phase === 'work' ? 'text-accent' : 'text-label-3'} />
+      <span className="text-body font-semibold text-label-1 tabular-nums">{mm}:{ss}</span>
+      <span className="min-w-0 truncate text-subhead text-label-3">
+        {label}
+        <span className="hidden @lg:inline"> · {taskTitle}</span>
+      </span>
+      <span aria-hidden className="mx-0.5 h-3.5 w-px bg-sep" />
       {snapshot.phase === 'paused' ? (
-        <Button disabled={busy} onClick={() => run('resume')}>继续</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => run('resume')}>继续</Button>
       ) : (
-        <Button disabled={busy} onClick={() => run('pause')}>暂停</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => run('pause')}>暂停</Button>
       )}
-      <Button disabled={busy} onClick={() => run('stop')}>结束</Button>
-    </Card>
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => run('stop')}>结束</Button>
+      {failure && (
+        <>
+          <span ref={setErrorAnchor} className="inline-flex">
+            <IconButton icon="exclamation-triangle" label="番茄钟操作失败" size="sm" className="text-weak" onClick={() => setSeenFailure(null)} />
+          </span>
+          <Popover open={errorOpen} onClose={() => setSeenFailure(failure)} anchor={errorAnchor} aria-label="番茄钟操作失败" placement="bottom-end" className="w-80">
+            <AsyncError error={failure} onRetry={() => void control.retry('control')} variant="compact" />
+          </Popover>
+        </>
+      )}
+    </div>
   )
 }
