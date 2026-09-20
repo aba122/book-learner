@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend } from './types'
@@ -530,6 +530,63 @@ function decodeReadingSendResult(value: unknown): ReadingSendResult {
 function decodeDistillResult(value: unknown, path: string): { distilled: boolean } {
   const wire = objectAt(value, path)
   return { distilled: booleanAt(wire.distilled, `${path}.distilled`) }
+}
+
+// ---- 脉络图解码/出站校验(camelCase 镜像 core::lineage)----
+function decodeLineageNode(value: unknown, path: string): LineageNode {
+  const wire = objectAt(value, path)
+  return {
+    id: stringAt(wire.id, `${path}.id`),
+    title: stringAt(wire.title, `${path}.title`),
+    summary: stringAt(wire.summary, `${path}.summary`),
+    kind: stringAt(wire.kind, `${path}.kind`),
+    blockIds: arrayAt(wire.blockIds, `${path}.blockIds`, safeIntegerAt),
+    spineHrefs: arrayAt(wire.spineHrefs, `${path}.spineHrefs`, stringAt),
+    x: nullableAt(wire.x, `${path}.x`, finiteNumberAt),
+    y: nullableAt(wire.y, `${path}.y`, finiteNumberAt),
+    userEdited: booleanAt(wire.userEdited, `${path}.userEdited`),
+  }
+}
+function decodeLineageEdge(value: unknown, path: string): LineageEdge {
+  const wire = objectAt(value, path)
+  return {
+    from: stringAt(wire.from, `${path}.from`),
+    to: stringAt(wire.to, `${path}.to`),
+    label: stringAt(wire.label, `${path}.label`),
+  }
+}
+function decodeLineageGraphData(value: unknown, path: string): LineageGraphData {
+  const wire = objectAt(value, path)
+  return {
+    nodes: arrayAt(wire.nodes, `${path}.nodes`, decodeLineageNode),
+    edges: arrayAt(wire.edges, `${path}.edges`, decodeLineageEdge),
+  }
+}
+function decodeLineageGraph(value: unknown, path = 'lineage'): LineageGraph {
+  const wire = objectAt(value, path)
+  return {
+    bookId: safeIntegerAt(wire.bookId, `${path}.bookId`),
+    upToSeq: safeIntegerAt(wire.upToSeq, `${path}.upToSeq`),
+    currentSeq: safeIntegerAt(wire.currentSeq, `${path}.currentSeq`),
+    graph: decodeLineageGraphData(wire.graph, `${path}.graph`),
+    generatedAt: nullableAt(wire.generatedAt, `${path}.generatedAt`, stringAt),
+    updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
+  }
+}
+function outboundLineageGraph(value: unknown): void {
+  const wire = objectAt(value, 'graph', 'invalid_request')
+  if (!Array.isArray(wire.nodes)) invalidShape('graph.nodes', 'array', wire.nodes, 'invalid_request')
+  ;(wire.nodes as unknown[]).forEach((item, i) => {
+    const node = objectAt(item, `graph.nodes[${i}]`, 'invalid_request')
+    outboundString(node.id, `graph.nodes[${i}].id`)
+    outboundString(node.title, `graph.nodes[${i}].title`)
+  })
+  if (!Array.isArray(wire.edges)) invalidShape('graph.edges', 'array', wire.edges, 'invalid_request')
+  ;(wire.edges as unknown[]).forEach((item, i) => {
+    const edge = objectAt(item, `graph.edges[${i}]`, 'invalid_request')
+    outboundString(edge.from, `graph.edges[${i}].from`)
+    outboundString(edge.to, `graph.edges[${i}].to`)
+  })
 }
 function outboundNullableInteger(value: unknown, path: string): void {
   if (value !== null) outboundInteger(value, path)
@@ -1095,6 +1152,25 @@ export class TauriBackend implements Backend {
     return this.gated('readingDistill', () => {
       outboundInteger(topicId, 'topicId')
       return this.decode('reading_distill', { topicId }, value => decodeDistillResult(value, 'reading_distill'))
+    })
+  }
+  lineageGet(bookId: number): Promise<LineageGraph | null> {
+    return this.gated('lineageGet', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('lineage_get', { bookId }, value => nullableAt(value, 'lineage_get', decodeLineageGraph))
+    })
+  }
+  lineageGenerate(bookId: number): Promise<LineageGraph> {
+    return this.gated('lineageGenerate', () => {
+      outboundInteger(bookId, 'bookId')
+      return this.decode('lineage_generate', { bookId }, value => decodeLineageGraph(value, 'lineage_generate'))
+    })
+  }
+  lineageSave(bookId: number, graph: LineageGraphData): Promise<LineageGraph> {
+    return this.gated('lineageSave', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundLineageGraph(graph)
+      return this.decode('lineage_save', { bookId, graph }, value => decodeLineageGraph(value, 'lineage_save'))
     })
   }
   readerMarkList(bookId: number): Promise<ReaderMark[]> {

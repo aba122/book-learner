@@ -153,3 +153,22 @@ export interface ReadingMessage {
 export interface ReadingSendInput { bookId: number; topicId: number | null; clientMsgId: string; text: string; quote: string; spineHref: string; blockId: number | null }
 /** AI 失败也是成功载荷:userMessage.status='failed'、assistantMessage=null;重试 = 同 topicId + clientMsgId 重发 */
 export interface ReadingSendResult { topicId: number; userMessage: ReadingMessage; assistantMessage: ReadingMessage | null }
+
+// ---- 脉络图(阅读进度合成图,plan 2026-09-19)----
+export interface LineageNode {
+  id: string; title: string; summary: string
+  /** 节点性质(阶段/主题/概念/事件…),仅作前端配色提示,可空串 */
+  kind: string
+  blockIds: number[]; spineHrefs: string[]
+  /** 手改坐标(拖动后落库);未定位为 null,由布局纯函数算 */
+  x: number | null; y: number | null
+  /** 用户手改过(增量更新时保留,AI 不覆盖) */
+  userEdited: boolean
+}
+export interface LineageEdge { from: string; to: string; label: string }
+export interface LineageGraphData { nodes: LineageNode[]; edges: LineageEdge[] }
+/** 每书一张当前图;currentSeq > upToSeq 时前端提示"更新到最新进度" */
+export interface LineageGraph {
+  bookId: number; upToSeq: number; currentSeq: number
+  graph: LineageGraphData; generatedAt: string | null; updatedAt: string
+}

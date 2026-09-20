@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export interface Backend {
@@ -67,6 +67,10 @@ export interface Backend {
   readingSend(input: ReadingSendInput): Promise<ReadingSendResult>
   readingTopicEnd(topicId: number): Promise<{ distilled: boolean }>
   readingDistill(topicId: number): Promise<{ distilled: boolean }>
+  /** 脉络图(plan 2026-09-19):按阅读进度取当前图(无则 null)、手动生成到当前进度、保存用户手改 */
+  lineageGet(bookId: number): Promise<LineageGraph | null>
+  lineageGenerate(bookId: number): Promise<LineageGraph>
+  lineageSave(bookId: number, graph: LineageGraphData): Promise<LineageGraph>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>
