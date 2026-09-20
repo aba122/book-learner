@@ -38,6 +38,47 @@ fn context_block(ctx: &FixedContext) -> String {
 }
 
 /// 脉络图生成(plan 2026-09-19):按已读章节/知识块骨架,产出节点-连线图 JSON。只输出 JSON。
+/// 增量更新(第二批):旧图 + 新读章节 → 完整新图;userEdited 节点不许改
+pub fn lineage_update_prompt(
+    book_title: &str,
+    ty: BookType,
+    old_graph_json: &str,
+    new_chapters: &str,
+    blocks: &str,
+) -> String {
+    let angle = match ty {
+        BookType::Textbook => "以概念/原理/方法为节点,连线标注依赖或推导关系",
+        BookType::Methodology => "以观点/框架/案例为节点,连线标注支撑或递进关系",
+        BookType::Humanities => "以叙事阶段/主题/关键转折为节点,连线标注时间先后或因果关系",
+    };
+    format!(
+        "你在为《{book_title}》**增量更新**一张“脉络图”:读者又往后读了几章,请把新内容接进现有的图里。{angle}。\
+只输出 JSON,不要别的文字,格式同现有图:\n\
+{{\"nodes\":[{{\"id\":\"短id\",\"title\":\"节点名(≤12字)\",\"summary\":\"一句话≤30字\",\"detail\":\"1-3句展开\",\"kind\":\"阶段|主题|概念|转折|事件\",\"blockIds\":[知识块号],\"spineHrefs\":[\"章节href\"],\"userEdited\":false}}],\
+\"edges\":[{{\"from\":\"id\",\"to\":\"id\",\"label\":\"关系≤6字\"}}]}}\n\
+要求:输出**更新后的完整图**;现有节点保持 id 不变;`userEdited:true` 的节点是读者手改过的,title/summary/detail/kind **一字不改**(可以给它们连新边);为新章节补节点与连线,把新旧内容连成一条主线;总节点不超过 40;只覆盖已读章节别剧透;每个新节点 spineHrefs 至少一个。\n\n\
+=== 现有脉络图 JSON ===\n{old_graph_json}\n\n=== 新读的章节(href 标题)===\n{new_chapters}\n\n=== 新章节范围的知识块(#号 [模块] 标题)===\n{blocks}\n\n\
+提示:你的工作目录即记忆库,可读 _map.md / _reading.md 了解全书结构与读者关注点。"
+    )
+}
+
+/// AI 按读者理解修正(第二批):现图 + 指令(可聚焦节点)→ 完整新图
+pub fn lineage_revise_prompt(
+    book_title: &str,
+    graph_json: &str,
+    focus_title: Option<&str>,
+    instruction: &str,
+) -> String {
+    let focus = focus_title
+        .map(|t| format!("读者是针对节点《{t}》提的要求,改动以它为中心,其他节点尽量不动。\n"))
+        .unwrap_or_default();
+    format!(
+        "你在按读者的理解**修正**《{book_title}》的“脉络图”。{focus}\
+只输出 JSON,不要别的文字,格式同现有图(nodes/edges,字段同上一次生成);输出**修正后的完整图**:未涉及的节点保持 id 与内容不变;读者要求改名/合并/拆分/增删/改连线都照做,并让结果仍然逻辑自洽;别剧透未读内容。\n\n\
+=== 读者的要求 ===\n{instruction}\n\n=== 现有脉络图 JSON ===\n{graph_json}\n"
+    )
+}
+
 pub fn lineage_generate_prompt(
     book_title: &str,
     ty: BookType,

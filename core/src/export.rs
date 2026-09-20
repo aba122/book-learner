@@ -335,6 +335,23 @@ pub fn plan(conn: &Connection, book_id: i64, target_dir: &Path) -> Result<Export
             ),
         });
     }
+    // 脉络图(第二批):有图才导出,内容同记忆库 _lineage.md
+    if let Some(l) = crate::lineage::get(conn, book_id)? {
+        if !l.graph.nodes.is_empty() {
+            files.push(ExportFile {
+                rel_path: format!("{book_dir}/02-脉络图.md"),
+                content: format!(
+                    "{}{}",
+                    frontmatter(&[
+                        ("book", yaml_str(&title)),
+                        ("kind", "lineage".into()),
+                        ("tags", tags.clone()),
+                    ]),
+                    crate::lineage::render_markdown(&title, &l.up_to_title, &l.graph)
+                ),
+            });
+        }
+    }
     // 学习报告(始终生成:无报告时占位并给出块索引)
     let block_index = blocks
         .iter()
@@ -596,5 +613,35 @@ mod tests {
             std::fs::read_to_string(dir.path().join("微观经济学 入门/我的笔记.md")).unwrap(),
             "keep"
         );
+    }
+
+    #[test]
+    fn plan_includes_lineage_file_only_when_graph_exists() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let (book, _) = seed(&conn);
+        let before = plan(&conn, book, Path::new("/vault")).unwrap();
+        assert!(!before
+            .files
+            .iter()
+            .any(|f| f.rel_path.ends_with("02-脉络图.md")));
+        let data = crate::lineage::LineageGraphData {
+            nodes: vec![crate::lineage::LineageNode {
+                id: "a".into(),
+                title: "供需".into(),
+                summary: "价格调节".into(),
+                ..Default::default()
+            }],
+            edges: vec![],
+        };
+        crate::lineage::save(&conn, book, &data).unwrap();
+        let after = plan(&conn, book, Path::new("/vault")).unwrap();
+        let f = after
+            .files
+            .iter()
+            .find(|f| f.rel_path.ends_with("02-脉络图.md"))
+            .expect("lineage export file");
+        assert!(f.content.starts_with("---\n"));
+        assert!(f.content.contains("kind: lineage"));
+        assert!(f.content.contains("1. **供需** — 价格调节"));
     }
 }

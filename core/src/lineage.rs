@@ -69,6 +69,96 @@ pub struct LineageGraph {
     pub updated_at: String,
 }
 
+/// 「看原文」:节点对应的章节与知识块,附首个章节的开头节选
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeSource {
+    pub hrefs: Vec<SourceRef>,
+    pub blocks: Vec<SourceBlock>,
+    pub excerpt: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRef {
+    pub href: String,
+    pub title: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceBlock {
+    pub id: i64,
+    pub title: String,
+}
+
+pub const LINEAGE_INSTRUCTION_MAX: usize = 2000;
+
+fn fnv(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// 同前缀已有的 ai_request 行数,作请求 id 的尝试号(同 id 已 done 会被重放)
+fn attempt(conn: &Connection, prefix: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT count(*) FROM ai_request WHERE request_id LIKE ?1",
+        [format!("{prefix}%")],
+        |r| r.get(0),
+    )?)
+}
+
+/// (after, up_to] 范围内的正文章节
+fn content_chapters(
+    conn: &Connection,
+    book_id: i64,
+    after: i64,
+    up_to: i64,
+) -> Result<Vec<crate::mapgen::SpineChapter>> {
+    Ok(crate::mapgen::list_spine(conn, book_id)?
+        .into_iter()
+        .filter(|c| c.idx > after && c.idx <= up_to && is_content_chapter(c))
+        .collect())
+}
+
+/// 喂 AI 的骨架:章节列表 + 落在这些章节里的知识块
+fn skeleton_text(
+    conn: &Connection,
+    book_id: i64,
+    chapters: &[crate::mapgen::SpineChapter],
+) -> Result<(String, String)> {
+    let hrefs: std::collections::HashSet<&str> = chapters.iter().map(|c| c.href.as_str()).collect();
+    let chapters_txt = chapters
+        .iter()
+        .map(|c| {
+            format!(
+                "- [{}] {}",
+                c.href,
+                if c.title.is_empty() {
+                    "(无标题章)"
+                } else {
+                    &c.title
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut blocks_txt = String::new();
+    let blocks = crate::models::list_blocks(conn, book_id)?;
+    let mut st = conn.prepare("SELECT DISTINCT spine_href FROM block_anchor WHERE block_id=?1")?;
+    for b in &blocks {
+        let bh: Vec<String> = st
+            .query_map([b.id], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        if bh.iter().any(|h| hrefs.contains(h.as_str())) {
+            blocks_txt.push_str(&format!("- #{} [{}] {}\n", b.id, b.module_name, b.title));
+        }
+    }
+    Ok((chapters_txt, blocks_txt))
+}
+
 fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -238,6 +328,13 @@ fn upsert(
             )?;
         }
     }
+    // 投影到 _lineage.md:op_id 带内容哈希——同内容幂等,不同内容不被 INSERT OR IGNORE 吞
+    crate::projection::enqueue(
+        conn,
+        &format!("lineage:{book_id}:h{:x}:sync_lineage", fnv(&json)),
+        "sync_lineage",
+        &serde_json::json!({ "book_id": book_id }),
+    )?;
     Ok(())
 }
 
@@ -268,44 +365,11 @@ pub fn generate(
         r.get(0)
     })?;
     let up_to = progress_seq(conn, book_id)?;
-    let chapters = crate::mapgen::list_spine(conn, book_id)?;
-    let read: Vec<&crate::mapgen::SpineChapter> = chapters
-        .iter()
-        .filter(|c| c.idx <= up_to && is_content_chapter(c))
-        .collect();
+    let read = content_chapters(conn, book_id, -1, up_to)?;
     if read.is_empty() {
         return Err(CoreError::InvalidInput("先阅读一部分再生成脉络图".into()));
     }
-    let read_hrefs: std::collections::HashSet<&str> =
-        read.iter().map(|c| c.href.as_str()).collect();
-    let chapters_txt = read
-        .iter()
-        .map(|c| {
-            format!(
-                "- [{}] {}",
-                c.href,
-                if c.title.is_empty() {
-                    "(无标题章)"
-                } else {
-                    &c.title
-                }
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    // 已读范围内的知识块(按锚点章节归属),给标题/模块作骨架
-    let mut blocks_txt = String::new();
-    let blocks = crate::models::list_blocks(conn, book_id)?;
-    let mut st = conn.prepare("SELECT DISTINCT spine_href FROM block_anchor WHERE block_id=?1")?;
-    for b in &blocks {
-        let hrefs: Vec<String> = st
-            .query_map([b.id], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        if hrefs.iter().any(|h| read_hrefs.contains(h.as_str())) {
-            blocks_txt.push_str(&format!("- #{} [{}] {}\n", b.id, b.module_name, b.title));
-        }
-    }
-    drop(st);
+    let (chapters_txt, blocks_txt) = skeleton_text(conn, book_id, &read)?;
     let system =
         crate::prompts::lineage_generate_prompt(&title, book_type, &chapters_txt, &blocks_txt);
     let req = CompletionRequest {
@@ -318,11 +382,7 @@ pub fn generate(
     };
     // 请求 id 按尝试次数递增:ai_request 以 request_id 为主键,同 id 已 done 会直接重放旧结果,
     // 「重新生成」在同一进度下就永远拿不到新图(Mac 实测发现)
-    let attempt: i64 = conn.query_row(
-        "SELECT count(*) FROM ai_request WHERE request_id LIKE ?1",
-        [format!("lineage:{book_id}:s{up_to}%")],
-        |r| r.get(0),
-    )?;
+    let attempt = attempt(conn, &format!("lineage:{book_id}:s{up_to}"))?;
     let graph = run_ai_json(
         conn,
         provider,
@@ -334,6 +394,279 @@ pub fn generate(
     )?;
     upsert(conn, book_id, up_to, &graph, true)?;
     Ok(get(conn, book_id)?.expect("just generated"))
+}
+
+/// 增量更新到最新进度(第二批):旧图 + 新读章节喂 AI,合并时 **userEdited 节点原样保留**
+/// (AI 删了也补回,触及它们的旧边也保留)。进度没前进 → InvalidInput;新进度里没有正文章 → 只推进 up_to_seq。
+pub fn update(
+    conn: &Connection,
+    provider: &dyn AiProvider,
+    workdir: &std::path::Path,
+    policy: &AiPolicy,
+    book_id: i64,
+) -> Result<LineageGraph> {
+    if !conn.is_autocommit() {
+        return Err(CoreError::Other(
+            "update must not run inside a transaction".into(),
+        ));
+    }
+    let (_, book_type) = crate::models::get_book_slug_type(conn, book_id)?;
+    let title: String = conn.query_row("SELECT title FROM book WHERE id=?1", [book_id], |r| {
+        r.get(0)
+    })?;
+    let Some((old_up_to, old_json, _, _)) = read_row(conn, book_id)? else {
+        return Err(CoreError::InvalidInput("先生成脉络图".into()));
+    };
+    let old: LineageGraphData = serde_json::from_str(&old_json).unwrap_or_default();
+    let new_up_to = progress_seq(conn, book_id)?;
+    if new_up_to <= old_up_to {
+        return Err(CoreError::InvalidInput("脉络图已是最新进度".into()));
+    }
+    let fresh = content_chapters(conn, book_id, old_up_to, new_up_to)?;
+    if fresh.is_empty() {
+        upsert(conn, book_id, new_up_to, &old, false)?;
+        return Ok(get(conn, book_id)?.expect("just updated"));
+    }
+    let (chapters_txt, blocks_txt) = skeleton_text(conn, book_id, &fresh)?;
+    let system = crate::prompts::lineage_update_prompt(
+        &title,
+        book_type,
+        &serde_json::to_string(&old).unwrap_or_default(),
+        &chapters_txt,
+        &blocks_txt,
+    );
+    let req = CompletionRequest {
+        system,
+        messages: vec![(Role::User, "请输出更新后的完整脉络图 JSON。".into())],
+        workdir: workdir.to_path_buf(),
+        read_only: true,
+        request_id: String::new(),
+        timeout_secs: LINEAGE_TIMEOUT_SECS,
+    };
+    let attempt = attempt(conn, &format!("lineage_update:{book_id}:s{new_up_to}"))?;
+    let fresh_graph = run_ai_json(
+        conn,
+        provider,
+        &format!("lineage_update:{book_id}:s{new_up_to}:r{attempt}"),
+        "lineage",
+        &req,
+        policy,
+        &parse_graph,
+    )?;
+    let merged = merge_preserving(&old, fresh_graph);
+    upsert(conn, book_id, new_up_to, &merged, true)?;
+    Ok(get(conn, book_id)?.expect("just updated"))
+}
+
+/// 合并:旧图里 userEdited 的节点整体覆盖新图同 id 节点;被 AI 删掉的补回原位;
+/// 触及这些节点的旧边(两端仍存在)也保留。
+pub fn merge_preserving(old: &LineageGraphData, fresh: LineageGraphData) -> LineageGraphData {
+    let mut out = fresh;
+    for (i, on) in old.nodes.iter().enumerate() {
+        if !on.user_edited {
+            continue;
+        }
+        match out.nodes.iter().position(|n| n.id == on.id) {
+            Some(p) => out.nodes[p] = on.clone(),
+            None => out.nodes.insert(i.min(out.nodes.len()), on.clone()),
+        }
+    }
+    let ids: std::collections::HashSet<&str> = out.nodes.iter().map(|n| n.id.as_str()).collect();
+    for e in &old.edges {
+        let touches = old
+            .nodes
+            .iter()
+            .any(|n| n.user_edited && (n.id == e.from || n.id == e.to));
+        if touches
+            && ids.contains(e.from.as_str())
+            && ids.contains(e.to.as_str())
+            && !out.edges.iter().any(|x| x.from == e.from && x.to == e.to)
+        {
+            out.edges.push(e.clone());
+        }
+    }
+    clean_graph(out, false)
+}
+
+/// AI 按读者的理解修正(第二批):现图 + 指令(可聚焦某节点)→ 完整新图;
+/// 内容有变或新增的节点标 userEdited(读者要求的修正,增量更新时保留),其余节点沿用旧标记与坐标。
+pub fn revise(
+    conn: &Connection,
+    provider: &dyn AiProvider,
+    workdir: &std::path::Path,
+    policy: &AiPolicy,
+    book_id: i64,
+    node_id: Option<&str>,
+    instruction: &str,
+) -> Result<LineageGraph> {
+    if !conn.is_autocommit() {
+        return Err(CoreError::Other(
+            "revise must not run inside a transaction".into(),
+        ));
+    }
+    let instruction = instruction.trim();
+    if instruction.is_empty() || instruction.chars().count() > LINEAGE_INSTRUCTION_MAX {
+        return Err(CoreError::InvalidInput("修正要求为空或过长".into()));
+    }
+    crate::models::get_book_slug_type(conn, book_id)?;
+    let title: String = conn.query_row("SELECT title FROM book WHERE id=?1", [book_id], |r| {
+        r.get(0)
+    })?;
+    let Some((up_to, old_json, _, _)) = read_row(conn, book_id)? else {
+        return Err(CoreError::InvalidInput("先生成脉络图".into()));
+    };
+    let old: LineageGraphData = serde_json::from_str(&old_json).unwrap_or_default();
+    let focus = match node_id {
+        Some(id) => Some(
+            old.nodes
+                .iter()
+                .find(|n| n.id == id)
+                .map(|n| n.title.clone())
+                .ok_or_else(|| CoreError::NotFound(format!("lineage node {id}")))?,
+        ),
+        None => None,
+    };
+    let system = crate::prompts::lineage_revise_prompt(
+        &title,
+        &serde_json::to_string(&old).unwrap_or_default(),
+        focus.as_deref(),
+        instruction,
+    );
+    let req = CompletionRequest {
+        system,
+        messages: vec![(Role::User, "请输出修正后的完整脉络图 JSON。".into())],
+        workdir: workdir.to_path_buf(),
+        read_only: true,
+        request_id: String::new(),
+        timeout_secs: LINEAGE_TIMEOUT_SECS,
+    };
+    let attempt = attempt(conn, &format!("lineage_revise:{book_id}"))?;
+    let mut fresh = run_ai_json(
+        conn,
+        provider,
+        &format!("lineage_revise:{book_id}:r{attempt}"),
+        "lineage",
+        &req,
+        policy,
+        &parse_graph,
+    )?;
+    for n in &mut fresh.nodes {
+        let same = old.nodes.iter().find(|o| {
+            o.id == n.id
+                && o.title == n.title
+                && o.summary == n.summary
+                && o.detail == n.detail
+                && o.kind == n.kind
+        });
+        match same {
+            Some(o) => {
+                n.user_edited = o.user_edited;
+                n.x = o.x;
+                n.y = o.y;
+            }
+            None => n.user_edited = true,
+        }
+    }
+    upsert(conn, book_id, up_to, &fresh, false)?;
+    Ok(get(conn, book_id)?.expect("just revised"))
+}
+
+/// 「看原文」:节点的章节(带标题)与知识块(带标题),附首章开头 600 字节选
+pub fn node_source(conn: &Connection, book_id: i64, node_id: &str) -> Result<NodeSource> {
+    let Some(g) = get(conn, book_id)? else {
+        return Err(CoreError::InvalidInput("先生成脉络图".into()));
+    };
+    let node = g
+        .graph
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .ok_or_else(|| CoreError::NotFound(format!("lineage node {node_id}")))?;
+    let spine = crate::mapgen::list_spine(conn, book_id)?;
+    let hrefs: Vec<SourceRef> = node
+        .spine_hrefs
+        .iter()
+        .filter_map(|h| spine.iter().find(|c| &c.href == h))
+        .map(|c| SourceRef {
+            href: c.href.clone(),
+            title: c.title.clone(),
+        })
+        .collect();
+    let blocks: Vec<SourceBlock> = node
+        .block_ids
+        .iter()
+        .filter_map(|id| crate::models::get_block(conn, *id).ok())
+        .map(|b| SourceBlock {
+            id: b.id,
+            title: b.title,
+        })
+        .collect();
+    let excerpt = hrefs
+        .first()
+        .and_then(|r| spine.iter().find(|c| c.href == r.href))
+        .map(|c| {
+            let t = c.text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let cut: String = t.chars().take(600).collect();
+            if cut.chars().count() < t.chars().count() {
+                format!("{cut}…")
+            } else {
+                cut
+            }
+        })
+        .unwrap_or_default();
+    Ok(NodeSource {
+        hrefs,
+        blocks,
+        excerpt,
+    })
+}
+
+/// 脉络图的 Markdown 视图(`_lineage.md` 与导出共用):按阅读顺序列节点,再列关系
+pub fn render_markdown(book_title: &str, up_to_title: &str, g: &LineageGraphData) -> String {
+    let title_of = |id: &str| -> String {
+        g.nodes
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| n.title.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
+    let covered = if up_to_title.trim().is_empty() {
+        "(未知章节)"
+    } else {
+        up_to_title
+    };
+    let mut out =
+        format!("# 《{book_title}》阅读脉络图\n\n覆盖到:{covered}\n\n## 脉络(按阅读顺序)\n\n");
+    for (i, n) in g.nodes.iter().enumerate() {
+        let kind = if n.kind.is_empty() {
+            String::new()
+        } else {
+            format!("({})", n.kind)
+        };
+        let edited = if n.user_edited { " ✎" } else { "" };
+        out.push_str(&format!("{}. **{}**{kind}{edited}", i + 1, n.title));
+        if !n.summary.is_empty() {
+            out.push_str(&format!(" — {}", n.summary));
+        }
+        out.push('\n');
+        if !n.detail.is_empty() {
+            out.push_str(&format!("   {}\n", n.detail));
+        }
+    }
+    out.push_str("\n## 关系\n\n");
+    for e in &g.edges {
+        let label = if e.label.is_empty() {
+            "→".to_string()
+        } else {
+            format!("→({})", e.label)
+        };
+        out.push_str(&format!(
+            "- {} {label} {}\n",
+            title_of(&e.from),
+            title_of(&e.to)
+        ));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -619,5 +952,224 @@ mod tests {
                 format!("lineage:{book}:s1:r1")
             ]
         );
+    }
+
+    fn nodes(ids: &[(&str, &str, bool)]) -> Vec<LineageNode> {
+        ids.iter()
+            .map(|(id, title, edited)| LineageNode {
+                id: id.to_string(),
+                title: title.to_string(),
+                user_edited: *edited,
+                ..Default::default()
+            })
+            .collect()
+    }
+    fn edge(from: &str, to: &str) -> LineageEdge {
+        LineageEdge {
+            from: from.into(),
+            to: to.into(),
+            label: String::new(),
+        }
+    }
+
+    #[test]
+    fn merge_preserving_keeps_user_edited_nodes_and_their_edges() {
+        let old = LineageGraphData {
+            nodes: nodes(&[("a", "甲", false), ("b", "我改的", true), ("c", "丙", true)]),
+            edges: vec![edge("a", "b"), edge("b", "c")],
+        };
+        // AI:改了 b 的标题、删了 c、加了 d
+        let fresh = LineageGraphData {
+            nodes: nodes(&[
+                ("a", "甲2", false),
+                ("b", "AI改的", false),
+                ("d", "丁", false),
+            ]),
+            edges: vec![edge("a", "b"), edge("b", "d")],
+        };
+        let m = merge_preserving(&old, fresh);
+        let t = |id: &str| m.nodes.iter().find(|n| n.id == id).map(|n| n.title.clone());
+        assert_eq!(t("b").as_deref(), Some("我改的"), "手改节点整体覆盖");
+        assert_eq!(t("c").as_deref(), Some("丙"), "被 AI 删的手改节点补回");
+        assert_eq!(t("a").as_deref(), Some("甲2"), "未手改的节点采用 AI 版本");
+        assert_eq!(
+            m.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b", "c", "d"],
+            "补回原位"
+        );
+        assert!(
+            m.edges.iter().any(|e| e.from == "b" && e.to == "c"),
+            "触及手改节点的旧边保留"
+        );
+        assert!(m.edges.iter().any(|e| e.from == "b" && e.to == "d"));
+        assert!(m.nodes.iter().find(|n| n.id == "b").unwrap().user_edited);
+    }
+
+    #[test]
+    fn update_refuses_when_not_behind_and_merges_when_behind() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        // 没往后读 → 拒绝
+        let p2 = Script(Mutex::new(vec![]));
+        assert!(matches!(
+            update(&conn, &p2, std::path::Path::new("."), &policy(), book).unwrap_err(),
+            CoreError::InvalidInput(_)
+        ));
+        // 手改 a,再读到 ch3
+        let mut data = get(&conn, book).unwrap().unwrap().graph;
+        data.nodes[0].title = "我改的".into();
+        data.nodes[0].user_edited = true;
+        save(&conn, book, &data).unwrap();
+        crate::reader_marks::set_position(&conn, book, "ch3.xhtml", "epubcfi(/6/8!/4/2)").unwrap();
+        let fresh = r#"{"nodes":[{"id":"a","title":"AI 想改掉","summary":""},{"id":"b","title":"消费者社会"},{"id":"c","title":"新穷人"}],"edges":[{"from":"a","to":"b","label":""},{"from":"b","to":"c","label":"引出"}]}"#;
+        let p3 = Capture(Mutex::new(None), fresh.into());
+        let g = update(&conn, &p3, std::path::Path::new("."), &policy(), book).unwrap();
+        assert_eq!(g.up_to_seq, 3);
+        assert_eq!(g.graph.nodes[0].title, "我改的", "增量更新保留手改");
+        assert_eq!(g.graph.nodes.len(), 3);
+        let sys = p3.0.lock().unwrap().clone().unwrap();
+        assert!(
+            sys.contains("第2章") && sys.contains("第3章") && !sys.contains("] 第1章"),
+            "只喂新读章节: {sys}"
+        );
+        assert!(
+            sys.contains("\"userEdited\":true"),
+            "旧图连同手改标记一起给 AI"
+        );
+    }
+
+    #[test]
+    fn revise_marks_changed_nodes_and_validates_input() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let p0 = Script(Mutex::new(vec![]));
+        assert!(matches!(
+            revise(
+                &conn,
+                &p0,
+                std::path::Path::new("."),
+                &policy(),
+                book,
+                None,
+                "  "
+            )
+            .unwrap_err(),
+            CoreError::InvalidInput(_)
+        ));
+        assert!(matches!(
+            revise(
+                &conn,
+                &p0,
+                std::path::Path::new("."),
+                &policy(),
+                book,
+                Some("nope"),
+                "改"
+            )
+            .unwrap_err(),
+            CoreError::NotFound(_)
+        ));
+        let fresh = r#"{"nodes":[{"id":"a","title":"生产者社会","summary":"以工作定义身份","spineHrefs":["ch0.xhtml"]},{"id":"b","title":"消费社会(改)","summary":"以消费定义身份"}],"edges":[{"from":"a","to":"b","label":"转向"}]}"#;
+        let p1 = Capture(Mutex::new(None), fresh.into());
+        let g = revise(
+            &conn,
+            &p1,
+            std::path::Path::new("."),
+            &policy(),
+            book,
+            Some("b"),
+            "把 b 改得更准确",
+        )
+        .unwrap();
+        assert!(!g.graph.nodes[0].user_edited, "没变的节点不标");
+        assert!(g.graph.nodes[1].user_edited, "改了的节点标 userEdited");
+        assert_eq!(g.up_to_seq, 1, "修正不动进度");
+        let sys = p1.0.lock().unwrap().clone().unwrap();
+        assert!(sys.contains("《消费者社会》") && sys.contains("把 b 改得更准确"));
+    }
+
+    #[test]
+    fn node_source_lists_chapters_blocks_and_excerpt() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let src = node_source(&conn, book, "a").unwrap();
+        assert_eq!(src.hrefs.len(), 1);
+        assert_eq!(
+            (src.hrefs[0].href.as_str(), src.hrefs[0].title.as_str()),
+            ("ch0.xhtml", "第0章")
+        );
+        assert!(src.excerpt.starts_with("正文正文"));
+        assert!(matches!(
+            node_source(&conn, book, "zzz").unwrap_err(),
+            CoreError::NotFound(_)
+        ));
+    }
+
+    #[test]
+    fn render_markdown_lists_nodes_in_order_and_relations() {
+        let g = LineageGraphData {
+            nodes: nodes(&[("a", "甲", false), ("b", "乙", true)]),
+            edges: vec![LineageEdge {
+                from: "a".into(),
+                to: "b".into(),
+                label: "转向".into(),
+            }],
+        };
+        let md = render_markdown("书", "第二章", &g);
+        assert!(md.contains("覆盖到:第二章"));
+        assert!(md.contains("1. **甲**"));
+        assert!(md.contains("2. **乙** ✎"));
+        assert!(md.contains("- 甲 →(转向) 乙"));
+    }
+
+    #[test]
+    fn upsert_enqueues_sync_lineage_with_content_watermark() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let count = |conn: &Connection| -> i64 {
+            conn.query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind='sync_lineage'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count(&conn), 1);
+        let data = get(&conn, book).unwrap().unwrap().graph;
+        save(&conn, book, &data).unwrap(); // 同内容 → 同 op_id,被忽略
+        assert_eq!(count(&conn), 1);
+        let mut changed = data.clone();
+        changed.nodes[0].title = "改".into();
+        save(&conn, book, &changed).unwrap();
+        assert_eq!(count(&conn), 2, "内容变了才入队新 op");
+    }
+
+    #[test]
+    fn sync_lineage_projection_writes_memory_file_and_index_hint() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into())]));
+        generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let m = crate::memory::MemoryStore::init(dir.path()).unwrap();
+        let n = crate::projection::run_pending(&conn, &m).unwrap();
+        assert!(n >= 1);
+        let md = std::fs::read_to_string(dir.path().join("books/poor/_lineage.md")).unwrap();
+        assert!(md.contains("# 《工作与新穷人》阅读脉络图"));
+        assert!(md.contains("覆盖到:第1章"));
+        assert!(md.contains("1. **生产者社会** — 以工作定义身份"));
+        assert!(md.contains("- 生产者社会 →(转向) 消费者社会"));
+        let index = std::fs::read_to_string(dir.path().join("INDEX.md")).unwrap();
+        assert!(index.contains("_lineage.md"));
+        // 再跑一次:无待办,文件不变
+        assert_eq!(crate::projection::run_pending(&conn, &m).unwrap(), 0);
     }
 }

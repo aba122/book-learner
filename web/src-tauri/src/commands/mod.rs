@@ -144,6 +144,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("lineage_get", &["bookId"]),
     ("lineage_generate", &["bookId"]),
     ("lineage_save", &["bookId", "graph"]),
+    ("lineage_update", &["bookId"]),
+    ("lineage_revise", &["bookId", "nodeId", "instruction"]),
+    ("lineage_node_source", &["bookId", "nodeId"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1572,19 +1575,102 @@ pub async fn lineage_get(
     lineage_get_inner(&state, book_id)
 }
 
-#[tauri::command(async)]
-pub async fn lineage_generate(
-    state: State<'_, AppState>,
+/// 脉络图写库后排空 outbox(sync_lineage → _lineage.md);失败只记日志
+fn replay_lineage_projection<R: tauri::Runtime>(app: tauri::AppHandle<R>, what: &'static str) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if let Err(error) = crate::run_startup_recovery(&state) {
+            tracing::error!(
+                error_code = error.code.as_str(),
+                internal_cause = error.internal_cause(),
+                "{what}后投影重放失败"
+            );
+        }
+    });
+}
+
+pub fn lineage_update_inner(
+    state: &AppState,
     book_id: i64,
 ) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
-    lineage_generate_inner(&state, book_id)
+    run_command(state, "lineage_update", || {
+        application::lineage_update(state, book_id)
+    })
+}
+
+pub fn lineage_revise_inner(
+    state: &AppState,
+    book_id: i64,
+    node_id: Option<String>,
+    instruction: String,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    run_command(state, "lineage_revise", || {
+        application::lineage_revise(state, book_id, node_id, instruction)
+    })
+}
+
+pub fn lineage_node_source_inner(
+    state: &AppState,
+    book_id: i64,
+    node_id: String,
+) -> Result<book_learner_core::lineage::NodeSource, IpcError> {
+    run_command(state, "lineage_node_source", || {
+        application::lineage_node_source(state, book_id, node_id)
+    })
 }
 
 #[tauri::command(async)]
-pub async fn lineage_save(
+pub async fn lineage_generate<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    let graph = lineage_generate_inner(&state, book_id)?;
+    replay_lineage_projection(app, "脉络图生成");
+    Ok(graph)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     book_id: i64,
     graph: book_learner_core::lineage::LineageGraphData,
 ) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
-    lineage_save_inner(&state, book_id, graph)
+    let graph = lineage_save_inner(&state, book_id, graph)?;
+    replay_lineage_projection(app, "脉络图保存");
+    Ok(graph)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_update<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    book_id: i64,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    let graph = lineage_update_inner(&state, book_id)?;
+    replay_lineage_projection(app, "脉络图更新");
+    Ok(graph)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_revise<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    book_id: i64,
+    node_id: Option<String>,
+    instruction: String,
+) -> Result<book_learner_core::lineage::LineageGraph, IpcError> {
+    let graph = lineage_revise_inner(&state, book_id, node_id, instruction)?;
+    replay_lineage_projection(app, "脉络图修正");
+    Ok(graph)
+}
+
+#[tauri::command(async)]
+pub async fn lineage_node_source(
+    state: State<'_, AppState>,
+    book_id: i64,
+    node_id: String,
+) -> Result<book_learner_core::lineage::NodeSource, IpcError> {
+    lineage_node_source_inner(&state, book_id, node_id)
 }

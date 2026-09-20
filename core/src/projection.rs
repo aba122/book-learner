@@ -231,6 +231,18 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
             }
             memory.sync_reading(&slug, &title, &entries)
         }
+        "sync_lineage" => {
+            let book_id = field_i64(&p, "book_id")?;
+            let (slug, title) = book_slug_title(conn, book_id)?;
+            memory.ensure_book(&slug, &title)?;
+            match crate::lineage::get(conn, book_id)? {
+                Some(g) => memory.sync_lineage(
+                    &slug,
+                    &crate::lineage::render_markdown(&title, &g.up_to_title, &g.graph),
+                ),
+                None => Ok(()), // 图已删:no-op
+            }
+        }
         "extra_archive" => {
             let artifact_id = field_i64(&p, "artifact_id")?;
             let entry_key = field_str(&p, "entry_key")?;

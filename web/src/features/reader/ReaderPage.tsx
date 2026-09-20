@@ -149,6 +149,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
       const el = e.target as HTMLElement | null
       const tag = el?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+      // 脉络图画布用方向键选节点(它会 preventDefault),不翻页
+      if (e.defaultPrevented) return
       if (e.key === 'ArrowRight') epubRef.current?.next()
       if (e.key === 'ArrowLeft') epubRef.current?.prev()
     }
@@ -597,7 +599,14 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 </div>
                 {/* 脉络图(plan 2026-09-19):按进度合成图;收起只隐藏、不卸载,保留手改草稿 */}
                 <div hidden={sideTab !== 'lineage'} className="flex min-h-0 flex-1 flex-col" data-testid="lineage-panel">
-                  <LineagePanel bookId={block.bookId} />
+                  <LineagePanel
+                    bookId={block.bookId}
+                    onGoto={href => epubRef.current?.display(href)}
+                    onAsk={text => {
+                      setQuoteDraft(text)
+                      setSideTab('chat')
+                    }}
+                  />
                 </div>
               </Card>
             </div>

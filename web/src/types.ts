@@ -172,6 +172,12 @@ export interface LineageNode {
 export interface LineageEdge { from: string; to: string; label: string }
 export interface LineageGraphData { nodes: LineageNode[]; edges: LineageEdge[] }
 /** 每书一张当前图;currentSeq > upToSeq 时前端提示"更新到最新进度" */
+/** 「看原文」:节点对应章节/知识块与首章节选 */
+export interface LineageNodeSource {
+  hrefs: { href: string; title: string }[]
+  blocks: { id: number; title: string }[]
+  excerpt: string
+}
 export interface LineageGraph {
   bookId: number; upToSeq: number; currentSeq: number
   /** 对应章节标题(可空;spine 序号含封面/目录,不能直接当章号显示) */

@@ -1,79 +1,555 @@
 {
   "commands": [
-    { "method": "listBooks", "command": "library_list_books", "payloadKeys": [] },
-    { "method": "setActiveBook", "command": "library_set_active_book", "payloadKeys": ["bookId"] },
-    { "method": "listBlocks", "command": "map_list_blocks", "payloadKeys": ["bookId"] },
-    { "method": "getBlock", "command": "map_get_block", "payloadKeys": ["blockId"] },
-    { "method": "setPlan", "command": "planning_set_plan", "payloadKeys": ["request"] },
-    { "method": "todayQueue", "command": "planning_today_queue", "payloadKeys": ["date"] },
-    { "method": "getSettings", "command": "settings_get", "payloadKeys": [] },
-    { "method": "saveSettings", "command": "settings_save", "payloadKeys": ["settings"] },
-    { "method": "unsupported", "command": "unsupported_capability", "payloadKeys": ["capability"] },
-    { "method": "storeSpine", "command": "map_store_spine", "payloadKeys": ["bookId", "chapters"] },
-    { "method": "runMapJob", "command": "map_run_job", "payloadKeys": ["bookId", "jobId"] },
-    { "method": "confirmMap", "command": "map_confirm", "payloadKeys": ["bookId", "expectedRevision", "ops"] },
-    { "method": "setAnchorSegments", "command": "map_set_anchor_segments", "payloadKeys": ["blockId", "segments"] },
-    { "method": "listAnchors", "command": "map_list_anchors", "payloadKeys": ["blockId"] },
-    { "method": "startOrResumeSession", "command": "session_start_or_resume", "payloadKeys": ["taskId", "clientRequestId", "date"] },
-    { "method": "submitTurn", "command": "session_submit_turn", "payloadKeys": ["sessionId", "expectedVersion", "clientTurnId", "text"] },
-    { "method": "requestEvaluation", "command": "session_request_evaluation", "payloadKeys": ["sessionId", "requestId"] },
-    { "method": "confirmSessionVerdict", "command": "session_confirm_verdict", "payloadKeys": ["sessionId", "expectedVersion", "requestId", "pass", "date"] },
-    { "method": "abandonSession", "command": "session_abandon", "payloadKeys": ["sessionId", "expectedVersion"] },
-    { "method": "importEpubChunk", "command": "library_import_epub_chunk", "payloadKeys": [] },
-    { "method": "importEpubFinalize", "command": "library_import_epub_finalize", "payloadKeys": ["opId", "bookType", "title"] },
-    { "method": "epubUrl", "command": "library_epub_url", "payloadKeys": ["bookId"] },
-    { "method": "blockSource", "command": "map_block_source", "payloadKeys": ["blockId"] },
-    { "method": "stats", "command": "stats_get", "payloadKeys": ["date"] },
-    { "method": "checkBehind", "command": "planning_check_behind", "payloadKeys": ["bookId", "date"] },
-    { "method": "getPlan", "command": "planning_get_plan", "payloadKeys": ["bookId"] },
-    { "method": "finishBook", "command": "library_finish_book", "payloadKeys": ["bookId"] },
-    { "method": "pomodoroStart", "command": "pomodoro_start", "payloadKeys": ["taskId", "date"] },
-    { "method": "pomodoroPause", "command": "pomodoro_pause", "payloadKeys": [] },
-    { "method": "pomodoroResume", "command": "pomodoro_resume", "payloadKeys": [] },
-    { "method": "pomodoroStop", "command": "pomodoro_stop", "payloadKeys": [] },
-    { "method": "pomodoroState", "command": "pomodoro_state", "payloadKeys": [] },
-    { "method": "profileGet", "command": "profile_get", "payloadKeys": [] },
-    { "method": "profileSave", "command": "profile_save", "payloadKeys": ["profile"] },
-    { "method": "extraStart", "command": "extra_start", "payloadKeys": ["blockId", "kind", "clientRequestId"] },
-    { "method": "extraFinish", "command": "extra_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] },
-    { "method": "statsDetail", "command": "stats_detail", "payloadKeys": ["date"] },
-    { "method": "finalExamEligible", "command": "final_exam_eligible", "payloadKeys": ["bookId"] },
-    { "method": "finalExamStart", "command": "final_exam_start", "payloadKeys": ["bookId", "clientRequestId"] },
-    { "method": "finalExamFinish", "command": "final_exam_finish", "payloadKeys": ["sessionId", "expectedVersion", "requestId"] },
-    { "method": "exportPreview", "command": "export_preview", "payloadKeys": ["bookId"] },
-    { "method": "exportObsidian", "command": "export_obsidian", "payloadKeys": ["bookId"] },
-    { "method": "exportReveal", "command": "export_reveal", "payloadKeys": ["bookId"] },
-    { "method": "backupSnapshotNow", "command": "backup_snapshot_now", "payloadKeys": ["date"] },
-    { "method": "backupList", "command": "backup_list", "payloadKeys": [] },
-    { "method": "backupRestore", "command": "backup_restore", "payloadKeys": ["name"] },
-    { "method": "backupCancelRestore", "command": "backup_cancel_restore", "payloadKeys": [] },
-    { "method": "gitRemoteGet", "command": "git_remote_get", "payloadKeys": [] },
-    { "method": "gitRemoteSet", "command": "git_remote_set", "payloadKeys": ["url"] },
-    { "method": "gitPushNow", "command": "git_push_now", "payloadKeys": [] },
-    { "method": "readerMarkList", "command": "reader_mark_list", "payloadKeys": ["bookId"] },
-    { "method": "readerMarkAdd", "command": "reader_mark_add", "payloadKeys": ["bookId", "mark"] },
-    { "method": "readerMarkUpdate", "command": "reader_mark_update", "payloadKeys": ["id", "note", "color"] },
-    { "method": "readerMarkRemove", "command": "reader_mark_remove", "payloadKeys": ["id"] },
-    { "method": "readerPositionSet", "command": "reader_position_set", "payloadKeys": ["bookId", "spineHref", "cfi"] },
-    { "method": "voiceModels", "command": "voice_models", "payloadKeys": [] },
-    { "method": "voiceImportModel", "command": "voice_import_model", "payloadKeys": ["path"] },
-    { "method": "voiceSelectModel", "command": "voice_select_model", "payloadKeys": ["name"] },
-    { "method": "voiceDeleteModel", "command": "voice_delete_model", "payloadKeys": ["name"] },
-    { "method": "voiceTranscribe", "command": "voice_transcribe", "payloadKeys": [] },
-    { "method": "codexBinGet", "command": "settings_codex_get", "payloadKeys": [] },
-    { "method": "codexBinSet", "command": "settings_codex_set", "payloadKeys": ["path"] },
-    { "method": "appInfo", "command": "app_info", "payloadKeys": [] },
-    { "method": "appRevealLogs", "command": "app_reveal_logs", "payloadKeys": [] },
-    { "method": "logClientEvent", "command": "log_client_event", "payloadKeys": ["level", "message", "context"] },
-    { "method": "deleteBook", "command": "library_delete_book", "payloadKeys": ["bookId", "date"] },
-    { "method": "readingTopics", "command": "reading_topics", "payloadKeys": ["bookId"] },
-    { "method": "readingMessages", "command": "reading_messages", "payloadKeys": ["topicId"] },
-    { "method": "readingSend", "command": "reading_send", "payloadKeys": ["bookId", "topicId", "clientMsgId", "text", "quote", "spineHref", "blockId"] },
-    { "method": "readingTopicEnd", "command": "reading_topic_end", "payloadKeys": ["topicId"] },
-    { "method": "readingDistill", "command": "reading_distill", "payloadKeys": ["topicId"] },
-    { "method": "lineageGet", "command": "lineage_get", "payloadKeys": ["bookId"] },
-    { "method": "lineageGenerate", "command": "lineage_generate", "payloadKeys": ["bookId"] },
-    { "method": "lineageSave", "command": "lineage_save", "payloadKeys": ["bookId", "graph"] }
+    {
+      "method": "listBooks",
+      "command": "library_list_books",
+      "payloadKeys": []
+    },
+    {
+      "method": "setActiveBook",
+      "command": "library_set_active_book",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "listBlocks",
+      "command": "map_list_blocks",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "getBlock",
+      "command": "map_get_block",
+      "payloadKeys": [
+        "blockId"
+      ]
+    },
+    {
+      "method": "setPlan",
+      "command": "planning_set_plan",
+      "payloadKeys": [
+        "request"
+      ]
+    },
+    {
+      "method": "todayQueue",
+      "command": "planning_today_queue",
+      "payloadKeys": [
+        "date"
+      ]
+    },
+    {
+      "method": "getSettings",
+      "command": "settings_get",
+      "payloadKeys": []
+    },
+    {
+      "method": "saveSettings",
+      "command": "settings_save",
+      "payloadKeys": [
+        "settings"
+      ]
+    },
+    {
+      "method": "unsupported",
+      "command": "unsupported_capability",
+      "payloadKeys": [
+        "capability"
+      ]
+    },
+    {
+      "method": "storeSpine",
+      "command": "map_store_spine",
+      "payloadKeys": [
+        "bookId",
+        "chapters"
+      ]
+    },
+    {
+      "method": "runMapJob",
+      "command": "map_run_job",
+      "payloadKeys": [
+        "bookId",
+        "jobId"
+      ]
+    },
+    {
+      "method": "confirmMap",
+      "command": "map_confirm",
+      "payloadKeys": [
+        "bookId",
+        "expectedRevision",
+        "ops"
+      ]
+    },
+    {
+      "method": "setAnchorSegments",
+      "command": "map_set_anchor_segments",
+      "payloadKeys": [
+        "blockId",
+        "segments"
+      ]
+    },
+    {
+      "method": "listAnchors",
+      "command": "map_list_anchors",
+      "payloadKeys": [
+        "blockId"
+      ]
+    },
+    {
+      "method": "startOrResumeSession",
+      "command": "session_start_or_resume",
+      "payloadKeys": [
+        "taskId",
+        "clientRequestId",
+        "date"
+      ]
+    },
+    {
+      "method": "submitTurn",
+      "command": "session_submit_turn",
+      "payloadKeys": [
+        "sessionId",
+        "expectedVersion",
+        "clientTurnId",
+        "text"
+      ]
+    },
+    {
+      "method": "requestEvaluation",
+      "command": "session_request_evaluation",
+      "payloadKeys": [
+        "sessionId",
+        "requestId"
+      ]
+    },
+    {
+      "method": "confirmSessionVerdict",
+      "command": "session_confirm_verdict",
+      "payloadKeys": [
+        "sessionId",
+        "expectedVersion",
+        "requestId",
+        "pass",
+        "date"
+      ]
+    },
+    {
+      "method": "abandonSession",
+      "command": "session_abandon",
+      "payloadKeys": [
+        "sessionId",
+        "expectedVersion"
+      ]
+    },
+    {
+      "method": "importEpubChunk",
+      "command": "library_import_epub_chunk",
+      "payloadKeys": []
+    },
+    {
+      "method": "importEpubFinalize",
+      "command": "library_import_epub_finalize",
+      "payloadKeys": [
+        "opId",
+        "bookType",
+        "title"
+      ]
+    },
+    {
+      "method": "epubUrl",
+      "command": "library_epub_url",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "blockSource",
+      "command": "map_block_source",
+      "payloadKeys": [
+        "blockId"
+      ]
+    },
+    {
+      "method": "stats",
+      "command": "stats_get",
+      "payloadKeys": [
+        "date"
+      ]
+    },
+    {
+      "method": "checkBehind",
+      "command": "planning_check_behind",
+      "payloadKeys": [
+        "bookId",
+        "date"
+      ]
+    },
+    {
+      "method": "getPlan",
+      "command": "planning_get_plan",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "finishBook",
+      "command": "library_finish_book",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "pomodoroStart",
+      "command": "pomodoro_start",
+      "payloadKeys": [
+        "taskId",
+        "date"
+      ]
+    },
+    {
+      "method": "pomodoroPause",
+      "command": "pomodoro_pause",
+      "payloadKeys": []
+    },
+    {
+      "method": "pomodoroResume",
+      "command": "pomodoro_resume",
+      "payloadKeys": []
+    },
+    {
+      "method": "pomodoroStop",
+      "command": "pomodoro_stop",
+      "payloadKeys": []
+    },
+    {
+      "method": "pomodoroState",
+      "command": "pomodoro_state",
+      "payloadKeys": []
+    },
+    {
+      "method": "profileGet",
+      "command": "profile_get",
+      "payloadKeys": []
+    },
+    {
+      "method": "profileSave",
+      "command": "profile_save",
+      "payloadKeys": [
+        "profile"
+      ]
+    },
+    {
+      "method": "extraStart",
+      "command": "extra_start",
+      "payloadKeys": [
+        "blockId",
+        "kind",
+        "clientRequestId"
+      ]
+    },
+    {
+      "method": "extraFinish",
+      "command": "extra_finish",
+      "payloadKeys": [
+        "sessionId",
+        "expectedVersion",
+        "requestId"
+      ]
+    },
+    {
+      "method": "statsDetail",
+      "command": "stats_detail",
+      "payloadKeys": [
+        "date"
+      ]
+    },
+    {
+      "method": "finalExamEligible",
+      "command": "final_exam_eligible",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "finalExamStart",
+      "command": "final_exam_start",
+      "payloadKeys": [
+        "bookId",
+        "clientRequestId"
+      ]
+    },
+    {
+      "method": "finalExamFinish",
+      "command": "final_exam_finish",
+      "payloadKeys": [
+        "sessionId",
+        "expectedVersion",
+        "requestId"
+      ]
+    },
+    {
+      "method": "exportPreview",
+      "command": "export_preview",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "exportObsidian",
+      "command": "export_obsidian",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "exportReveal",
+      "command": "export_reveal",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "backupSnapshotNow",
+      "command": "backup_snapshot_now",
+      "payloadKeys": [
+        "date"
+      ]
+    },
+    {
+      "method": "backupList",
+      "command": "backup_list",
+      "payloadKeys": []
+    },
+    {
+      "method": "backupRestore",
+      "command": "backup_restore",
+      "payloadKeys": [
+        "name"
+      ]
+    },
+    {
+      "method": "backupCancelRestore",
+      "command": "backup_cancel_restore",
+      "payloadKeys": []
+    },
+    {
+      "method": "gitRemoteGet",
+      "command": "git_remote_get",
+      "payloadKeys": []
+    },
+    {
+      "method": "gitRemoteSet",
+      "command": "git_remote_set",
+      "payloadKeys": [
+        "url"
+      ]
+    },
+    {
+      "method": "gitPushNow",
+      "command": "git_push_now",
+      "payloadKeys": []
+    },
+    {
+      "method": "readerMarkList",
+      "command": "reader_mark_list",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "readerMarkAdd",
+      "command": "reader_mark_add",
+      "payloadKeys": [
+        "bookId",
+        "mark"
+      ]
+    },
+    {
+      "method": "readerMarkUpdate",
+      "command": "reader_mark_update",
+      "payloadKeys": [
+        "id",
+        "note",
+        "color"
+      ]
+    },
+    {
+      "method": "readerMarkRemove",
+      "command": "reader_mark_remove",
+      "payloadKeys": [
+        "id"
+      ]
+    },
+    {
+      "method": "readerPositionSet",
+      "command": "reader_position_set",
+      "payloadKeys": [
+        "bookId",
+        "spineHref",
+        "cfi"
+      ]
+    },
+    {
+      "method": "voiceModels",
+      "command": "voice_models",
+      "payloadKeys": []
+    },
+    {
+      "method": "voiceImportModel",
+      "command": "voice_import_model",
+      "payloadKeys": [
+        "path"
+      ]
+    },
+    {
+      "method": "voiceSelectModel",
+      "command": "voice_select_model",
+      "payloadKeys": [
+        "name"
+      ]
+    },
+    {
+      "method": "voiceDeleteModel",
+      "command": "voice_delete_model",
+      "payloadKeys": [
+        "name"
+      ]
+    },
+    {
+      "method": "voiceTranscribe",
+      "command": "voice_transcribe",
+      "payloadKeys": []
+    },
+    {
+      "method": "codexBinGet",
+      "command": "settings_codex_get",
+      "payloadKeys": []
+    },
+    {
+      "method": "codexBinSet",
+      "command": "settings_codex_set",
+      "payloadKeys": [
+        "path"
+      ]
+    },
+    {
+      "method": "appInfo",
+      "command": "app_info",
+      "payloadKeys": []
+    },
+    {
+      "method": "appRevealLogs",
+      "command": "app_reveal_logs",
+      "payloadKeys": []
+    },
+    {
+      "method": "logClientEvent",
+      "command": "log_client_event",
+      "payloadKeys": [
+        "level",
+        "message",
+        "context"
+      ]
+    },
+    {
+      "method": "deleteBook",
+      "command": "library_delete_book",
+      "payloadKeys": [
+        "bookId",
+        "date"
+      ]
+    },
+    {
+      "method": "readingTopics",
+      "command": "reading_topics",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "readingMessages",
+      "command": "reading_messages",
+      "payloadKeys": [
+        "topicId"
+      ]
+    },
+    {
+      "method": "readingSend",
+      "command": "reading_send",
+      "payloadKeys": [
+        "bookId",
+        "topicId",
+        "clientMsgId",
+        "text",
+        "quote",
+        "spineHref",
+        "blockId"
+      ]
+    },
+    {
+      "method": "readingTopicEnd",
+      "command": "reading_topic_end",
+      "payloadKeys": [
+        "topicId"
+      ]
+    },
+    {
+      "method": "readingDistill",
+      "command": "reading_distill",
+      "payloadKeys": [
+        "topicId"
+      ]
+    },
+    {
+      "method": "lineageGet",
+      "command": "lineage_get",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "lineageGenerate",
+      "command": "lineage_generate",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "lineageSave",
+      "command": "lineage_save",
+      "payloadKeys": [
+        "bookId",
+        "graph"
+      ]
+    },
+    {
+      "method": "lineageUpdate",
+      "command": "lineage_update",
+      "payloadKeys": [
+        "bookId"
+      ]
+    },
+    {
+      "method": "lineageRevise",
+      "command": "lineage_revise",
+      "payloadKeys": [
+        "bookId",
+        "nodeId",
+        "instruction"
+      ]
+    },
+    {
+      "method": "lineageNodeSource",
+      "command": "lineage_node_source",
+      "payloadKeys": [
+        "bookId",
+        "nodeId"
+      ]
+    }
   ],
   "unsupportedCapabilities": [
     "completeTask"
