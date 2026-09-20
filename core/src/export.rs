@@ -335,6 +335,23 @@ pub fn plan(conn: &Connection, book_id: i64, target_dir: &Path) -> Result<Export
             ),
         });
     }
+    // 脉络图(第二批):有图才导出,内容同记忆库 _lineage.md
+    if let Some(l) = crate::lineage::get(conn, book_id)? {
+        if !l.graph.nodes.is_empty() {
+            files.push(ExportFile {
+                rel_path: format!("{book_dir}/02-脉络图.md"),
+                content: format!(
+                    "{}{}",
+                    frontmatter(&[
+                        ("book", yaml_str(&title)),
+                        ("kind", "lineage".into()),
+                        ("tags", tags.clone()),
+                    ]),
+                    crate::lineage::render_markdown(&title, &l.up_to_title, &l.graph)
+                ),
+            });
+        }
+    }
     // 学习报告(始终生成:无报告时占位并给出块索引)
     let block_index = blocks
         .iter()

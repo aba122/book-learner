@@ -23,10 +23,11 @@ pub struct ProfileSections {
 
 const INDEX_TEMPLATE: &str = "# INDEX — 记忆库总索引\n\n\
 每次 AI 调用请先读本文件。`profile.md` 是跨书学习者画像;每本书在 `books/<slug>/` 下:\
-`_map.md` 知识地图与状态、`_weakpoints.md` 薄弱点清单、`_reading.md` 阅读对话提炼(关注点/理解状态/表述习惯,费曼与评估前请读)、`blocks/` 各知识块记忆。\n\n\
+`_map.md` 知识地图与状态、`_weakpoints.md` 薄弱点清单、`_reading.md` 阅读对话提炼(关注点/理解状态/表述习惯,费曼与评估前请读)、`_lineage.md` 阅读脉络图(读者按进度梳理的主线,含手改)、`blocks/` 各知识块记忆。\n\n\
 ## 书目\n\n| 书名 | 目录 |\n|---|---|\n";
 /// INDEX 里描述 `_reading.md` 的一句(老记忆库缺时在 ensure_book 幂等补)
 const INDEX_READING_HINT: &str = "`_reading.md`";
+const INDEX_LINEAGE_HINT: &str = "`_lineage.md`";
 
 const PROFILE_TEMPLATE: &str = "# 学习者画像\n\n\
 ## 知识背景\n\n(待补充)\n\n\
@@ -181,6 +182,12 @@ impl MemoryStore {
         if !idx.contains(INDEX_READING_HINT) {
             if let Some(pos) = idx.find("`blocks/`") {
                 idx.insert_str(pos, "`_reading.md` 阅读对话提炼、");
+                changed = true;
+            }
+        }
+        if !idx.contains(INDEX_LINEAGE_HINT) {
+            if let Some(pos) = idx.find("`blocks/`") {
+                idx.insert_str(pos, "`_lineage.md` 阅读脉络图、");
                 changed = true;
             }
         }
@@ -409,6 +416,15 @@ impl MemoryStore {
             &content,
         )?;
         Ok(())
+    }
+
+    /// 阅读脉络图镜像(`_lineage.md`,第二批):整文件重生成,内容由 `lineage::render_markdown` 生成
+    pub fn sync_lineage(&self, book_slug: &str, content: &str) -> Result<()> {
+        let book_slug = validate_slug(book_slug)?;
+        atomic_write(
+            &self.root.join("books").join(book_slug).join("_lineage.md"),
+            content,
+        )
     }
 
     /// 附加环节产出归档(M2 T5):向 `books/<slug>/<file>` 追加一节;文件不存在则以 `title` 建头;
