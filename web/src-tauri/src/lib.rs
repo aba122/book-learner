@@ -233,6 +233,99 @@ pub fn orderly_shutdown(state: &state::AppState, grace: Duration) -> bool {
     idle
 }
 
+/// 原生菜单动作事件名(前端 `backend.subscribeMenu` 监听;不在 wire contract 里,与 `pomodoro_changed` 同类)
+#[cfg(target_os = "macos")]
+const MENU_ACTION_EVENT: &str = "menu_action";
+
+/// 原生菜单栏(视觉改版第一批):攻书 / 编辑 / 显示 / 窗口 / 帮助。
+/// 替换默认菜单后必须自建「编辑」,否则 WebView 里 ⌘C/⌘V/⌘A 失效;外观跟随系统,不进菜单。
+#[cfg(target_os = "macos")]
+fn install_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    use tauri::menu::{
+        AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+    };
+    use tauri::Emitter;
+    let about = AboutMetadataBuilder::new()
+        .name(Some("攻书"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .build();
+    let app_menu = SubmenuBuilder::new(app, "攻书")
+        .item(&PredefinedMenuItem::about(
+            app,
+            Some("关于攻书"),
+            Some(about),
+        )?)
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("settings", "设置…")
+                .accelerator("CmdOrCtrl+Comma")
+                .build(app)?,
+        )
+        .separator()
+        .item(&PredefinedMenuItem::services(app, Some("服务"))?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(app, Some("隐藏攻书"))?)
+        .item(&PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?)
+        .item(&PredefinedMenuItem::show_all(app, Some("全部显示"))?)
+        .separator()
+        .item(&PredefinedMenuItem::quit(app, Some("退出攻书"))?)
+        .build()?;
+    let edit = SubmenuBuilder::new(app, "编辑")
+        .undo_with_text("撤销")
+        .redo_with_text("重做")
+        .separator()
+        .cut_with_text("剪切")
+        .copy_with_text("拷贝")
+        .paste_with_text("粘贴")
+        .select_all_with_text("全选")
+        .build()?;
+    let view = SubmenuBuilder::new(app, "显示")
+        .item(
+            &MenuItemBuilder::with_id("toggle-sidebar", "隐藏/显示侧栏")
+                .accelerator("Ctrl+Cmd+S")
+                .build(app)?,
+        )
+        .separator()
+        .fullscreen_with_text("进入全屏")
+        .build()?;
+    let window = SubmenuBuilder::new(app, "窗口")
+        .minimize_with_text("最小化")
+        .item(&PredefinedMenuItem::maximize(app, Some("缩放"))?)
+        .separator()
+        .close_window_with_text("关闭窗口")
+        .build()?;
+    let help = SubmenuBuilder::new(app, "帮助")
+        .item(&MenuItemBuilder::with_id("help-logs", "打开日志文件夹").build(app)?)
+        .build()?;
+    app.set_menu(
+        MenuBuilder::new(app)
+            .items(&[&app_menu, &edit, &view, &window, &help])
+            .build()?,
+    )?;
+    app.on_menu_event(|app, event| match event.id().as_ref() {
+        "settings" => {
+            let _ = app.emit(MENU_ACTION_EVENT, "open-settings");
+            show_main_window(app);
+        }
+        "toggle-sidebar" => {
+            let _ = app.emit(MENU_ACTION_EVENT, "toggle-sidebar");
+        }
+        "help-logs" => {
+            let state = app.state::<state::AppState>();
+            if let Err(error) = diagnostics::reveal_logs(&state) {
+                tracing::warn!(error_code = error.code.as_str(), "打开日志目录失败");
+            }
+        }
+        _ => {}
+    });
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_app_menu<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    Ok(())
+}
+
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -339,6 +432,10 @@ pub fn run() {
                     if let Err(error) = install_tray(app.handle()) {
                         // 托盘不可用不致命:主窗口与 Cmd+Q 仍可用
                         tracing::warn!(%error, "托盘初始化失败");
+                    }
+                    if let Err(error) = install_app_menu(app.handle()) {
+                        // 菜单栏失败不致命:退回默认菜单
+                        tracing::warn!(%error, "菜单栏初始化失败");
                     }
                     // 番茄钟 ticker(托盘倒计时/阶段事件/通知)
                     pomodoro::spawn_ticker(app.handle().clone());

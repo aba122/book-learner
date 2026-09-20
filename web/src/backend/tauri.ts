@@ -6,7 +6,7 @@ import type {
   AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
-import type { Backend } from './types'
+import type { Backend, MenuAction } from './types'
 
 export type InvokeFn = typeof invoke
 export type UnlistenFn = () => void
@@ -28,7 +28,9 @@ export interface TauriBackendOptions {
 /** runMapJob 进度事件名与 payload:{ jobId, progress: MapProgress } */
 export const MAP_JOB_PROGRESS_EVENT = 'map_job_progress'
 /** 番茄钟阶段变化事件,payload 为 PomodoroSnapshot(M2 T3) */
-export const POMODORO_CHANGED_EVENT = 'pomodoro_changed'
+export /** 原生菜单动作事件(壳层 lib.rs install_app_menu 发出;不在 wire contract 里,与 pomodoro_changed 同类) */
+const MENU_ACTION_EVENT = 'menu_action'
+const POMODORO_CHANGED_EVENT = 'pomodoro_changed'
 /** 原生导入(ADR-0004 选项 B):分块为原始请求体,元数据走头部;与 src-tauri commands 常量一致 */
 export const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024
 export const IMPORT_OP_ID_HEADER = 'x-op-id'
@@ -1022,6 +1024,13 @@ export class TauriBackend implements Backend {
       } catch {
         // 忽略畸形事件
       }
+    })
+  }
+  async subscribeMenu(handler: (action: MenuAction) => void): Promise<() => void> {
+    return this.listen(MENU_ACTION_EVENT, event => {
+      const action = event.payload
+      if (action === 'open-settings' || action === 'toggle-sidebar') handler(action)
+      // 其它值忽略(壳层白名单之外)
     })
   }
 

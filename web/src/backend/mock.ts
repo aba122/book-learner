@@ -5,7 +5,7 @@ import type {
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
 } from '../types'
 import { BackendError } from './errors'
-import type { Backend } from './types'
+import type { Backend, MenuAction } from './types'
 
 /** v2 会话:服务端权威 transcript、版本、幂等 id(镜像 core feynman_session + session_turn) */
 interface MockSession {
@@ -454,6 +454,20 @@ export class MockBackend implements Backend {
   async subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void> {
     this.pomodoroListeners.add(handler)
     return () => { this.pomodoroListeners.delete(handler) }
+  }
+  /** 浏览器 mock:⌘,(设置)与 ⌃⌘S(侧栏)键盘映射,走与原生菜单同一条契约 */
+  async subscribeMenu(handler: (action: MenuAction) => void): Promise<() => void> {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.ctrlKey && e.key === ',') {
+        e.preventDefault()
+        handler('open-settings')
+      } else if (e.metaKey && e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        handler('toggle-sidebar')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }
 
   async profileGet(): Promise<Profile> {

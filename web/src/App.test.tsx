@@ -39,3 +39,37 @@ describe('App 外壳', () => {
     await waitFor(() => expect(listBooks).toHaveBeenCalled())
   })
 })
+
+describe('App 外壳 · 视觉改版第一批', () => {
+  beforeEach(() => {
+    window.history.pushState(null, '', '/')
+    localStorage.clear()
+    if (useSession.getState().sidebarCollapsed) useSession.getState().toggleSidebar()
+  })
+
+  it('当前页导航项带 aria-current;侧栏底部没有夜读按钮', async () => {
+    render(<App />)
+    expect(await screen.findByRole('link', { name: '今日学习' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: '书架' })).not.toHaveAttribute('aria-current')
+    expect(screen.queryByRole('button', { name: /夜读模式|日读模式/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+  })
+
+  it('⌃⌘S(mock 菜单映射)折叠侧栏,主区出现「显示侧栏」;再按恢复', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('link', { name: '书架' })
+    await user.keyboard('{Control>}{Meta>}s{/Meta}{/Control}')
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: '显示侧栏' }))
+    expect(await screen.findByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+  })
+
+  it('⌘,(mock 菜单映射)进设置页', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('link', { name: '设置' })
+    await user.keyboard('{Meta>},{/Meta}')
+    expect(await screen.findByRole('heading', { level: 1, name: '设置' })).toBeInTheDocument()
+  })
+})

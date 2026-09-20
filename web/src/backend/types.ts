@@ -2,6 +2,8 @@ import type {
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
+export type MenuAction = 'open-settings' | 'toggle-sidebar'
+
 export interface Backend {
   // 书架与导入
   listBooks(): Promise<Book[]>
@@ -34,6 +36,8 @@ export interface Backend {
   pomodoroStop(): Promise<PomodoroSnapshot>
   pomodoroState(): Promise<PomodoroSnapshot>
   subscribePomodoro(handler: (snapshot: PomodoroSnapshot) => void): Promise<() => void>
+  /** 原生菜单栏动作(视觉改版第一批):设置… ⌘, / 隐藏·显示侧栏 ⌃⌘S;浏览器 mock 用同样快捷键映射 */
+  subscribeMenu(handler: (action: MenuAction) => void): Promise<() => void>
   /** 学习者画像(M2 T6):写入经记忆库 outbox git commit */
   profileGet(): Promise<Profile>
   profileSave(profile: Profile): Promise<void>

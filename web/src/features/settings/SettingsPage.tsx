@@ -10,32 +10,11 @@ import Confirm from '../../components/Confirm'
 import { localCalendarDate } from '../../lib/localDate'
 import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import VoiceSection from './VoiceSection'
-
-function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string
-  children: (id: string) => React.ReactNode
-  hint?: string
-}) {
-  const id = `field-${label}`
-  return (
-    <div className="flex items-center justify-between gap-6 py-3">
-      <label htmlFor={id} className="text-sm text-ink-2">
-        {label}
-      </label>
-      <div className="flex flex-col items-end gap-1">
-        {children(id)}
-        {hint && <span role="alert" className="text-xs text-weak">{hint}</span>}
-      </div>
-    </div>
-  )
-}
-
-const inputCls =
-  'rounded-s border border-line bg-paper-1 px-3 py-1.5 text-sm text-ink-1 disabled:opacity-50'
+import Field from '../../components/Field'
+import Input from '../../components/Input'
+import Textarea from '../../components/Textarea'
+import Segmented from '../../components/Segmented'
+import { useSession, type ThemePreference } from '../../store'
 
 type NumericField = 'pomodoroMinutes' | 'breakMinutes'
 const NUMERIC_FIELDS: NumericField[] = ['pomodoroMinutes', 'breakMinutes']
@@ -112,13 +91,13 @@ function DataSection() {
         <p className="mt-0.5 text-xs text-ink-3">每次学习提交后自动推送(失败按退避重试);保存时会以 ls-remote 校验。凭据/known_hosts 请先在终端完成一次。</p>
         {remote.data === null && remote.error && <div className="mt-2"><AsyncError error={remote.error} onRetry={remote.reload} variant="compact" /></div>}
         <div className="mt-2 flex items-center gap-3">
-          <input
+          <Input
             aria-label="记忆库 git 远程"
             type="text"
             value={currentUrl}
             placeholder="git@github.com:you/book-learner-memory.git"
             onChange={e => setUrlDraft(e.target.value)}
-            className={`${inputCls} flex-1`}
+            className="flex-1"
           />
           <Button disabled={remoteOp.pending.has('remote')} onClick={() => { remoteOp.clearError('remote'); void remoteOp.run('remote', currentUrl) }}>{remoteOp.pending.has('remote') ? '校验中…' : '保存并校验'}</Button>
           <Button disabled={pushOp.pending.has('push') || !currentUrl.trim()} onClick={() => { setPushMessage(null); void pushOp.run('push') }}>{pushOp.pending.has('push') ? '推送中…' : '立即推送'}</Button>
@@ -186,16 +165,16 @@ function CodexField() {
       : `当前使用 ${current.resolved ?? '未知'}`
   return (
     <Field label="codex 可执行路径">
-      {id => (
+      {ctl => (
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
-            <input
-              id={id}
+            <Input
+              {...ctl}
               type="text"
               value={value}
               placeholder="留空自动寻找,或填 /opt/homebrew/bin/codex"
               onChange={e => setDraft(e.target.value)}
-              className={`${inputCls} w-72`}
+              className="w-72"
             />
             <Button
               disabled={saveOp.pending.has('save') || draft === null}
@@ -251,7 +230,6 @@ function ProfileForm({ initial }: { initial: Profile }) {
     save.clearError('profile')
     void save.run('profile', form)
   }
-  const areaCls = 'w-full rounded-s border border-line bg-paper-1 px-3 py-2 text-sm leading-relaxed text-ink-1 outline-none focus:border-new'
   return (
     <Card className="px-6 py-4">
       <div className="flex items-center justify-between">
@@ -268,11 +246,11 @@ function ProfileForm({ initial }: { initial: Profile }) {
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm text-ink-2">
           知识背景
-          <textarea rows={4} className={areaCls} value={form.background} onChange={e => update({ background: e.target.value })} />
+          <Textarea rows={4} value={form.background} onChange={e => update({ background: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink-2">
           个人情境
-          <textarea rows={4} className={areaCls} value={form.context} onChange={e => update({ context: e.target.value })} />
+          <Textarea rows={4} value={form.context} onChange={e => update({ context: e.target.value })} />
         </label>
         <div className="flex flex-col gap-1 text-sm text-ink-2">
           已掌握概念(AI 积累,只读)
@@ -284,6 +262,27 @@ function ProfileForm({ initial }: { initial: Profile }) {
         </div>
       </div>
     </Card>
+  )
+}
+
+/** 外观(视觉改版第一批):跟随系统 / 浅色 / 深色,即时生效,不进保存快照(HIG:不做 app 级开关,手动覆盖放设置) */
+function AppearanceRow() {
+  const preference = useSession(s => s.themePreference)
+  const setTheme = useSession(s => s.setTheme)
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-6 py-2">
+      <span className="text-body text-label-1">外观</span>
+      <Segmented<ThemePreference>
+        aria-label="外观"
+        value={preference}
+        onChange={setTheme}
+        options={[
+          { value: 'system', label: '跟随系统' },
+          { value: 'light', label: '浅色' },
+          { value: 'dark', label: '深色' },
+        ]}
+      />
+    </div>
   )
 }
 
@@ -347,49 +346,48 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
       <div className="flex flex-col gap-6">
         {saveError && <AsyncError error={saveError} onRetry={submit} />}
         <Card className="divide-y divide-line px-6 py-2">
-          <Field label="番茄钟(分钟)" hint={invalid.includes('pomodoroMinutes') ? INVALID_HINT : undefined}>
-            {id => (
-              <input
-                id={id}
+          <AppearanceRow />
+          <Field label="番茄钟(分钟)" error={invalid.includes('pomodoroMinutes') ? INVALID_HINT : undefined}>
+            {ctl => (
+              <Input
+                {...ctl}
                 type="number"
                 min={1}
                 value={drafts.pomodoroMinutes}
                 onChange={e => updateNumeric('pomodoroMinutes', e.target.value)}
-                className={`${inputCls} w-24 text-right`}
+                className="w-24 text-right"
               />
             )}
           </Field>
-          <Field label="休息(分钟)" hint={invalid.includes('breakMinutes') ? INVALID_HINT : undefined}>
-            {id => (
-              <input
-                id={id}
+          <Field label="休息(分钟)" error={invalid.includes('breakMinutes') ? INVALID_HINT : undefined}>
+            {ctl => (
+              <Input
+                {...ctl}
                 type="number"
                 min={1}
                 value={drafts.breakMinutes}
                 onChange={e => updateNumeric('breakMinutes', e.target.value)}
-                className={`${inputCls} w-24 text-right`}
+                className="w-24 text-right"
               />
             )}
           </Field>
           <Field label="提醒时间">
-            {id => (
-              <input
-                id={id}
+            {ctl => (
+              <Input
+                {...ctl}
                 type="time"
                 value={form.remindTime}
                 onChange={e => update({ remindTime: e.target.value })}
-                className={inputCls}
               />
             )}
           </Field>
           <Field label="晚间提醒(当日未完成时)">
-            {id => (
-              <input
-                id={id}
+            {ctl => (
+              <Input
+                {...ctl}
                 type="time"
                 value={form.eveningRemindTime}
                 onChange={e => update({ eveningRemindTime: e.target.value })}
-                className={inputCls}
               />
             )}
           </Field>
@@ -397,13 +395,13 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
 
         <Card className="divide-y divide-line px-6 py-2">
           <Field label="Obsidian 仓库路径">
-            {id => (
-              <input
-                id={id}
+            {ctl => (
+              <Input
+                {...ctl}
                 type="text"
                 value={form.obsidianVault}
                 onChange={e => update({ obsidianVault: e.target.value })}
-                className={`${inputCls} w-72`}
+                className="w-72"
               />
             )}
           </Field>
