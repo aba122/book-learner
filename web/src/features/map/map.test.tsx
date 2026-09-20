@@ -343,3 +343,32 @@ describe('知识地图页', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/))
   })
 })
+
+describe('视觉改版第三批:知识地图', () => {
+  it('工具栏带含「编辑地图」;编辑态行内有「拆分」等图标钮;每模块一张分组卡', async () => {
+    const user = userEvent.setup()
+    renderMap()
+    await screen.findByText('供给与需求')
+    const toolbar = screen.getByRole('toolbar', { name: '知识地图工具栏' })
+    await user.click(within(toolbar).getByRole('button', { name: '编辑地图' }))
+    expect(within(toolbar).getByRole('button', { name: '确认定稿' })).toBeInTheDocument()
+    const items = screen.getAllByTestId('block-item')
+    expect(items).toHaveLength(12)
+    for (const name of ['上移', '下移', '跳过', '并入上一块', '拆分', '删除']) {
+      expect(within(items[5]).getByRole('button', { name })).toBeInTheDocument()
+    }
+    // 三个模块 → 三张卡(模块名输入框各一)
+    expect(screen.getAllByRole('textbox', { name: /^模块名:/ })).toHaveLength(3)
+  })
+
+  it('目标设定对话框:Esc 关闭(= 稍后再定)', async () => {
+    const user = userEvent.setup()
+    renderMap()
+    await user.click(await screen.findByRole('button', { name: '编辑地图' }))
+    await user.click(screen.getByRole('button', { name: '确认定稿' }))
+    expect(screen.getByRole('dialog', { name: '目标设定' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '编辑地图' })).toBeInTheDocument()
+  })
+})
