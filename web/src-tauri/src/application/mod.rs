@@ -1048,9 +1048,7 @@ fn lock_book(state: &AppState, book_id: i64) -> Result<TopicGuard, IpcError> {
 }
 
 pub fn lineage_get(state: &AppState, book_id: i64) -> Result<Option<LineageGraph>, IpcError> {
-    state
-        .with_connection(|c| book_learner_core::lineage::get(c, book_id))
-        .map_err(Into::into)
+    state.with_connection(|c| book_learner_core::lineage::get(c, book_id))
 }
 
 pub fn lineage_generate(state: &AppState, book_id: i64) -> Result<LineageGraph, IpcError> {
@@ -1074,7 +1072,5 @@ pub fn lineage_save(
     graph: LineageGraphData,
 ) -> Result<LineageGraph, IpcError> {
     let _guard = lock_book(state, book_id)?;
-    state
-        .with_connection(|c| book_learner_core::lineage::save(c, book_id, &graph))
-        .map_err(Into::into)
+    state.with_connection(|c| book_learner_core::lineage::save(c, book_id, &graph))
 }
