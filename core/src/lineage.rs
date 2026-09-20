@@ -316,10 +316,17 @@ pub fn generate(
         request_id: String::new(),
         timeout_secs: LINEAGE_TIMEOUT_SECS,
     };
+    // 请求 id 按尝试次数递增:ai_request 以 request_id 为主键,同 id 已 done 会直接重放旧结果,
+    // 「重新生成」在同一进度下就永远拿不到新图(Mac 实测发现)
+    let attempt: i64 = conn.query_row(
+        "SELECT count(*) FROM ai_request WHERE request_id LIKE ?1",
+        [format!("lineage:{book_id}:s{up_to}%")],
+        |r| r.get(0),
+    )?;
     let graph = run_ai_json(
         conn,
         provider,
-        &format!("lineage:{book_id}:s{up_to}"),
+        &format!("lineage:{book_id}:s{up_to}:r{attempt}"),
         "lineage",
         &req,
         policy,
@@ -581,6 +588,36 @@ mod tests {
         assert!(
             saved.graph.edges.is_empty(),
             "指向被删节点的边去掉;手改保存不自动串链"
+        );
+    }
+
+    #[test]
+    fn regenerate_at_same_progress_calls_ai_again_instead_of_replaying() {
+        let (conn, book) = setup();
+        crate::reader_marks::set_position(&conn, book, "ch1.xhtml", "epubcfi(/6/4!/4/2)").unwrap();
+        let second = r#"{"nodes":[{"id":"z","title":"第二次生成的图"}],"edges":[]}"#;
+        let p = Script(Mutex::new(vec![Ok(GRAPH.into()), Ok(second.into())]));
+        let g1 = generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        assert_eq!(g1.graph.nodes.len(), 2);
+        let g2 = generate(&conn, &p, std::path::Path::new("."), &policy(), book).unwrap();
+        assert_eq!(
+            g2.graph.nodes[0].title, "第二次生成的图",
+            "同进度重生成不该重放旧结果"
+        );
+        assert!(p.0.lock().unwrap().is_empty(), "两次都真的调了 provider");
+        let ids: Vec<String> = conn
+            .prepare("SELECT request_id FROM ai_request WHERE request_id LIKE 'lineage:%' ORDER BY request_id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            ids,
+            vec![
+                format!("lineage:{book}:s1:r0"),
+                format!("lineage:{book}:s1:r1")
+            ]
         );
     }
 }
