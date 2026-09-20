@@ -663,3 +663,8 @@
 - **生成质量**:`LineageNode` 增 `detail`(1–3 句给详情框,`summary` ≤30 字给卡片);prompt 要求节点按书中先后排列、每节点至少一个 `spineHrefs`、边要连成主线、`kind` 放宽为 阶段|主题|概念|转折|事件;`parse_graph` 拆出 `clean_graph`,AI 一条边不给时按顺序串链;`save` 也走 `clean_graph`(空标题/重 id/悬空边清掉,但不串链)。
 - **暂缓(第二批)**:节点详情做成浮层/抽屉(现在仍在画布下方)、整体缩放、键盘导航。
 - 门禁:core lib 191/1 ignored(+4 lineage);web 388/2(layout +2、LineagePanel 重写 4 条)、tsc、oxlint 0、build。
+
+## 2026-09-20 · BL-022 脉络图「重新生成」重放旧结果
+- Mac 实测优化批时发现:副本库里已有你在正式版生成的图(`lineage:1:s7` done),点「重新生成」瞬间"完成"、无骨架、`detail` 全空——`run_ai_json` 以 request_id 为幂等键,同一进度的 id 固定,直接重放了 07:43 的旧结果,codex 根本没被调。CI/单测都用新库测不出。
+- 修法:`generate` 先数 `ai_request` 里同前缀的行数作尝试号,id 改为 `lineage:<book>:s<seq>:r<n>`;单测「同进度连生成两次 provider 被调两次、第二次结果入库」。老 id(无 `:r`)按前缀计数也算在内。
+- 门禁:core lib 192/1 ignored(+1)。
