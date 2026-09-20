@@ -6,11 +6,14 @@ export default function ProgressBar({
   value,
   label,
   tone = 'accent',
+  size = 'md',
   className = '',
 }: {
   value?: number | null
   label?: string
   tone?: 'accent' | 'ok' | 'review'
+  /** sm:4px(阅读器页脚);md:6px */
+  size?: 'sm' | 'md'
   className?: string
 }) {
   const determinate = typeof value === 'number' && Number.isFinite(value)
@@ -23,7 +26,7 @@ export default function ProgressBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
-      className={`relative h-1.5 w-full overflow-hidden rounded-full bg-inset ${className}`}
+      className={`relative w-full overflow-hidden rounded-full bg-inset ${size === 'sm' ? 'h-1' : 'h-1.5'} ${className}`}
     >
       {determinate ? (
         <div className={`h-full rounded-full transition-[width] duration-[var(--dur-slow)] ${fill}`} style={{ width: `${pct}%` }} />

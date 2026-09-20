@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend } from '../../../backend'
 import { BackendError } from '../../../backend/errors'
 import Button from '../../../components/Button'
+import EmptyState from '../../../components/EmptyState'
+import Icon from '../../../components/icons/Icon'
+import IconButton from '../../../components/IconButton'
+import Input from '../../../components/Input'
+import Skeleton from '../../../components/Skeleton'
+import Textarea from '../../../components/Textarea'
 import { LINEAGE_AUTOSAVE_MS } from '../../../config'
 import type { LineageGraph, LineageGraphData, LineageNode, LineageNodeSource } from '../../../types'
 import LineageGraphView from './LineageGraph'
@@ -189,18 +195,23 @@ export default function LineagePanel({ bookId, onGoto, onAsk }: Props) {
   const behind = graph !== null && graph.currentSeq > graph.upToSeq
   const chapterLabel = (title: string, seq: number) => title.trim() || `第 ${seq + 1} 节`
 
-  if (loading) return <p className="p-4 text-sm text-ink-3">载入脉络图…</p>
+  if (loading) {
+    return (
+      <div aria-busy="true" className="p-4">
+        <Skeleton lines={4} />
+      </div>
+    )
+  }
 
   const generating = busy && (
     <div className="flex flex-col gap-3 p-4" data-testid="lineage-skeleton" aria-live="polite">
-      <p className="text-sm text-ink-2">
+      <p className="text-callout text-label-2">
         {BUSY_LABEL[busy]} {elapsed}s
       </p>
-      <p className="text-xs text-ink-4">AI 通常需要 20–60 秒;收起面板也不会中断。</p>
+      <p className="text-footnote text-label-3">AI 通常需要 20–60 秒;收起面板也不会中断。</p>
       {[0, 1, 2].map(i => (
-        <div key={i} className="animate-pulse rounded-m border border-line bg-paper-2 p-3">
-          <div className="mb-2 h-3 w-1/3 rounded bg-paper-3" />
-          <div className="h-3 w-4/5 rounded bg-paper-3" />
+        <div key={i} className="rounded-m bg-card p-3 ring-1 ring-sep/60">
+          <Skeleton lines={2} />
         </div>
       ))}
     </div>
@@ -209,16 +220,18 @@ export default function LineagePanel({ bookId, onGoto, onAsk }: Props) {
   if (!graph || !working) {
     if (busy) return generating
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-4xl" aria-hidden>🗺</p>
-        <p className="text-sm font-medium text-ink-1">还没有脉络图</p>
-        <p className="max-w-xs text-xs leading-relaxed text-ink-3">
-          让 AI 把你从开头读到当前进度的内容,梳理成一张逻辑清晰的脉络图。生成后可点每个节点改名、改摘要,改动自动保存。
-        </p>
-        {error && <p className="text-xs text-weak" role="alert">{error}</p>}
-        <Button variant="primary" disabled={!!busy} onClick={() => void generate()}>
-          生成脉络图到当前进度
-        </Button>
+      <div className="flex flex-1 flex-col justify-center">
+        {error && <p className="px-6 text-center text-footnote text-weak" role="alert">{error}</p>}
+        <EmptyState
+          icon="map"
+          title="还没有脉络图"
+          body="让 AI 把你从开头读到当前进度的内容,梳理成一张逻辑清晰的脉络图;节点可改名、改摘要,改动自动保存。"
+          action={
+            <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void generate()}>
+              生成脉络图到当前进度
+            </Button>
+          }
+        />
       </div>
     )
   }
@@ -229,103 +242,97 @@ export default function LineagePanel({ bookId, onGoto, onAsk }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 text-xs text-ink-3">
+        <div className="min-w-0 text-footnote text-label-3">
           <p className="truncate">覆盖到:{chapterLabel(graph.upToTitle, graph.upToSeq)}</p>
-          {behind && <p className="truncate text-new">已读到「{chapterLabel(graph.currentTitle, graph.currentSeq)}」</p>}
+          {behind && <p className="truncate text-label-2">已读到「{chapterLabel(graph.currentTitle, graph.currentSeq)}」</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {saveHint && <span className={`text-[11px] ${saveState === 'error' ? 'text-weak' : 'text-ink-4'}`} data-testid="lineage-save-state">{saveHint}</span>}
+          {saveHint && <span className={`text-footnote ${saveState === 'error' ? 'text-weak' : 'text-label-3'}`} data-testid="lineage-save-state">{saveHint}</span>}
           {behind && (
-            <Button variant="primary" disabled={!!busy} onClick={() => void update()}>
+            <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void update()}>
               更新到最新进度
             </Button>
           )}
-          <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1 disabled:cursor-default disabled:opacity-50" disabled={!!busy} onClick={() => void generate()}>
+          <Button size="sm" disabled={!!busy} onClick={() => void generate()}>
             重新生成
-          </button>
+          </Button>
         </div>
       </div>
       {confirmRegen && (
-        <div className="flex items-center justify-between gap-2 rounded-m border border-warn/50 bg-paper-2 px-3 py-2 text-xs" role="alertdialog" aria-label="确认重新生成">
-          <span className="text-ink-2">
+        <div className="flex items-center justify-between gap-3 rounded-m bg-card px-3 py-2 text-callout ring-1 ring-warn/50" role="alertdialog" aria-label="确认重新生成">
+          <span className="text-label-1">
             重新生成会覆盖你的手改({working.nodes.filter(n => n.userEdited).length} 处)。{behind && '只想接上新章节的话,用「更新到最新进度」。'}
           </span>
           <span className="flex shrink-0 gap-2">
-            <button className="cursor-pointer text-ink-4 hover:text-ink-1" onClick={() => setConfirmRegen(false)}>取消</button>
-            <button className="cursor-pointer font-medium text-warn hover:underline" onClick={() => void generate(true)}>确定重新生成</button>
+            <Button size="sm" onClick={() => setConfirmRegen(false)}>取消</Button>
+            <Button size="sm" variant="danger" onClick={() => void generate(true)}>确定重新生成</Button>
           </span>
         </div>
       )}
-      {error && <p className="text-xs text-weak" role="alert">{error}</p>}
+      {error && <p className="text-footnote text-weak" role="alert">{error}</p>}
       {busy ? (
         generating
       ) : working.nodes.length === 0 ? (
-        <p className="flex-1 p-4 text-sm text-ink-3">这张图暂时没有节点,点「重新生成」试试。</p>
+        <EmptyState compact icon="map" title="这张图暂时没有节点" body="点「重新生成」试试。" className="flex-1" />
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <LineageGraphView graph={working} selectedId={selectedId} onSelect={n => setSelectedId(n.id)} onDeselect={() => setSelectedId(null)} />
           {selected && (
-            <div className="absolute inset-x-1 bottom-1 z-10 max-h-[60%] overflow-y-auto rounded-m border border-line bg-paper-2 p-3 shadow-card" data-testid="lineage-detail" role="dialog" aria-label={`节点 ${selected.title}`}>
+            <div className="absolute inset-x-1 bottom-1 z-10 max-h-[60%] overflow-y-auto rounded-m bg-card p-3 shadow-popover ring-1 ring-sep/60" data-testid="lineage-detail" role="dialog" aria-label={`节点 ${selected.title}`}>
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-ink-4">
+                <span className="text-footnote font-medium text-label-3">
                   节点 {selectedOrder}
                   {selected.kind && ` · ${selected.kind}`}
-                  {selected.userEdited && ' · ✎ 手改过'}
+                  {selected.userEdited && ' · 手改过'}
                 </span>
-                <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => setSelectedId(null)}>
-                  关闭
-                </button>
+                <IconButton icon="xmark" size="sm" label="关闭" onClick={() => setSelectedId(null)} />
               </div>
-              <input
-                className="mb-2 w-full rounded-s border border-line bg-paper-1 px-2 py-1 text-sm text-ink-1 outline-none focus:border-new"
-                value={selected.title}
-                aria-label="节点标题"
-                onChange={e => patchSelected({ title: e.target.value })}
-              />
-              <textarea
-                className="mb-2 h-12 w-full resize-none rounded-s border border-line bg-paper-1 px-2 py-1 text-xs leading-relaxed text-ink-2 outline-none focus:border-new"
-                value={selected.summary}
-                aria-label="节点摘要"
-                placeholder="一句话摘要(卡片上显示)"
-                onChange={e => patchSelected({ summary: e.target.value })}
-              />
-              <textarea
-                className="mb-2 h-16 w-full resize-none rounded-s border border-line bg-paper-1 px-2 py-1 text-xs leading-relaxed text-ink-2 outline-none focus:border-new"
-                value={selected.detail}
-                aria-label="节点详情"
-                placeholder="展开说说这部分讲了什么…"
-                onChange={e => patchSelected({ detail: e.target.value })}
-              />
+              <div className="flex flex-col gap-2">
+                <Input size="sm" value={selected.title} aria-label="节点标题" onChange={e => patchSelected({ title: e.target.value })} />
+                <Textarea
+                  rows={2}
+                  className="resize-none text-callout"
+                  value={selected.summary}
+                  aria-label="节点摘要"
+                  placeholder="一句话摘要(卡片上显示)"
+                  onChange={e => patchSelected({ summary: e.target.value })}
+                />
+                <Textarea
+                  rows={3}
+                  className="resize-none text-callout"
+                  value={selected.detail}
+                  aria-label="节点详情"
+                  placeholder="展开说说这部分讲了什么…"
+                  onChange={e => patchSelected({ detail: e.target.value })}
+                />
+              </div>
               {source?.id === selected.id && (source.data.hrefs.length > 0 || source.data.excerpt) && (
-                <div className="mb-2 rounded-s border border-line bg-paper-1 p-2 text-xs">
+                <div className="mt-2 rounded-s bg-inset p-2 text-footnote">
                   <div className="mb-1 flex flex-wrap items-center gap-1">
-                    <span className="text-ink-4">原文:</span>
+                    <span className="text-label-3">原文:</span>
                     {source.data.hrefs.map(h => (
-                      <button
-                        key={h.href}
-                        className="cursor-pointer rounded-s bg-paper-3 px-1.5 py-0.5 text-ink-2 hover:text-new disabled:cursor-default disabled:opacity-50"
-                        disabled={!onGoto}
-                        onClick={() => onGoto?.(h.href)}
-                      >
+                      <Button key={h.href} size="sm" disabled={!onGoto} onClick={() => onGoto?.(h.href)}>
                         看原文:{h.title || h.href}
-                      </button>
+                      </Button>
                     ))}
                     {source.data.blocks.map(b => (
-                      <span key={b.id} className="rounded-s border border-line px-1.5 py-0.5 text-ink-3">块 #{b.id} {b.title}</span>
+                      <span key={b.id} className="rounded-full bg-card px-2 py-0.5 text-label-3 ring-1 ring-sep/60">块 #{b.id} {b.title}</span>
                     ))}
                   </div>
-                  {source.data.excerpt && <p className="line-clamp-4 leading-relaxed text-ink-3">{source.data.excerpt}</p>}
+                  {source.data.excerpt && <p className="line-clamp-4 leading-relaxed text-label-3">{source.data.excerpt}</p>}
                 </div>
               )}
-              <div className="flex items-center justify-between">
-                <button
-                  className="cursor-pointer text-xs text-new hover:underline disabled:cursor-default disabled:opacity-50"
+              <div className="mt-2 flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={!onAsk}
                   onClick={() => onAsk?.([selected.title, selected.summary, selected.detail].filter(Boolean).join('\n'))}
                 >
-                  💬 问一问这部分
-                </button>
-                <button className="cursor-pointer text-xs text-weak hover:underline" onClick={deleteSelected}>
+                  <Icon name="quote-bubble" size={14} />
+                  问一问这部分
+                </Button>
+                <button type="button" className="cursor-pointer rounded-s px-2 py-1 text-callout font-medium text-weak hover:bg-weak-soft" onClick={deleteSelected}>
                   删除节点
                 </button>
               </div>
@@ -334,25 +341,29 @@ export default function LineagePanel({ bookId, onGoto, onAsk }: Props) {
         </div>
       )}
       {!busy && (
-        <div className="rounded-m border border-line bg-paper-2 px-3 py-2 text-xs">
-          <button className="flex w-full cursor-pointer items-center justify-between text-ink-2 hover:text-ink-1" aria-expanded={reviseOpen} onClick={() => setReviseOpen(o => !o)}>
-            <span>✎ 让 AI 按我的理解修正</span>
-            <span className="text-ink-4">{reviseOpen ? '收起' : '展开'}</span>
+        <div className="rounded-m bg-card px-3 py-2 text-callout ring-1 ring-sep/60">
+          <button type="button" className="flex w-full cursor-pointer items-center justify-between rounded-xs text-label-1 hover:text-accent" aria-expanded={reviseOpen} onClick={() => setReviseOpen(o => !o)}>
+            <span className="flex items-center gap-1.5">
+              <Icon name="sparkles" size={14} className="text-label-3" />
+              让 AI 按我的理解修正
+            </span>
+            <Icon name={reviseOpen ? 'chevron-up' : 'chevron-down'} size={14} className="text-label-3" />
           </button>
           {reviseOpen && (
             <div className="mt-2 flex flex-col gap-2">
-              <p className="text-[11px] text-ink-4">
+              <p className="text-footnote text-label-3">
                 {selected ? `针对选中节点「${selected.title}」;取消选中则针对整张图。` : '针对整张图;先点一个节点可只改它。'}
               </p>
-              <textarea
-                className="h-16 w-full resize-none rounded-s border border-line bg-paper-1 px-2 py-1 text-xs leading-relaxed text-ink-1 outline-none focus:border-new"
+              <Textarea
+                rows={3}
+                className="resize-none text-callout"
                 value={reviseText}
                 aria-label="修正要求"
                 placeholder="例如:把「消费者社会」拆成两个阶段;这两个节点其实是因果关系…"
                 onChange={e => setReviseText(e.target.value)}
               />
               <div className="flex justify-end">
-                <Button variant="primary" disabled={!reviseText.trim()} onClick={() => void revise()}>
+                <Button variant="primary" size="sm" disabled={!reviseText.trim()} onClick={() => void revise()}>
                   修正
                 </Button>
               </div>

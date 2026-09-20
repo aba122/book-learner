@@ -235,7 +235,7 @@ describe('问书面板(spec 2026-09-16)', () => {
     await typeAndSend(user, '第一个问题')
     await waitFor(() => expect(msgs()).toHaveLength(2))
     const callsBefore = listSpy.mock.calls.length
-    await user.click(screen.getByRole('button', { name: '收起 ›' }))
+    await user.click(screen.getByRole('button', { name: '收起侧栏' }))
     // 收起后面板 DOM 仍在(hidden),消息未卸载
     expect(screen.getAllByTestId('reading-msg')).toHaveLength(2)
     await user.click(screen.getByRole('button', { name: '问书' }))

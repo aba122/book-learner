@@ -256,7 +256,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
     expect(add.mock.calls[0][1]).toMatchObject({ kind: 'highlight', cfiStart: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', cfiEnd: 'epubcfi(/6/8!/4/2,/1:0,/1:12)', text: '价格上限', color: 'green' })
     await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith('epubcfi(/6/8!/4/2,/1:0,/1:12)', {}, expect.any(Function), 'bl-highlight', expect.objectContaining({ fill: expect.stringContaining('color-mix') })))
-    expect(screen.queryByRole('toolbar')).toBeNull()
+    expect(screen.queryByRole('toolbar', { name: '选区操作' })).toBeNull()
   })
 
   it('BL-012:选区工具条有「复制」,点它与 Cmd+C 都把选区文本写入剪贴板', async () => {
@@ -329,7 +329,7 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     const add = vi.spyOn(backendModule.backend, 'readerMarkAdd')
     renderReader('/reader/4')
     await screen.findByRole('button', { name: '书签' })
-    expect(screen.queryByRole('toolbar')).toBeNull()
+    expect(screen.queryByRole('toolbar', { name: '选区操作' })).toBeNull()
     const range = {} as Range
     const selection = { isCollapsed: false, rangeCount: 1, getRangeAt: () => range, toString: () => ' 需求曲线 ', removeAllRanges: vi.fn() }
     h.rendition.getContents.mockReturnValue([{ window: { getSelection: () => selection }, cfiFromRange: (r: Range) => (r === range ? 'epubcfi(/6/8!/4/4,/1:0,/1:4)' : '') }])
@@ -490,3 +490,43 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
   })
 })
 
+describe('视觉改版第二批:阅读器工具栏与浮层', () => {
+  it('工具栏带含 目录/书签/标记/阅读设置,右栏 tab 带 aria-controls', async () => {
+    renderReader('/reader/4?task=3')
+    const toolbar = await screen.findByRole('toolbar', { name: '阅读器工具栏' })
+    for (const name of ['目录', '书签', '标记', '阅读设置', '收起侧栏']) {
+      expect(within(toolbar).getByRole('button', { name })).toBeInTheDocument()
+    }
+    const tab = screen.getByRole('tab', { name: '问书' })
+    expect(tab).toHaveAttribute('aria-controls', 'reader-chat-panel')
+    expect(screen.getByTestId('chat-panel')).toHaveAttribute('id', 'reader-chat-panel')
+  })
+
+  it('阅读设置浮层:Esc 关闭且焦点回到「阅读设置」钮;浮层开着时 → 不翻页', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    const trigger = await screen.findByRole('button', { name: '阅读设置' })
+    await user.click(trigger)
+    const popover = screen.getByRole('dialog', { name: '阅读设置' })
+    expect(popover).toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    h.rendition.next.mockClear()
+    await user.keyboard('{ArrowRight}')
+    expect(h.rendition.next).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '阅读设置' })).toBeNull()
+    expect(trigger).toHaveFocus()
+    await user.keyboard('{ArrowRight}')
+    expect(h.rendition.next).toHaveBeenCalledTimes(1)
+  })
+
+  it('目录浮层列出章节,点击跳转并关闭', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await user.click(await screen.findByRole('button', { name: '目录' }))
+    const popover = screen.getByRole('dialog', { name: '目录' })
+    await user.click(within(popover).getByRole('button', { name: '第二章 消费者选择' }))
+    expect(h.rendition.display).toHaveBeenCalledWith('chap2.xhtml')
+    expect(screen.queryByRole('dialog', { name: '目录' })).toBeNull()
+  })
+})

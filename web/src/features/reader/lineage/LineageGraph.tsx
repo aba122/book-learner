@@ -1,3 +1,4 @@
+import IconButton from '../../../components/IconButton'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { LineageGraphData, LineageNode } from '../../../types'
 import { layout, NODE_W } from './layout'
@@ -17,7 +18,7 @@ const KIND_STYLE: Record<string, { bar: string; badge: string }> = {
   转折: { bar: 'border-l-warn', badge: 'text-warn' },
   事件: { bar: 'border-l-weak', badge: 'text-weak' },
 }
-const KIND_DEFAULT = { bar: 'border-l-ink-4', badge: 'text-ink-4' }
+const KIND_DEFAULT = { bar: 'border-l-sep-strong', badge: 'text-label-3' }
 const ZOOM_MIN = 0.3
 const ZOOM_MAX = 1.5
 const ZOOM_STEP = 0.15
@@ -88,12 +89,12 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
-      <div className="flex items-center justify-end gap-1 text-[11px] text-ink-4">
+      <div className="flex items-center justify-end gap-0.5 text-footnote text-label-3">
         <span className="mr-auto hidden sm:inline">← → 选节点 · Esc 取消</span>
-        <button className="cursor-pointer rounded-s px-1.5 hover:bg-paper-3 hover:text-ink-1" aria-label="缩小" onClick={() => setZoom(z => clampZoom(z - ZOOM_STEP))}>−</button>
+        <IconButton icon="minus" size="sm" label="缩小" onClick={() => setZoom(z => clampZoom(z - ZOOM_STEP))} />
         <span className="w-9 text-center tabular-nums" data-testid="lineage-zoom">{Math.round(zoom * 100)}%</span>
-        <button className="cursor-pointer rounded-s px-1.5 hover:bg-paper-3 hover:text-ink-1" aria-label="放大图" onClick={() => setZoom(z => clampZoom(z + ZOOM_STEP))}>+</button>
-        <button className="cursor-pointer rounded-s px-1.5 hover:bg-paper-3 hover:text-ink-1" aria-label="适配窗口" onClick={fit}>适配</button>
+        <IconButton icon="plus" size="sm" label="放大图" onClick={() => setZoom(z => clampZoom(z + ZOOM_STEP))} />
+        <IconButton icon="viewfinder" size="sm" label="适配窗口" onClick={fit} />
       </div>
       <div
         ref={scrollRef}
@@ -101,7 +102,7 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
         role="group"
         aria-label="脉络图画布"
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-auto rounded-m border border-line bg-paper-1 outline-none focus-visible:ring-2 focus-visible:ring-new/40"
+        className="min-h-0 flex-1 overflow-auto rounded-m bg-inset/50 ring-1 ring-sep/60 outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         data-testid="lineage-canvas"
       >
         <div style={{ width: width * zoom, height: height * zoom }}>
@@ -109,7 +110,7 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
             <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
               <defs>
                 <marker id="bl-lineage-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
-                  <path d="M0,0 L7,3 L0,6 Z" fill="var(--ink-4)" />
+                  <path d="M0,0 L7,3 L0,6 Z" fill="var(--label-3)" />
                 </marker>
               </defs>
               {graph.edges.map((e, i) => {
@@ -126,7 +127,7 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
                     <path
                       d={`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`}
                       fill="none"
-                      stroke="var(--ink-4)"
+                      stroke="var(--label-3)"
                       strokeWidth={1.5}
                       markerEnd="url(#bl-lineage-arrow)"
                     />
@@ -135,8 +136,8 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
                         x={(x1 + x2) / 2}
                         y={my + 3}
                         textAnchor="middle"
-                        fill="var(--ink-2)"
-                        stroke="var(--paper-1)"
+                        fill="var(--label-2)"
+                        stroke="var(--surface-content)"
                         strokeWidth={4}
                         strokeLinejoin="round"
                         style={{ paintOrder: 'stroke', font: '500 10.5px var(--font-sans)' }}
@@ -160,15 +161,15 @@ export default function LineageGraph({ graph, selectedId, onSelect, onDeselect }
                   aria-pressed={selected}
                   onClick={() => onSelect(n)}
                   style={{ left: n.x, top: n.y, width: NODE_W }}
-                  className={`absolute flex cursor-pointer flex-col gap-1 rounded-m border border-l-4 p-2.5 text-left shadow-card transition-all hover:-translate-y-0.5 ${ks.bar} ${selected ? 'border-new bg-new-soft ring-2 ring-new/40' : 'border-line bg-paper-2 hover:border-new'}`}
+                  className={`absolute flex cursor-pointer flex-col gap-1 rounded-m border border-l-4 p-2.5 text-left shadow-card transition-all hover:-translate-y-0.5 ${ks.bar} ${selected ? 'border-accent bg-card ring-2 ring-accent/40' : 'border-sep bg-card hover:border-accent/60'}`}
                 >
                   <span className="flex items-center gap-1.5 text-[10px] font-medium tracking-wide">
-                    <span className="rounded-full bg-paper-3 px-1.5 text-ink-3">{n.order}</span>
+                    <span className="rounded-full bg-inset px-1.5 text-label-3">{n.order}</span>
                     {n.kind && <span className={ks.badge}>{n.kind}</span>}
-                    {n.userEdited && <span className="ml-auto text-ink-4" title="手改过">✎</span>}
+                    {n.userEdited && <span className="ml-auto text-label-3" title="手改过">✎</span>}
                   </span>
-                  <span className="text-sm font-semibold leading-snug text-ink-1">{n.title}</span>
-                  {n.summary && <span className="text-xs leading-snug text-ink-3">{n.summary}</span>}
+                  <span className="text-body font-semibold leading-snug text-label-1">{n.title}</span>
+                  {n.summary && <span className="text-footnote leading-snug text-label-3">{n.summary}</span>}
                 </button>
               )
             })}

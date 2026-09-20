@@ -91,9 +91,7 @@ export default function Pomodoro({
       <Button variant="ghost" size="sm" disabled={busy} onClick={() => run('stop')}>结束</Button>
       {failure && (
         <>
-          <span ref={setErrorAnchor} className="inline-flex">
-            <IconButton icon="exclamation-triangle" label="番茄钟操作失败" size="sm" className="text-weak" onClick={() => setSeenFailure(null)} />
-          </span>
+          <IconButton ref={setErrorAnchor} icon="exclamation-triangle" label="番茄钟操作失败" size="sm" className="text-weak" onClick={() => setSeenFailure(null)} />
           <Popover open={errorOpen} onClose={() => setSeenFailure(failure)} anchor={errorAnchor} aria-label="番茄钟操作失败" placement="bottom-end" className="w-80">
             <AsyncError error={failure} onRetry={() => void control.retry('control')} variant="compact" />
           </Popover>

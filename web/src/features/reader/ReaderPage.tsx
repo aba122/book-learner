@@ -4,7 +4,14 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Card from '../../components/Card'
+import Checkbox from '../../components/Checkbox'
+import Icon from '../../components/icons/Icon'
+import IconButton from '../../components/IconButton'
+import Popover from '../../components/Popover'
+import ProgressBar from '../../components/ProgressBar'
+import Segmented, { type SegmentedOption } from '../../components/Segmented'
+import Skeleton from '../../components/Skeleton'
+import Toolbar, { ToolbarDivider } from '../../components/Toolbar'
 import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
 import { useBackendOperation } from '../../lib/useBackendOperation'
@@ -18,9 +25,9 @@ import LineagePanel from './lineage/LineagePanel'
 import { isModalOpen } from '../../lib/modalStack'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
-  { name: 'paper', label: '纸白', swatchClass: 'bg-paper-2 border-line' },
+  { name: 'paper', label: '纸白', swatchClass: 'bg-card border-sep-strong' },
   { name: 'sepia', label: '羊皮', swatchClass: 'bg-review-soft border-review' },
-  { name: 'night', label: '夜读', swatchClass: 'bg-ink-1 border-ink-2' },
+  { name: 'night', label: '夜读', swatchClass: 'bg-label-1 border-label-2' },
 ]
 
 interface ReaderContent {
@@ -68,7 +75,18 @@ const HIGHLIGHT_COLORS: { color: HighlightColor; label: string; swatch: string }
   { color: 'pink', label: '粉', swatch: 'bg-hl-pink' },
 ]
 
-/** 路由参数变化即重挂载:旧 blockId 的晚到结果随旧实例卸载而作废。 */
+type SideTab = 'learn' | 'chat' | 'lineage'
+
+/** 浮在正文上的操作条(选区 / 已有高亮) */
+const FLOAT_BAR = 'absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-m bg-popover px-2 py-1.5 shadow-popover ring-1 ring-sep/60'
+/** 翻页圆钮:悬停正文或键盘聚焦时显现(点正文左右半页与 ←/→ 也能翻) */
+const NAV_BTN = 'absolute top-1/2 z-20 flex size-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-card/90 text-label-2 opacity-0 shadow-card ring-1 ring-sep/60 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-100 hover:text-label-1 focus-visible:opacity-100'
+
+/**
+ * 阅读器(视觉改版第二批):工具栏带(返回 · 标题 · 目录/书签/标记/阅读设置 · 放大/收起侧栏),
+ * 目录与阅读设置是锚定浮层;右栏是平铺检视列(分段控件切 学习模式/问书/脉络图);
+ * 路由参数变化即重挂载:旧 blockId 的晚到结果随旧实例卸载而作废。
+ */
 export default function ReaderPage() {
   const { blockId: blockIdParam } = useParams()
   const blockId = Number(blockIdParam)
@@ -85,6 +103,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [toc, setToc] = useState<NavItem[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tocAnchor, setTocAnchor] = useState<HTMLElement | null>(null)
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null)
   const [prefs, setPrefs] = useState<ReaderPrefs>(loadPrefs)
   const { fontIdx, theme, lineIdx, indent, overridePublisher, spread } = prefs
   const updatePrefs = (patch: Partial<ReaderPrefs>) => {
@@ -103,7 +123,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [progress, setProgress] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
   /** 右栏标签(spec 2026-09-16):有任务默认学习模式,否则只有「问书」 */
-  const [sideTab, setSideTab] = useState<'learn' | 'chat' | 'lineage'>(taskId !== null ? 'learn' : 'chat')
+  const [sideTab, setSideTab] = useState<SideTab>(taskId !== null ? 'learn' : 'chat')
   /** BL-014:问书面板加宽切换 */
   const [chatWide, setChatWide] = useState(false)
   /** 脉络图默认放大(图需要横向空间),与问书的宽窄各记各的 */
@@ -152,6 +172,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
       // 脉络图画布用方向键选节点(它会 preventDefault),不翻页
       if (e.defaultPrevented) return
+      // 焦点在浮层/菜单里(阅读设置、目录、书架菜单等)时不翻页
+      if (el?.closest?.('[role="dialog"],[role="menu"]')) return
       // 有对话框开着(components/Dialog 在 <html> 打 data-modal-open)时不翻页
       if (isModalOpen()) return
       if (e.key === 'ArrowRight') epubRef.current?.next()
@@ -247,351 +269,207 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     }
   }, [bookId])
 
+  const sideTabName = sideTab === 'learn' ? '学习模式' : sideTab === 'lineage' ? '脉络图' : '问书'
+  const tabOptions: SegmentedOption<SideTab>[] = [
+    ...(learning ? [{ value: 'learn' as const, label: '学习模式', icon: 'book-closed' as const, controls: 'reader-learn-panel' }] : []),
+    { value: 'chat', label: '问书', icon: 'quote-bubble', controls: 'reader-chat-panel' },
+    { value: 'lineage', label: '脉络图', icon: 'map', controls: 'reader-lineage-panel' },
+  ]
+  const progressPct = Math.round(progress * 100)
+
   return (
-    <div className="flex h-full flex-col">
-      {/* 顶栏 */}
-      <div className="flex items-center gap-3 border-b border-line bg-paper-2/70 px-5 py-2.5">
-        <Button
-          className="px-3 py-1.5 text-xs"
-          onClick={goBack}
-        >
-          {backTaskId ? '返回讲授' : '← 返回'}
-        </Button>
-        <div className="min-w-0 flex-1 text-center">
-          <span className="truncate font-serif text-sm text-ink-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <Toolbar aria-label="阅读器工具栏">
+        {backTaskId ? (
+          <Button size="sm" onClick={goBack}>返回讲授</Button>
+        ) : (
+          <IconButton icon="chevron-left" label="返回" onClick={goBack} />
+        )}
+        <div data-tauri-drag-region className="min-w-0 flex-1 px-2 text-center">
+          <span className="block truncate font-serif text-body font-semibold text-label-1">
             {block ? `${block.moduleName} · ${block.title}` : '阅读'}
           </span>
         </div>
         {ready && (
           <>
-            <Button className="px-3 py-1.5 text-xs" onClick={() => setTocOpen(o => !o)}>
-              目录
-            </Button>
-            <Button className="px-3 py-1.5 text-xs" onClick={addBookmark} disabled={addMarkOp.pending.has('add')}>
-              书签
-            </Button>
-            <Button className="px-3 py-1.5 text-xs" onClick={() => setMarksOpen(o => !o)}>
-              标记
-            </Button>
-            <Button
-              className="px-3 py-1.5 text-xs"
-              aria-label="阅读设置"
-              onClick={() => setSettingsOpen(o => !o)}
-            >
-              Aa
-            </Button>
+            <IconButton ref={setTocAnchor} icon="list-bullet" label="目录" aria-haspopup="dialog" expanded={tocOpen} onClick={() => setTocOpen(o => !o)} />
+            <IconButton icon="bookmark" label="书签" onClick={addBookmark} disabled={addMarkOp.pending.has('add')} />
+            <IconButton icon="highlighter" label="标记" expanded={marksOpen} onClick={() => setMarksOpen(o => !o)} />
+            <IconButton ref={setSettingsAnchor} icon="text-size" label="阅读设置" aria-haspopup="dialog" expanded={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
+            <ToolbarDivider />
+            {panelOpen && sideTab !== 'learn' && (
+              <IconButton
+                icon={wide ? 'arrows-collapse' : 'arrows-expand'}
+                label={`${wide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
+                onClick={() => setWide(w => !w)}
+              />
+            )}
+            <IconButton icon="sidebar-right" label={panelOpen ? '收起侧栏' : '展开侧栏'} onClick={() => setPanelOpen(o => !o)} />
           </>
         )}
-      </div>
+      </Toolbar>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
-        {/* 正文 */}
-        {initError ? (
-          <div className="p-10">
-            <AsyncError error={initError} onRetry={loadContent} />
-          </div>
-        ) : ready ? (
-          <div className={`mx-auto h-full w-full ${spread ? 'max-w-[80em]' : 'max-w-[38em]'}`} data-testid="reader-column">
-            <EpubView
-              ref={epubRef}
-              url={url}
-              fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
-              theme={effectiveTheme}
-              typography={typography}
-              initialHref={initialHref}
-              highlights={highlights}
-              blockSegments={learning ? content.data?.segments : undefined}
-              onToc={setToc}
-              onProgress={setProgress}
-              onSelected={sel => { setActiveHighlight(null); setSelection(sel) }}
-              onRelocated={onRelocated}
-              spread={spread}
-              onHighlightClicked={cfi => { setSelection(null); setActiveHighlight(cfi) }}
-            />
-          </div>
-        ) : (
-          <p className="p-10 text-sm text-ink-3">正在打开书籍…</p>
-        )}
-
-        {/* 翻页按钮;点正文左右半页翻页由 EpubView 的指针层负责(BL-009/BL-011) */}
-        {ready && (
-          <>
-            <button
-              aria-label="上一页"
-              onClick={() => epubRef.current?.prev()}
-              className="absolute top-1/2 left-2 z-20 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
-            >
-              ‹
-            </button>
-            <button
-              aria-label="下一页"
-              onClick={() => epubRef.current?.next()}
-              className="absolute top-1/2 right-2 z-20 -translate-y-1/2 cursor-pointer rounded-full px-3 py-2 text-xl text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-1"
-            >
-              ›
-            </button>
-          </>
-        )}
-
-        {/* 已有高亮的操作条(BL-007):换色 / 取消高亮 */}
-        {activeMark && (
-          <div role="toolbar" aria-label="高亮操作" className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-m border border-line bg-paper-2 px-3 py-2 shadow-pop">
-            <span className="max-w-48 truncate text-xs text-ink-3">{activeMark.text || '高亮'}</span>
-            {HIGHLIGHT_COLORS.map(c => (
-              <button
-                key={c.color}
-                aria-label={`改为:${c.label}`}
-                aria-pressed={activeMark.color === c.color}
-                disabled={recolorOp.pending.size > 0}
-                onClick={() => { recolorOp.clearError('recolor'); void recolorOp.run('recolor', activeMark, c.color) }}
-                className={`h-5 w-5 cursor-pointer rounded-full border border-line ${c.swatch} ${activeMark.color === c.color ? 'ring-2 ring-ink-3' : ''}`}
+        <div className="group relative min-w-0 flex-1">
+          {/* 正文 */}
+          {initError ? (
+            <div className="p-10">
+              <AsyncError error={initError} onRetry={loadContent} />
+            </div>
+          ) : ready ? (
+            <div className={`mx-auto h-full w-full ${spread ? 'max-w-[80em]' : 'max-w-[38em]'}`} data-testid="reader-column">
+              <EpubView
+                ref={epubRef}
+                url={url}
+                fontSizePct={`${READER_FONT_STEPS[fontIdx]}%`}
+                theme={effectiveTheme}
+                typography={typography}
+                initialHref={initialHref}
+                highlights={highlights}
+                blockSegments={learning ? content.data?.segments : undefined}
+                onToc={setToc}
+                onProgress={setProgress}
+                onSelected={sel => { setActiveHighlight(null); setSelection(sel) }}
+                onRelocated={onRelocated}
+                spread={spread}
+                onHighlightClicked={cfi => { setSelection(null); setActiveHighlight(cfi) }}
               />
-            ))}
-            <button
-              className="cursor-pointer text-xs text-weak hover:underline"
-              disabled={removeMarkOp.pending.size > 0}
-              onClick={() => { const m = activeMark; setActiveHighlight(null); removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', m) }}
-            >
-              取消高亮
-            </button>
-            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => setActiveHighlight(null)}>关闭</button>
-          </div>
-        )}
+            </div>
+          ) : (
+            <div aria-busy="true" className="mx-auto max-w-[38em] px-10 py-12">
+              <Skeleton lines={9} />
+            </div>
+          )}
 
-        {/* 选区工具条:高亮四色 */}
-        {selection && (
-          <div role="toolbar" aria-label="选区操作" className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-m border border-line bg-paper-2 px-3 py-2 shadow-pop">
-            <span className="max-w-48 truncate text-xs text-ink-3">{selection.text || '已选中'}</span>
-            {HIGHLIGHT_COLORS.map(c => (
-              <button
-                key={c.color}
-                aria-label={`高亮:${c.label}`}
-                className={`h-5 w-5 cursor-pointer rounded-full border border-line ${c.swatch}`}
-                onClick={() => addHighlight(c.color)}
-              />
-            ))}
-            <button
-              className="cursor-pointer text-xs text-ink-2 hover:text-ink-1"
-              aria-label="复制"
-              onClick={() => { copySelection(selection.text); setSelection(null); epubRef.current?.clearSelection() }}
-            >
-              复制
-            </button>
-            <button
-              className="cursor-pointer text-xs text-ink-2 hover:text-ink-1"
-              aria-label="问 AI"
-              onClick={() => {
-                setQuoteDraft(selection.text)
-                setSideTab('chat')
-                setPanelOpen(true)
-                setSelection(null)
-                epubRef.current?.clearSelection()
-              }}
-            >
-              问 AI
-            </button>
-            <button className="cursor-pointer text-xs text-ink-4 hover:text-ink-1" onClick={() => { setSelection(null); epubRef.current?.clearSelection() }}>取消</button>
-          </div>
-        )}
-        {markError && (
-          <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
-            <AsyncError error={markError} variant="compact" />
-          </div>
-        )}
-        {marksOpen && ready && (
-          <MarksPanel
-            marks={currentMarks}
-            onJump={mark => { epubRef.current?.display(mark.kind === 'highlight' ? (mark.cfiEnd ?? mark.cfiStart) : mark.cfiStart); setMarksOpen(false) }}
-            onRemove={mark => { removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', mark) }}
-            onClose={() => setMarksOpen(false)}
-          />
-        )}
+          {/* 翻页按钮;点正文左右半页翻页由 EpubView 的指针层负责(BL-009/BL-011) */}
+          {ready && (
+            <>
+              <button type="button" aria-label="上一页" onClick={() => epubRef.current?.prev()} className={`${NAV_BTN} left-3`}>
+                <Icon name="chevron-left" size={18} />
+              </button>
+              <button type="button" aria-label="下一页" onClick={() => epubRef.current?.next()} className={`${NAV_BTN} right-3`}>
+                <Icon name="chevron-right" size={18} />
+              </button>
+            </>
+          )}
 
-        {/* 目录抽屉 */}
-        {tocOpen && (
-          <div className="absolute inset-y-0 left-0 z-30 w-72 overflow-y-auto border-r border-line bg-paper-2 p-5 shadow-pop">
-            <h2 className="mb-3 font-serif text-base font-semibold text-ink-1">目录</h2>
-            <ul className="flex flex-col gap-1">
-              {toc.map(item => (
-                <li key={item.id ?? item.href}>
-                  <button
-                    className="w-full cursor-pointer rounded-s px-2 py-1.5 text-left text-sm text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink-1"
-                    onClick={() => {
-                      epubRef.current?.display(item.href)
-                      setTocOpen(false)
-                    }}
-                  >
-                    {item.label?.trim()}
-                  </button>
-                </li>
+          {/* 已有高亮的操作条(BL-007):换色 / 取消高亮 */}
+          {activeMark && (
+            <div role="toolbar" aria-label="高亮操作" className={FLOAT_BAR}>
+              <span className="max-w-48 truncate px-1 text-footnote text-label-3">{activeMark.text || '高亮'}</span>
+              {HIGHLIGHT_COLORS.map(c => (
+                <button
+                  key={c.color}
+                  type="button"
+                  aria-label={`改为:${c.label}`}
+                  aria-pressed={activeMark.color === c.color}
+                  disabled={recolorOp.pending.size > 0}
+                  onClick={() => { recolorOp.clearError('recolor'); void recolorOp.run('recolor', activeMark, c.color) }}
+                  className={`size-5 cursor-pointer rounded-full ring-offset-1 ring-offset-popover ${c.swatch} ${activeMark.color === c.color ? 'ring-2 ring-accent' : 'ring-1 ring-sep-strong/60 hover:ring-accent/60'}`}
+                />
               ))}
-              {toc.length === 0 && <li className="text-xs text-ink-4">(本书没有目录)</li>}
-            </ul>
-          </div>
-        )}
+              <button
+                type="button"
+                className="cursor-pointer rounded-s px-2 py-1 text-callout font-medium text-weak hover:bg-weak-soft disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={removeMarkOp.pending.size > 0}
+                onClick={() => { const m = activeMark; setActiveHighlight(null); removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', m) }}
+              >
+                取消高亮
+              </button>
+              <IconButton icon="xmark" label="关闭" size="sm" onClick={() => setActiveHighlight(null)} />
+            </div>
+          )}
 
-        {/* 设置浮层 */}
-        {settingsOpen && (
-          <Card className="absolute top-3 right-3 z-30 w-64 p-4 shadow-pop">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-ink-3">字号</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  className="px-2.5 py-1 text-xs"
-                  aria-label="减小字号"
-                  disabled={fontIdx === 0}
-                  onClick={() => setFontIdx(i => Math.max(0, i - 1))}
-                >
-                  A−
-                </Button>
-                <span className="w-10 text-center text-xs text-ink-2 tabular-nums">
-                  {READER_FONT_STEPS[fontIdx]}%
-                </span>
-                <Button
-                  className="px-2.5 py-1 text-xs"
-                  aria-label="增大字号"
-                  disabled={fontIdx === READER_FONT_STEPS.length - 1}
-                  onClick={() => setFontIdx(i => Math.min(READER_FONT_STEPS.length - 1, i + 1))}
-                >
-                  A+
-                </Button>
-              </div>
+          {/* 选区工具条:高亮四色 / 复制 / 问 AI */}
+          {selection && (
+            <div role="toolbar" aria-label="选区操作" className={FLOAT_BAR}>
+              <span className="max-w-48 truncate px-1 text-footnote text-label-3">{selection.text || '已选中'}</span>
+              {HIGHLIGHT_COLORS.map(c => (
+                <button
+                  key={c.color}
+                  type="button"
+                  aria-label={`高亮:${c.label}`}
+                  className={`size-5 cursor-pointer rounded-full ring-1 ring-sep-strong/60 ring-offset-1 ring-offset-popover hover:ring-accent/60 ${c.swatch}`}
+                  onClick={() => addHighlight(c.color)}
+                />
+              ))}
+              <Button variant="ghost" size="sm" aria-label="复制" onClick={() => { copySelection(selection.text); setSelection(null); epubRef.current?.clearSelection() }}>
+                复制
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="问 AI"
+                onClick={() => {
+                  setQuoteDraft(selection.text)
+                  setSideTab('chat')
+                  setPanelOpen(true)
+                  setSelection(null)
+                  epubRef.current?.clearSelection()
+                }}
+              >
+                <Icon name="quote-bubble" size={14} />
+                问 AI
+              </Button>
+              <IconButton icon="xmark" label="取消" size="sm" onClick={() => { setSelection(null); epubRef.current?.clearSelection() }} />
             </div>
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs text-ink-3">主题</span>
-              <div className="flex items-center gap-2">
-                {THEME_OPTIONS.map(t => (
-                  <button
-                    key={t.name}
-                    aria-label={`主题:${t.label}`}
-                    onClick={() => setTheme(t.name)}
-                    className={`h-7 w-7 cursor-pointer rounded-full border-2 ${t.swatchClass} ${
-                      theme === t.name ? 'ring-2 ring-new' : ''
-                    }`}
-                  />
-                ))}
-              </div>
+          )}
+          {markError && (
+            <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
+              <AsyncError error={markError} variant="compact" />
             </div>
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs text-ink-3">行高</span>
-              <div className="flex items-center gap-1">
-                {READER_LINE_HEIGHTS.map((lh, i) => (
-                  <button
-                    key={lh}
-                    aria-label={`行高:${lh}`}
-                    aria-pressed={lineIdx === i}
-                    onClick={() => updatePrefs({ lineIdx: i })}
-                    className={`cursor-pointer rounded-s px-2 py-1 text-xs ${lineIdx === i ? 'bg-new-soft text-new' : 'text-ink-3 hover:text-ink-1'}`}
-                  >
-                    {lh}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="mt-3 flex items-center justify-between text-xs text-ink-3">
-              段首缩进
-              <input type="checkbox" checked={indent} disabled={!overridePublisher} onChange={e => updatePrefs({ indent: e.target.checked })} />
-            </label>
-            <label className="mt-2 flex items-center justify-between text-xs text-ink-3">
-              双页显示
-              <input type="checkbox" checked={spread} onChange={e => updatePrefs({ spread: e.target.checked })} />
-            </label>
-            <label className="mt-2 flex items-center justify-between text-xs text-ink-3">
-              覆盖出版方样式
-              <input type="checkbox" checked={overridePublisher} onChange={e => updatePrefs({ overridePublisher: e.target.checked })} />
-            </label>
-            <p className="mt-2 text-[11px] leading-relaxed text-ink-4">关闭覆盖时只保留主题配色,字体/行高/版心交给书自带样式。</p>
-          </Card>
-        )}
-
+          )}
+          {marksOpen && ready && (
+            <MarksPanel
+              marks={currentMarks}
+              onJump={mark => { epubRef.current?.display(mark.kind === 'highlight' ? (mark.cfiEnd ?? mark.cfiStart) : mark.cfiStart); setMarksOpen(false) }}
+              onRemove={mark => { removeMarkOp.clearError('remove'); void removeMarkOp.run('remove', mark) }}
+              onClose={() => setMarksOpen(false)}
+            />
+          )}
         </div>
 
-        {/* 右侧栏(分栏,不遮翻页):有任务 →「学习模式」「问书」两个标签;无任务 → 只有「问书」 */}
+        {/* 右栏:平铺检视列。有任务 → 学习模式/问书/脉络图;无任务 → 问书/脉络图 */}
         {ready && (
-          <div className="flex shrink-0 items-stretch border-l border-line bg-paper-1">
+          <div className="flex shrink-0 items-stretch">
             {!panelOpen && (
               <button
-                className="my-auto mr-0 cursor-pointer rounded-l-m border border-line bg-paper-2 px-1.5 py-6 text-xs text-ink-3 shadow-card hover:text-ink-1"
+                type="button"
+                className="my-auto cursor-pointer rounded-l-m border border-r-0 border-sep bg-card px-1.5 py-5 text-footnote text-label-2 shadow-card transition-colors duration-[var(--dur-fast)] [writing-mode:vertical-rl] hover:text-label-1"
                 onClick={() => setPanelOpen(true)}
               >
-                {sideTab === 'learn' ? '学习模式' : sideTab === 'lineage' ? '脉络图' : '问书'}
+                {sideTabName}
               </button>
             )}
             {/* BL-017:收起只隐藏、不卸载,进行中的问书对话与「思考中」跨收起保留 */}
-            <div hidden={!panelOpen}>
-              <Card className={`m-3 flex h-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden p-5 ${sideTab === 'learn' ? 'w-72' : wide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 rounded-m bg-paper-1 p-0.5" role="tablist" aria-label="侧栏">
-                    {learning && (
-                      <button
-                        role="tab"
-                        aria-selected={sideTab === 'learn'}
-                        className={`cursor-pointer rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'learn' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
-                        onClick={() => setSideTab('learn')}
-                      >
-                        学习模式
-                      </button>
-                    )}
-                    <button
-                      role="tab"
-                      aria-selected={sideTab === 'chat'}
-                      className={`flex cursor-pointer items-center gap-1 rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'chat' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
-                      onClick={() => setSideTab('chat')}
-                    >
-                      <span aria-hidden>💬</span>问书
-                    </button>
-                    <button
-                      role="tab"
-                      aria-selected={sideTab === 'lineage'}
-                      className={`flex cursor-pointer items-center gap-1 rounded-s px-3 py-1 text-sm font-medium transition-colors ${sideTab === 'lineage' ? 'bg-new text-paper-1 shadow-card' : 'text-ink-3 hover:text-ink-1'}`}
-                      onClick={() => setSideTab('lineage')}
-                    >
-                      <span aria-hidden>🗺</span>脉络图
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {sideTab !== 'learn' && (
-                      <button
-                        className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-                        aria-label={`${wide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
-                        onClick={() => setWide(w => !w)}
-                      >
-                        {wide ? '⇥ 收窄' : '⇤ 放大'}
-                      </button>
-                    )}
-                    <button
-                      className="cursor-pointer text-xs text-ink-4 hover:text-ink-1"
-                      onClick={() => setPanelOpen(false)}
-                    >
-                      收起 ›
-                    </button>
-                  </div>
+            <div hidden={!panelOpen} className="flex">
+              <aside
+                aria-label="阅读辅助"
+                className={`flex min-h-0 flex-col border-l border-sep bg-content ${sideTab === 'learn' ? 'w-72' : wide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}
+              >
+                <div className="flex h-11 shrink-0 items-center border-b border-sep px-3">
+                  <Segmented<SideTab> semantics="tabs" aria-label="侧栏" value={sideTab} onChange={setSideTab} options={tabOptions} />
                 </div>
                 {learning && (
-                  <div hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" data-testid="learn-panel">
-                    <h2 className="font-serif text-lg font-semibold text-ink-1">{block.title}</h2>
-                    <p className="text-xs text-ink-3">
+                  <div id="reader-learn-panel" role="tabpanel" aria-label="学习模式" hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" data-testid="learn-panel">
+                    <h2 className="font-serif text-title3 font-semibold text-label-1">{block.title}</h2>
+                    <p className="text-footnote text-label-3">
                       {block.moduleName} · 原文 {source?.href ?? '…'}
                     </p>
                     {source && (
-                      <p className="line-clamp-6 border-l-2 border-line pl-3 text-xs leading-relaxed text-ink-2">
+                      <p className="line-clamp-6 border-l-2 border-sep pl-3 text-callout leading-relaxed text-label-2">
                         {source.text}
                       </p>
                     )}
-                    <p className="text-xs leading-relaxed text-ink-3">
+                    <p className="text-callout leading-relaxed text-label-3">
                       读透之后,把书合上——用自己的话讲给学生听,讲不清的地方就是漏洞。
                     </p>
-                    <Button
-                      variant="primary"
-                      className="mt-auto"
-                      onClick={() => navigate(`/feynman/${taskId}`)}
-                    >
+                    <Button variant="primary" className="mt-auto" onClick={() => navigate(`/feynman/${taskId}`)}>
                       开始费曼讲授
                     </Button>
                   </div>
                 )}
-                <div hidden={sideTab !== 'chat'} className="flex min-h-0 flex-1 flex-col" data-testid="chat-panel">
+                <div id="reader-chat-panel" role="tabpanel" aria-label="问书" hidden={sideTab !== 'chat'} className="flex min-h-0 flex-1 flex-col p-3" data-testid="chat-panel">
                   <ReadingChatPanel
                     bookId={block.bookId}
                     currentHref={currentHref || position?.spineHref || source.href}
@@ -601,7 +479,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                   />
                 </div>
                 {/* 脉络图(plan 2026-09-19):按进度合成图;收起只隐藏、不卸载,保留手改草稿 */}
-                <div hidden={sideTab !== 'lineage'} className="flex min-h-0 flex-1 flex-col" data-testid="lineage-panel">
+                <div id="reader-lineage-panel" role="tabpanel" aria-label="脉络图" hidden={sideTab !== 'lineage'} className="flex min-h-0 flex-1 flex-col p-3" data-testid="lineage-panel">
                   <LineagePanel
                     bookId={block.bookId}
                     onGoto={href => epubRef.current?.display(href)}
@@ -611,22 +489,101 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                     }}
                   />
                 </div>
-              </Card>
+              </aside>
             </div>
           </div>
         )}
       </div>
 
       {/* 进度条 */}
-      {ready && <div className="flex items-center gap-3 border-t border-line bg-paper-2/70 px-5 py-1.5">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-paper-3">
-          <div
-            className="h-full rounded-full bg-review transition-[width] duration-300"
-            style={{ width: `${Math.round(progress * 100)}%` }}
-          />
+      {ready && (
+        <div className="flex shrink-0 items-center gap-3 border-t border-sep bg-content px-4 py-1.5">
+          <ProgressBar value={progress} size="sm" label="阅读进度" />
+          <span className="w-8 text-right text-footnote text-label-3 tabular-nums">{progressPct}%</span>
         </div>
-        <span className="text-[11px] text-ink-4 tabular-nums">{Math.round(progress * 100)}%</span>
-      </div>}
+      )}
+
+      {/* 目录浮层 */}
+      <Popover open={tocOpen} onClose={() => setTocOpen(false)} anchor={tocAnchor} aria-label="目录" placement="bottom-end" className="w-72 p-1">
+        <h2 className="px-2 pt-1.5 pb-1 font-serif text-subhead font-semibold text-label-3">目录</h2>
+        <ul className="flex flex-col">
+          {toc.map(item => (
+            <li key={item.id ?? item.href}>
+              <button
+                type="button"
+                className="flex h-7 w-full cursor-pointer items-center rounded-s px-2 text-left text-body text-label-1 transition-colors duration-[var(--dur-fast)] hover:bg-fill-hover"
+                onClick={() => {
+                  epubRef.current?.display(item.href)
+                  setTocOpen(false)
+                }}
+              >
+                <span className="truncate">{item.label?.trim()}</span>
+              </button>
+            </li>
+          ))}
+          {toc.length === 0 && <li className="px-2 py-1.5 text-footnote text-label-3">本书没有目录</li>}
+        </ul>
+      </Popover>
+
+      {/* 阅读设置浮层 */}
+      <Popover open={settingsOpen} onClose={() => setSettingsOpen(false)} anchor={settingsAnchor} aria-label="阅读设置" placement="bottom-end" className="w-72 p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-callout text-label-2">字号</span>
+          <div className="flex items-center gap-1">
+            <Button size="sm" aria-label="减小字号" className="w-8 px-0 font-serif" disabled={fontIdx === 0} onClick={() => setFontIdx(i => Math.max(0, i - 1))}>
+              A−
+            </Button>
+            <span className="w-11 text-center text-footnote text-label-2 tabular-nums">{READER_FONT_STEPS[fontIdx]}%</span>
+            <Button
+              size="sm"
+              aria-label="增大字号"
+              className="w-8 px-0 font-serif"
+              disabled={fontIdx === READER_FONT_STEPS.length - 1}
+              onClick={() => setFontIdx(i => Math.min(READER_FONT_STEPS.length - 1, i + 1))}
+            >
+              A+
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-callout text-label-2">主题</span>
+          <div className="flex items-center gap-2">
+            {THEME_OPTIONS.map(t => (
+              <button
+                key={t.name}
+                type="button"
+                aria-label={`主题:${t.label}`}
+                aria-pressed={theme === t.name}
+                onClick={() => setTheme(t.name)}
+                className={`size-6 cursor-pointer rounded-full border ring-offset-2 ring-offset-popover transition-shadow duration-[var(--dur-fast)] ${t.swatchClass} ${theme === t.name ? 'ring-2 ring-accent' : 'hover:ring-2 hover:ring-accent/40'}`}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-callout text-label-2">行高</span>
+          <div role="group" aria-label="行高" className="inline-flex gap-0.5 rounded-m bg-inset p-0.5">
+            {READER_LINE_HEIGHTS.map((lh, i) => (
+              <button
+                key={lh}
+                type="button"
+                aria-label={`行高:${lh}`}
+                aria-pressed={lineIdx === i}
+                onClick={() => updatePrefs({ lineIdx: i })}
+                className={`h-5 cursor-pointer rounded-s px-2 text-footnote font-medium tabular-nums transition-colors duration-[var(--dur-fast)] ${lineIdx === i ? 'bg-card text-label-1 shadow-card' : 'text-label-2 hover:text-label-1'}`}
+              >
+                {lh}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-2 border-t border-sep pt-3">
+          <Checkbox label="段首缩进" checked={indent} disabled={!overridePublisher} onChange={e => updatePrefs({ indent: e.target.checked })} />
+          <Checkbox label="双页显示" checked={spread} onChange={e => updatePrefs({ spread: e.target.checked })} />
+          <Checkbox label="覆盖出版方样式" checked={overridePublisher} onChange={e => updatePrefs({ overridePublisher: e.target.checked })} />
+        </div>
+        <p className="mt-2 text-footnote leading-relaxed text-label-3">关闭覆盖时只保留主题配色,字体/行高/版心交给书自带样式。</p>
+      </Popover>
     </div>
   )
 }
