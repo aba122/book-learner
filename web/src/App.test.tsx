@@ -47,12 +47,27 @@ describe('App 外壳 · 视觉改版第一批', () => {
     if (useSession.getState().sidebarCollapsed) useSession.getState().toggleSidebar()
   })
 
-  it('当前页导航项带 aria-current;侧栏底部没有夜读按钮', async () => {
+  it('当前页导航项带 aria-current;侧栏底部日读/夜读快捷钮切换 data-theme(用户要求,2026-09-21)', async () => {
+    const user = userEvent.setup()
     render(<App />)
     expect(await screen.findByRole('link', { name: '今日学习' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: '书架' })).not.toHaveAttribute('aria-current')
-    expect(screen.queryByRole('button', { name: /夜读模式|日读模式/ })).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '切换为夜读' }))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(useSession.getState().themePreference).toBe('dark')
+    await user.click(screen.getByRole('button', { name: '切换为日读' }))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+
+  it('⌥⌘D(mock 菜单映射「显示 › 外观」)切换深浅色', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('link', { name: '书架' })
+    await user.keyboard('{Meta>}{Alt>}d{/Alt}{/Meta}')
+    await waitFor(() => expect(document.documentElement.getAttribute('data-theme')).toBe('dark'))
+    await user.keyboard('{Meta>}{Alt>}d{/Alt}{/Meta}')
+    await waitFor(() => expect(document.documentElement.getAttribute('data-theme')).toBe('light'))
   })
 
   it('⌃⌘S(mock 菜单映射)折叠侧栏,主区出现「显示侧栏」;再按恢复', async () => {

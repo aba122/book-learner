@@ -27,6 +27,7 @@ function RouteLogger() {
 function MenuActions() {
   const navigate = useNavigate()
   const toggleSidebar = useSession(s => s.toggleSidebar)
+  const setTheme = useSession(s => s.setTheme)
   useEffect(() => {
     let dispose: (() => void) | null = null
     let alive = true
@@ -34,6 +35,10 @@ function MenuActions() {
       .subscribeMenu(action => {
         if (action === 'open-settings') navigate('/settings')
         else if (action === 'toggle-sidebar') toggleSidebar()
+        else if (action === 'appearance-system') setTheme('system')
+        else if (action === 'appearance-light') setTheme('light')
+        else if (action === 'appearance-dark') setTheme('dark')
+        else if (action === 'appearance-toggle') setTheme(useSession.getState().theme === 'dark' ? 'light' : 'dark')
       })
       .then(off => {
         if (alive) dispose = off
@@ -44,19 +49,23 @@ function MenuActions() {
       alive = false
       dispose?.()
     }
-  }, [navigate, toggleSidebar])
+  }, [navigate, toggleSidebar, setTheme])
   return null
 }
 
 /**
  * 侧栏(视觉改版第一批):顶部 52px 是标题栏带(透明标题栏下红绿灯落在这里,整条可拖动窗口);
- * 图标 + 文字导航,选中态中性填充 + 强调色图标(三任务色只标数据);底部不放任何操作;
- * 原生材质从 bg-sidebar 半透明纸色下透出;可隐藏(⌃⌘S / 菜单 / 右上按钮)。
+ * 图标 + 文字导航,选中态中性填充 + 强调色图标(三任务色只标数据);
+ * 底部一个日读/夜读快捷钮(用户要求,2026-09-21;HIG 建议不做 app 级开关,但这是一本"书",读者习惯手边有夜灯——
+ * 设置页「外观」仍可改回跟随系统);原生材质从 bg-sidebar 纸色下微微透出;可隐藏(⌃⌘S / 菜单 / 右上按钮)。
  */
 function Sidebar() {
   const activeBookId = useSession(s => s.activeBookId)
   const collapsed = useSession(s => s.sidebarCollapsed)
   const toggleSidebar = useSession(s => s.toggleSidebar)
+  const theme = useSession(s => s.theme)
+  const themePreference = useSession(s => s.themePreference)
+  const setTheme = useSession(s => s.setTheme)
 
   const items: { to: string; label: string; icon: IconName; end: boolean }[] = [
     { to: '/', label: '今日学习', icon: 'sun', end: true },
@@ -94,6 +103,14 @@ function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <div className="mt-auto flex items-center justify-between px-3 pb-3">
+        <IconButton
+          icon={theme === 'dark' ? 'sun' : 'moon'}
+          label={theme === 'dark' ? '切换为日读' : '切换为夜读'}
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        />
+        {themePreference === 'system' && <span className="text-footnote text-label-3">跟随系统</span>}
+      </div>
     </aside>
   )
 }

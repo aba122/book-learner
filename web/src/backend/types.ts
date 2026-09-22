@@ -2,7 +2,7 @@ import type {
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
-export type MenuAction = 'open-settings' | 'toggle-sidebar'
+export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
 
 export interface Backend {
   // 书架与导入

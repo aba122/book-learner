@@ -1029,7 +1029,7 @@ export class TauriBackend implements Backend {
   async subscribeMenu(handler: (action: MenuAction) => void): Promise<() => void> {
     return this.listen(MENU_ACTION_EVENT, event => {
       const action = event.payload
-      if (action === 'open-settings' || action === 'toggle-sidebar') handler(action)
+      if (action === 'open-settings' || action === 'toggle-sidebar' || action === 'appearance-system' || action === 'appearance-light' || action === 'appearance-dark' || action === 'appearance-toggle') handler(action)
       // 其它值忽略(壳层白名单之外)
     })
   }
