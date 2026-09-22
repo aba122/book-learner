@@ -39,7 +39,8 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 翻页没有卷页动画、直接换页 | 拿不到快照:`rendition.getContents()` 为空/多视图,或系统开了减少动态效果;看 `epub-book` 是否短暂带 `data-turning` | `web/src/features/reader/pageCurlOverlay.ts` `snapshotVisiblePage`、`EpubView.turn` |
 | 翻页时纸面内容错位/空白 | 快照 iframe 的位置/尺寸与原 iframe 不一致,或大章克隆超过 250 ms 超时先开卷 | `pageCurlOverlay.ts`(`READER_PAGE_SNAPSHOT_MAX_MS`) |
 | 点正文不翻页 / 划不了选区 / 点高亮没反应 | 指针层 `.bl-pointer` 是否盖在正文上(z-index 5)且未被别的层遮住;单击被判成拖动(>4 px)/取消选区;`findVisibleFrame` 找不到可视 iframe | `web/src/features/reader/pointerLayer.ts` |
-| 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);`trafficLightPosition {14,20}` 对应 52px 带 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);红绿灯用原生位置 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 顶部 52px 带里的按钮悬停有提示但点不动(侧栏收不起来) | **不要设 `trafficLightPosition`**:tao 会把 NSTitlebarContainerView 撑高到 按钮高+y,标题栏吞掉 mousedown(BL-026);验证要用真实鼠标(`cliclick`),桥 `.click()` 测不出 | `web/src-tauri/tauri.conf.json`;`~/Developer/bl-logs/b4matrix-cmd.sh` |
 | 书架卡片上找不到「导出/标记已学完/删除」 | 收进「《x》的更多操作」菜单(卡片右上 ⋯ 或右键卡片);桥/脚本先点更多操作再点 `[role=menuitem]` | `web/src/features/library/LibraryPage.tsx`(`Menu`) |
 | 番茄钟卡片不见了 / 暂停结束在哪 | 已从右下浮动卡搬进今日页工具栏带的胶囊(`data-testid="pomodoro"`);控制失败在胶囊尾部警示钮 → 浮层 | `web/src/features/today/Pomodoro.tsx` |
 | 阅读器顶部按钮/目录/阅读设置在哪 | 工具栏带图标钮(悬停有提示);目录与阅读设置是锚定浮层(Esc 关、焦点回钮);右栏 tab 是分段控件 | `web/src/features/reader/ReaderPage.tsx`(`Toolbar`/`Popover`/`Segmented`) |
