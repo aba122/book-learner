@@ -734,3 +734,9 @@
 - **阅读器计时** `lib/useReadingClock.ts`:每秒判定"页面可见 且 90 s 内有指针/键盘/滚轮操作"才计 1 秒,累计 60 s 落一笔,页面隐藏 / 卸载 / 换书时补零头,落库失败静默。挂在 `ReaderPage`(书就绪后)。测试要在挂载前开假定时器(interval 在就绪时创建)。
 - **统计页** `ReadingTimeSection`(放在瓦片下、三区上):总计 / 今天 / 本周 / 本月 四格(`formatDuration`:x 小时 y 分)+ 日/周/月分段切换柱状图(强调色,悬停看数值,`aria-describedby` 读屏表)+ 每本书条形(书脊色与书架同一取法、最近读于);无记录时空态。
 - 测试:core +4(汇总/空表/级联/v11 schema)、foundation +1、contract +1、tauri +1、reader +2(计时/不可见不计)、stats +3(四格与切换、空态、`formatDuration`)。门禁:core 205、clippy 0;web 439/2、tsc、oxlint 0、build。
+
+## 2026-09-22 · BL-027:夜读切换时书页背景不跟着变(BL-013 同类,根因在 epub.js 主题机制)
+- 用户装 `5cca087` 后反馈:开夜读时只有边栏变了,书页背景没变。本地 Chromium 复现:日 → 夜第一次生效,夜 → 日不生效;若打开书时 app 已是夜读,则 夜 → 日 生效、再切回夜读不生效——正是用户的路径。
+- 根因(读 `epubjs/src/themes.js`、`contents.js`):`themes.register(name)` 每个主题名在 iframe 里各建一个 `<style id="epubjs-inserted-css-<name>">`,`select(name)` 只往**已有的那个**追加规则(`insertRule` 到末尾),不会把它挪到最后;各主题都是 `body { background }` 同优先级,谁的样式表在文档里靠后谁赢——所以只有"第一次切到某主题"(新建表、排最后)生效,之后来回切都卡在最后建的那套上。BL-013 当时验证的只是"进书时 app 已夜读 → night"这一跳。
+- 修法(`EpubView.applyReaderTheme`):三套主题不再分表,始终只用一个 key `bl-reader-theme`;每次主题/排版变化先删掉各 iframe 里的旧表(`epubjs-inserted-css-bl-reader-theme`,epub.js 会加这个前缀),再 `register` 当前主题规则 + `select`,epub.js 重建一张只含当前规则、排在最后的表;新翻到的章节由它的 content hook 注入同一套。顺带修掉"关闭覆盖出版方样式后旧版心规则残留"。
+- 验证:headless Chromium 用真 EPUB:app 夜读中打开书 → 日 → 夜 → 日 → 羊皮 → 翻页,iframe body 背景依次 #171512 / #fdfaf2 / #171512 / #fdfaf2 / #f2e5c9,翻页后保持;单测改按"最近注册的规则"断言,新增删旧表用例。
