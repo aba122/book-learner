@@ -1,5 +1,5 @@
 import type { NavItem } from 'epubjs'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
@@ -12,7 +12,7 @@ import ProgressBar from '../../components/ProgressBar'
 import Segmented, { type SegmentedOption } from '../../components/Segmented'
 import Skeleton from '../../components/Skeleton'
 import Toolbar, { ToolbarDivider } from '../../components/Toolbar'
-import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
+import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_PANEL_WIDTH_KEY, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useReadingClock } from '../../lib/useReadingClock'
@@ -78,6 +78,77 @@ const HIGHLIGHT_COLORS: { color: HighlightColor; label: string; swatch: string }
 
 type SideTab = 'learn' | 'chat' | 'lineage'
 
+/** 右栏宽度(BL-028):每种标签各记一个;「放大/收窄」在窄默认与 PANEL_WIDE 之间切,拖动/键盘可任意调 */
+const PANEL_MIN = 256
+const PANEL_WIDE = 640
+const PANEL_DEFAULT: Record<SideTab, number> = { learn: 288, chat: 384, lineage: 640 }
+const PANEL_NARROW: Record<SideTab, number> = { learn: 288, chat: 384, lineage: 384 }
+/** 右栏最宽 78% 视口(与旧 max-w-[78vw] 一致),留给正文至少一列 */
+const panelMax = () => Math.max(PANEL_MIN, Math.floor((typeof window === 'undefined' ? 1280 : window.innerWidth) * 0.78))
+const clampPanel = (w: number) => Math.round(Math.max(PANEL_MIN, Math.min(w, panelMax())))
+
+function loadPanelWidths(): Record<SideTab, number> {
+  try {
+    const raw = readPref(READER_PANEL_WIDTH_KEY)
+    const parsed = raw ? (JSON.parse(raw) as Partial<Record<SideTab, unknown>>) : {}
+    const pick = (tab: SideTab) => (typeof parsed[tab] === 'number' && Number.isFinite(parsed[tab]) ? clampPanel(parsed[tab] as number) : PANEL_DEFAULT[tab])
+    return { learn: pick('learn'), chat: pick('chat'), lineage: pick('lineage') }
+  } catch {
+    return { ...PANEL_DEFAULT }
+  }
+}
+
+/**
+ * 右栏左缘的拖动把手:指针拖动(捕获指针,划过正文 iframe 也不丢)、←/→ 每次 16px(⇧ 64px)、Home/End 最宽/最窄、双击回默认。
+ * `role=separator` 带 aria-valuenow,读屏可知宽度。
+ */
+function PanelResizeHandle({ width, min, max, onResize, onReset }: { width: number; min: number; max: number; onResize: (w: number) => void; onReset: () => void }) {
+  const [dragging, setDragging] = useState(false)
+  const start = useRef<{ x: number; width: number } | null>(null)
+  const finish = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!start.current) return
+    start.current = null
+    setDragging(false)
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整侧栏宽度"
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      title="拖动调整宽度;双击恢复默认"
+      onPointerDown={e => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        start.current = { x: e.clientX, width }
+        setDragging(true)
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }}
+      onPointerMove={e => {
+        const s = start.current
+        if (s) onResize(s.width + (s.x - e.clientX))
+      }}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onDoubleClick={onReset}
+      onKeyDown={e => {
+        const step = e.shiftKey ? 64 : 16
+        if (e.key === 'ArrowLeft') onResize(width + step)
+        else if (e.key === 'ArrowRight') onResize(width - step)
+        else if (e.key === 'Home') onResize(max)
+        else if (e.key === 'End') onResize(min)
+        else return
+        e.preventDefault()
+      }}
+      className={`absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none transition-colors duration-[var(--dur-fast)] ${dragging ? 'bg-accent/40' : 'hover:bg-accent/25 focus-visible:bg-accent/40'}`}
+    />
+  )
+}
+
 /** 浮在正文上的操作条(选区 / 已有高亮) */
 const FLOAT_BAR = 'absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-m bg-popover px-2 py-1.5 shadow-popover ring-1 ring-sep/60'
 /** 翻页圆钮:悬停正文或键盘聚焦时显现(点正文左右半页与 ←/→ 也能翻) */
@@ -125,12 +196,17 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const [panelOpen, setPanelOpen] = useState(true)
   /** 右栏标签(spec 2026-09-16):有任务默认学习模式,否则只有「问书」 */
   const [sideTab, setSideTab] = useState<SideTab>(taskId !== null ? 'learn' : 'chat')
-  /** BL-014:问书面板加宽切换 */
-  const [chatWide, setChatWide] = useState(false)
-  /** 脉络图默认放大(图需要横向空间),与问书的宽窄各记各的 */
-  const [lineageWide, setLineageWide] = useState(true)
-  const wide = sideTab === 'chat' ? chatWide : lineageWide
-  const setWide = sideTab === 'chat' ? setChatWide : setLineageWide
+  /** 右栏宽度(BL-014 的放大/收窄 + BL-028 自由拖动):每种标签各记一个,持久化 */
+  const [panelWidths, setPanelWidths] = useState<Record<SideTab, number>>(loadPanelWidths)
+  const panelWidth = panelWidths[sideTab]
+  const setPanelWidth = (w: number) =>
+    setPanelWidths(cur => {
+      const next = { ...cur, [sideTab]: clampPanel(w) }
+      writePref(READER_PANEL_WIDTH_KEY, JSON.stringify(next))
+      return next
+    })
+  const wide = panelWidth >= PANEL_WIDE
+  const toggleWide = () => setPanelWidth(wide ? PANEL_NARROW[sideTab] : PANEL_WIDE)
   const [quoteDraft, setQuoteDraft] = useState<string | null>(null)
   const [currentHref, setCurrentHref] = useState('')
   const [marksOpen, setMarksOpen] = useState(false)
@@ -299,15 +375,12 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <IconButton icon="bookmark" label="书签" onClick={addBookmark} disabled={addMarkOp.pending.has('add')} />
             <IconButton icon="highlighter" label="标记" expanded={marksOpen} onClick={() => setMarksOpen(o => !o)} />
             <IconButton ref={setSettingsAnchor} icon="text-size" label="阅读设置" aria-haspopup="dialog" expanded={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
-            <ToolbarDivider />
-            {panelOpen && sideTab !== 'learn' && (
-              <IconButton
-                icon={wide ? 'arrows-collapse' : 'arrows-expand'}
-                label={`${wide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
-                onClick={() => setWide(w => !w)}
-              />
+            {!panelOpen && (
+              <>
+                <ToolbarDivider />
+                <IconButton icon="sidebar-right" label="展开侧栏" onClick={() => setPanelOpen(true)} />
+              </>
             )}
-            <IconButton icon="sidebar-right" label={panelOpen ? '收起侧栏' : '展开侧栏'} onClick={() => setPanelOpen(o => !o)} />
           </>
         )}
       </Toolbar>
@@ -448,10 +521,21 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             <div hidden={!panelOpen} className="flex">
               <aside
                 aria-label="阅读辅助"
-                className={`flex min-h-0 flex-col border-l border-sep bg-content ${sideTab === 'learn' ? 'w-72' : wide ? 'w-[40rem] max-w-[78vw]' : 'w-96'}`}
+                style={{ width: panelWidth }}
+                className="relative flex min-h-0 min-w-64 max-w-[78vw] flex-col border-l border-sep bg-content"
               >
-                <div className="flex h-11 shrink-0 items-center border-b border-sep px-3">
+                <PanelResizeHandle width={panelWidth} min={PANEL_MIN} max={panelMax()} onResize={setPanelWidth} onReset={() => setPanelWidth(PANEL_DEFAULT[sideTab])} />
+                <div className="flex h-11 shrink-0 items-center gap-1 border-b border-sep pr-2 pl-3">
                   <Segmented<SideTab> semantics="tabs" aria-label="侧栏" value={sideTab} onChange={setSideTab} options={tabOptions} />
+                  <span className="flex-1" />
+                  {sideTab !== 'learn' && (
+                    <IconButton
+                      icon={wide ? 'arrows-collapse' : 'arrows-expand'}
+                      label={`${wide ? '收窄' : '放大'}${sideTab === 'chat' ? '对话' : ''}`}
+                      onClick={toggleWide}
+                    />
+                  )}
+                  <IconButton icon="sidebar-right" label="收起侧栏" onClick={() => setPanelOpen(false)} />
                 </div>
                 {learning && (
                   <div id="reader-learn-panel" role="tabpanel" aria-label="学习模式" hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" data-testid="learn-panel">

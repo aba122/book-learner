@@ -44,6 +44,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 书架卡片上找不到「导出/标记已学完/删除」 | 收进「《x》的更多操作」菜单(卡片右上 ⋯ 或右键卡片);桥/脚本先点更多操作再点 `[role=menuitem]` | `web/src/features/library/LibraryPage.tsx`(`Menu`) |
 | 番茄钟卡片不见了 / 暂停结束在哪 | 已从右下浮动卡搬进今日页工具栏带的胶囊(`data-testid="pomodoro"`);控制失败在胶囊尾部警示钮 → 浮层 | `web/src/features/today/Pomodoro.tsx` |
 | 阅读器顶部按钮/目录/阅读设置在哪 | 工具栏带图标钮(悬停有提示);目录与阅读设置是锚定浮层(Esc 关、焦点回钮);右栏 tab 是分段控件 | `web/src/features/reader/ReaderPage.tsx`(`Toolbar`/`Popover`/`Segmented`) |
+| 阅读器右栏宽度 / 收起 | 左缘把手拖动或 ←/→(把手聚焦时),双击回默认;宽度按标签存 `bookLearner.readerPanelWidths`;收起钮在右栏头部,展开在工具栏或右缘边条 | `web/src/features/reader/ReaderPage.tsx`(`PanelResizeHandle`) |
 | 阅读器 ←/→ 不翻页 | 焦点在输入框/浮层(`[role=dialog]`)/菜单里,或有模态开着(`data-modal-open`);脉络图画布抢方向键选节点 | `ReaderPage.tsx` `onKey` |
 | 设置页找不到某项 / 左列不跟着滚 | 六个分区全部在页里(通用 / AI 与导出 / 语音 / 画像 / 数据 / 诊断),左列只在内容区 ≥ 768px 时显示;滚动跟随靠 IntersectionObserver | `web/src/features/settings/SettingsPage.tsx`(`SectionNav`) |
 | 地图编辑态看不到 上移/跳过/删除 | 行内图标钮悬停或 Tab 聚焦到该行时显现(始终在 DOM);删除只对未学且未进今日计划的块可用 | `web/src/features/map/MapPage.tsx` |

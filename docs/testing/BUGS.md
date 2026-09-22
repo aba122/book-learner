@@ -32,3 +32,4 @@
 | BL-026 | P1 | verify | 外壳/窗口 | 用户(09-21):左右侧栏都不能收起/展开(标题栏带里的按钮点不动,悬停有提示) | `trafficLightPosition` 让 tao 把 NSTitlebarContainerView 撑高到 按钮高+y(46px),标题栏吞掉带内 mousedown | 去掉 trafficLightPosition(红绿灯原生位置、标题栏 28px),隐藏侧栏钮对齐红绿灯 | 需真机真实点击(cliclick);矩阵脚本 b4matrix-cmd.sh | 09-21(用户) |
 | BL-025 | P2 | verify | 统计 | 用户(09-21):统计里加阅读时长(总/日/周/月、每本书),可视化好看些 | 原来只有番茄钟分钟与任务预估,没有真实阅读计时 | schema v11 `reading_time` + `core::reading_time` + 两条命令;阅读器可见且有操作才计时;统计页新分区(四格 + 日/周/月柱状 + 每本书) | core +4、foundation +1、contract +1、tauri +1、reader +2、stats +3 | 09-21(用户) |
 | BL-027 | P1 | verify | 阅读器 | 用户(09-22):开夜读时书页背景不变,只有边栏变 | epub.js 每个主题各建一张样式表,`select` 只追加不重排,后建的表永远压住先建的;来回切主题只有第一次生效 | 只用一个 key,每次切换删旧表重建(`EpubView.applyReaderTheme`) | reader 改 3 条 + 新增 1 条;headless 真 EPUB 来回切验证 | 09-22(用户) |
+| BL-028 | P2 | verify | 阅读器 | 用户(09-22):右栏要能展开/收起;打开三个标签时不能自由调宽 | 宽度只有放大/收窄两档;收起钮只在工具栏 | 左缘拖动把手(指针/键盘/双击回默认,按标签各记宽度,持久化);收起搬进右栏头部,收起后工具栏给展开 | reader +3;headless 真拖验证 | 09-22(用户) |
