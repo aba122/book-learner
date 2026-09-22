@@ -717,6 +717,15 @@
 - **侧栏太蒙看不清**:`--surface-sidebar` 纸色叠层 0.42 → 0.84(深色 0.5 → 0.8)。原生 sidebar 材质在桌面壁纸上透得太多,导航文字与壁纸打架;现在只留一点材质感,减少透明度时仍回退到实色。
 - **日读/夜读选项不见了**:第一批按 HIG 删了侧栏底部的夜读钮、只留设置页「外观」三态,用户明确要回快捷入口。给三条路:侧栏底部 `IconButton moon/sun`「切换为夜读/切换为日读」(跟随系统时旁边标「跟随系统」);原生菜单「显示 › 外观」子菜单(跟随系统 / 浅色 / 深色 / 切换日读/夜读 ⌥⌘D);`MenuAction` 加 `appearance-system|light|dark|toggle`(mock 用 ⌥⌘D 走同一契约)。这是用户决定的 HIG 偏离,理由写在 PRODUCT_SPEC §3.7.1。
 - **右上角按钮的提示框超出窗口**:`Tooltip` 原来固定放锚点上方并用 translate 居中,标题栏带里的钮上方就是窗口外。改为按提示框实际尺寸(回调 ref 量取,尺寸不变不再 setState)计算:上方放不下翻到下方,左右夹在视口 8px 内。
+- 测试:App +1(快捷钮切换 data-theme)、+1(⌥⌘D);primitives +1(贴顶翻转与左夹);`moon` 图标进 Icon 遍历。门禁 web 432/2、tsc、oxlint 0、build;壳层 rustfmt(菜单代码 `#[cfg(target_os = "macos")]`,由 mac-foundation 编)。
+
+## 2026-09-21 · BL-026:标题栏带里的按钮点不动(左右侧栏无法收起/展开)
+- 用户反馈:左侧栏「隐藏侧栏」、阅读器右栏「收起/展开侧栏」都点不动;而悬停能出提示框(BL-024 的第三条)。
+- 根因(读 tao 0.35.3 源码确认):`tauri.conf.json` 的 `trafficLightPosition` 由 tao `inset_traffic_lights` 实现——它不只是移动红绿灯,还把 **NSTitlebarContainerView 的高度改成 `按钮高 + y`**(`view.rs:1168-1172`)。我们设 y=30、按钮 16px → 标题栏容器 46px,盖住 52px 带的几乎全部。AppKit 的标题栏对鼠标按下走"拖窗口"逻辑、不透传给下面的 WKWebView(`titlebarAppearsTransparent` 的 click-through 只对原生高度的标题栏成立),而 mouseMoved 仍到 WebView,所以"能悬停不能点"。带里所有按钮(目录/书签/标记/阅读设置/放大/收起侧栏/显示侧栏、侧栏右上的隐藏侧栏)都受影响;第一、二批的真机实测只用桥 `.click()` 和 AX 按压,没有真实鼠标点击,没测出来。
+- 修法:去掉 `trafficLightPosition`(红绿灯回原生位置,标题栏容器回原生 28px);侧栏「隐藏侧栏」钮上移到 `top-0` 与红绿灯同行。带高度、拖动区、其余布局不变。
+- 验证:Mac 当时屏幕锁定(SSH 起的调试窗口 AX 里看不到、WebView 不加载),真实点击矩阵(y=30 / 不设 / y=12,`cliclick` + AX 读 DOM)没跑出结果;装机后请用户直接点;矩阵脚本留在 `~/Developer/bl-logs/b4matrix-cmd.sh`,屏幕解锁时可补跑。
+- 教训:透明标题栏 + 自定义红绿灯位置的组合,**必须用真实鼠标点击验证带内按钮**(`cliclick`,已装在 Mac),桥的 `element.click()` 与 AX 按压都绕过了 AppKit 的命中测试。
+
 - 测试:App +1(快捷钮切换 data-theme)、+1(⌥⌘D);primitives +1(贴顶翻转与左夹);`moon` 图标进 Icon 遍历。门禁 web 433/2、tsc、oxlint 0、build;壳层 rustfmt(菜单代码 `#[cfg(target_os = "macos")]`,由 mac-foundation 编)。
 
 ## 2026-09-21 · BL-025:阅读时长统计(总 / 日 / 周 / 月 / 每本书)

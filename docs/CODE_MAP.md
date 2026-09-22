@@ -39,7 +39,8 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 翻页没有卷页动画、直接换页 | 拿不到快照:`rendition.getContents()` 为空/多视图,或系统开了减少动态效果;看 `epub-book` 是否短暂带 `data-turning` | `web/src/features/reader/pageCurlOverlay.ts` `snapshotVisiblePage`、`EpubView.turn` |
 | 翻页时纸面内容错位/空白 | 快照 iframe 的位置/尺寸与原 iframe 不一致,或大章克隆超过 250 ms 超时先开卷 | `pageCurlOverlay.ts`(`READER_PAGE_SNAPSHOT_MAX_MS`) |
 | 点正文不翻页 / 划不了选区 / 点高亮没反应 | 指针层 `.bl-pointer` 是否盖在正文上(z-index 5)且未被别的层遮住;单击被判成拖动(>4 px)/取消选区;`findVisibleFrame` 找不到可视 iframe | `web/src/features/reader/pointerLayer.ts` |
-| 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);`trafficLightPosition {14,20}` 对应 52px 带 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 侧栏没有毛玻璃 / 拖不动窗口 / 红绿灯压字 | `tauri.conf.json` 的 `transparent`+`windowEffects`+`macOSPrivateApi`;`capabilities` 需 `core:window:allow-start-dragging`;系统「减少透明度」会让材质变实色(设计如此);红绿灯用原生位置 | `web/src-tauri/tauri.conf.json`;`App.tsx` Sidebar |
+| 顶部 52px 带里的按钮悬停有提示但点不动(侧栏收不起来) | **不要设 `trafficLightPosition`**:tao 会把 NSTitlebarContainerView 撑高到 按钮高+y,标题栏吞掉 mousedown(BL-026);验证要用真实鼠标(`cliclick`),桥 `.click()` 测不出 | `web/src-tauri/tauri.conf.json`;`~/Developer/bl-logs/b4matrix-cmd.sh` |
 | 书架卡片上找不到「导出/标记已学完/删除」 | 收进「《x》的更多操作」菜单(卡片右上 ⋯ 或右键卡片);桥/脚本先点更多操作再点 `[role=menuitem]` | `web/src/features/library/LibraryPage.tsx`(`Menu`) |
 | 番茄钟卡片不见了 / 暂停结束在哪 | 已从右下浮动卡搬进今日页工具栏带的胶囊(`data-testid="pomodoro"`);控制失败在胶囊尾部警示钮 → 浮层 | `web/src/features/today/Pomodoro.tsx` |
 | 阅读器顶部按钮/目录/阅读设置在哪 | 工具栏带图标钮(悬停有提示);目录与阅读设置是锚定浮层(Esc 关、焦点回钮);右栏 tab 是分段控件 | `web/src/features/reader/ReaderPage.tsx`(`Toolbar`/`Popover`/`Segmented`) |
@@ -55,6 +56,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>:r<n>` 行(每次重生成 n+1;若只见 :s<seq> 无 :r 是旧版);"先读一部分再生成"= 已读范围没有正文章(封面/目录/分部页不算);面板显示章节标题不是 spine 序号;`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
+| 阅读时长没涨 / 涨得不对 | 只在阅读器页面可见且 90 s 内有指针/键盘/滚轮操作时计秒,60 s 落一笔、离开补零头(`reading_time` 表按笔存);周从周一起、本月从 1 日起;未来日期不进汇总 | `web/src/lib/useReadingClock.ts`;`core/src/reading_time.rs` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
 
 ## 2. 诊断工具箱
@@ -185,6 +187,8 @@ select * from setting;
 | `web/src-tauri/tauri.conf.json` / `capabilities/default.json` / `lib.rs::install_app_menu` | 透明标题栏 + `windowEffects: sidebar` + `macOSPrivateApi`;拖动权限 `core:window:allow-start-dragging`;原生菜单栏(攻书/编辑/显示/窗口/帮助) |
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)
+
+`reading_time.rs`(BL-025):阅读时长 `record`/`summary`,schema v11 `reading_time`;`db::SCHEMA_VERSION` 改版号时备份模块的"拒绝更新快照"断言要跟着改。
 
 **模块职责**
 
