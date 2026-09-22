@@ -740,3 +740,9 @@
 - 根因(读 `epubjs/src/themes.js`、`contents.js`):`themes.register(name)` 每个主题名在 iframe 里各建一个 `<style id="epubjs-inserted-css-<name>">`,`select(name)` 只往**已有的那个**追加规则(`insertRule` 到末尾),不会把它挪到最后;各主题都是 `body { background }` 同优先级,谁的样式表在文档里靠后谁赢——所以只有"第一次切到某主题"(新建表、排最后)生效,之后来回切都卡在最后建的那套上。BL-013 当时验证的只是"进书时 app 已夜读 → night"这一跳。
 - 修法(`EpubView.applyReaderTheme`):三套主题不再分表,始终只用一个 key `bl-reader-theme`;每次主题/排版变化先删掉各 iframe 里的旧表(`epubjs-inserted-css-bl-reader-theme`,epub.js 会加这个前缀),再 `register` 当前主题规则 + `select`,epub.js 重建一张只含当前规则、排在最后的表;新翻到的章节由它的 content hook 注入同一套。顺带修掉"关闭覆盖出版方样式后旧版心规则残留"。
 - 验证:headless Chromium 用真 EPUB:app 夜读中打开书 → 日 → 夜 → 日 → 羊皮 → 翻页,iframe body 背景依次 #171512 / #fdfaf2 / #171512 / #fdfaf2 / #f2e5c9,翻页后保持;单测改按"最近注册的规则"断言,新增删旧表用例。
+
+## 2026-09-22 · BL-028:阅读器右栏可拖动调宽 + 收起/展开入口放进右栏自己
+- 用户:右栏也要有展开/收起,并且打开三个标签时能自由调宽度。
+- 右栏左缘加 `PanelResizeHandle`(`role=separator aria-orientation=vertical aria-valuenow`):指针拖动(`setPointerCapture`,划过正文 iframe 也不丢事件)、←/→ 每次 16px(⇧ 64px)、Home/End 最宽/最窄、双击回默认;宽度按标签各记一个(学习模式 288 / 问书 384 / 脉络图 640),范围 256 ~ 78% 视口,存 `bookLearner.readerPanelWidths`。原「放大/收窄」保留,改为在窄默认与 640 之间切;拖出来的宽度 ≥640 也算"放大"态(显示收窄)。EpubView 的 ResizeObserver(BL-019)让正文随之重排。
+- 收起/展开:「收起侧栏」搬进右栏头部(与左侧栏一样"在栏内关它");收起后工具栏才出现「展开侧栏」,右缘的标签名边条也能展开。右栏打开时工具栏不再有重名按钮(`readingChat.test:238` 的 `getByRole('button', {name:'收起侧栏'})` 保持唯一)。方向键在把手上被消费(`preventDefault`),不触发全局翻页。
+- 测试:reader +3(拖动/键盘/持久化/双击/放大收窄;收起→展开两条路;每标签各自宽度),原「工具栏含收起侧栏」断言改到右栏头部。headless Chromium:真拖 150px 右栏 384 → 538、双击回 384、收起后「展开侧栏」出现并能展开。门禁 web 443/2、tsc、oxlint 0、build。

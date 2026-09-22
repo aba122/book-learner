@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -516,9 +516,13 @@ describe('视觉改版第二批:阅读器工具栏与浮层', () => {
   it('工具栏带含 目录/书签/标记/阅读设置,右栏 tab 带 aria-controls', async () => {
     renderReader('/reader/4?task=3')
     const toolbar = await screen.findByRole('toolbar', { name: '阅读器工具栏' })
-    for (const name of ['目录', '书签', '标记', '阅读设置', '收起侧栏']) {
+    for (const name of ['目录', '书签', '标记', '阅读设置']) {
       expect(within(toolbar).getByRole('button', { name })).toBeInTheDocument()
     }
+    // 收起/放大在右栏自己的头部(BL-028),工具栏只在收起后给「展开侧栏」
+    const aside = screen.getByRole('complementary', { name: '阅读辅助' })
+    expect(within(aside).getByRole('button', { name: '收起侧栏' })).toBeInTheDocument()
+    expect(within(toolbar).queryByRole('button', { name: '展开侧栏' })).toBeNull()
     const tab = screen.getByRole('tab', { name: '问书' })
     expect(tab).toHaveAttribute('aria-controls', 'reader-chat-panel')
     expect(screen.getByTestId('chat-panel')).toHaveAttribute('id', 'reader-chat-panel')
@@ -588,5 +592,67 @@ describe('阅读时长(BL-025)', () => {
     Reflect.deleteProperty(document, 'visibilityState')
     unmount()
     vi.useRealTimers()
+  })
+})
+
+describe('右栏宽度与收起(BL-028)', () => {
+  it('拖动把手 / 方向键调宽度并持久化;双击回默认;放大/收窄仍可用', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    const aside = screen.getByRole('complementary', { name: '阅读辅助' })
+    const handle = within(aside).getByRole('separator', { name: '调整侧栏宽度' })
+    expect(handle).toHaveAttribute('aria-valuenow', '384') // 无任务 → 问书,默认 384
+    expect(aside.style.width).toBe('384px')
+    // 指针向左拖 100px → 加宽 100
+    fireEvent.pointerDown(handle, { button: 0, clientX: 800, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientX: 700, pointerId: 1 })
+    fireEvent.pointerUp(handle, { clientX: 700, pointerId: 1 })
+    expect(aside.style.width).toBe('484px')
+    expect(JSON.parse(localStorage.getItem('bookLearner.readerPanelWidths') ?? '{}').chat).toBe(484)
+    // 键盘:← 加宽 16,→ 减窄 16,⇧← 加 64
+    handle.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(handle).toHaveAttribute('aria-valuenow', '500')
+    await user.keyboard('{ArrowRight}{Shift>}{ArrowLeft}{/Shift}')
+    expect(handle).toHaveAttribute('aria-valuenow', '548')
+    // 方向键被把手吃掉,不翻页
+    expect(h.rendition.next).not.toHaveBeenCalled()
+    expect(h.rendition.prev).not.toHaveBeenCalled()
+    // 双击回默认
+    fireEvent.doubleClick(handle)
+    expect(aside.style.width).toBe('384px')
+    // 放大 → 640,收窄 → 384
+    await user.click(within(aside).getByRole('button', { name: '放大对话' }))
+    expect(aside.style.width).toBe('640px')
+    await user.click(within(aside).getByRole('button', { name: '收窄对话' }))
+    expect(aside.style.width).toBe('384px')
+  })
+
+  it('右栏头部「收起侧栏」→ 工具栏出现「展开侧栏」与边条;两者都能展开', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await user.click(screen.getByRole('button', { name: '收起侧栏' }))
+    const toolbar = screen.getByRole('toolbar', { name: '阅读器工具栏' })
+    expect(within(toolbar).getByRole('button', { name: '展开侧栏' })).toBeInTheDocument()
+    expect(screen.getByTestId('chat-panel')).not.toBeVisible()
+    await user.click(within(toolbar).getByRole('button', { name: '展开侧栏' }))
+    expect(screen.getByTestId('chat-panel')).toBeVisible()
+    expect(within(toolbar).queryByRole('button', { name: '展开侧栏' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '收起侧栏' }))
+    await user.click(screen.getByRole('button', { name: '问书' })) // 边条
+    expect(screen.getByTestId('chat-panel')).toBeVisible()
+  })
+
+  it('每种标签各记一个宽度:学习模式 288、脉络图默认 640', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4?task=3')
+    await screen.findByRole('button', { name: '书签' })
+    const aside = screen.getByRole('complementary', { name: '阅读辅助' })
+    expect(aside.style.width).toBe('288px')
+    await user.click(screen.getByRole('tab', { name: '脉络图' }))
+    expect(aside.style.width).toBe('640px')
+    expect(within(aside).getByRole('button', { name: '收窄' })).toBeInTheDocument()
   })
 })

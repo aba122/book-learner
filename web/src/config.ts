@@ -92,3 +92,5 @@ export const VOICE_DEVICE_KEY = 'bookLearner.voiceDevice'
 /** 阅读时长(BL-025):累计到 60 s 落一笔;超过 90 s 没有任何操作视为走神,不计时 */
 export const READING_CLOCK_FLUSH_SECS = 60
 export const READING_CLOCK_IDLE_SECS = 90
+/** 阅读器右栏宽度(每种标签各记一个,每台设备,localStorage;BL-028) */
+export const READER_PANEL_WIDTH_KEY = 'bookLearner.readerPanelWidths'
