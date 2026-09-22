@@ -54,7 +54,8 @@ function MenuActions() {
 }
 
 /**
- * 侧栏(视觉改版第一批):顶部 52px 是标题栏带(透明标题栏下红绿灯落在这里,整条可拖动窗口);
+ * 侧栏(视觉改版第一批):顶部 52px 是标题栏带(透明标题栏下红绿灯落在这里的左上角——原生位置,不设 trafficLightPosition,
+ * 否则 tao 会把 NSTitlebarContainerView 撑高到 按钮高+y,标题栏吃掉带内所有点击,BL-026;整条可拖动窗口);
  * 图标 + 文字导航,选中态中性填充 + 强调色图标(三任务色只标数据);
  * 底部一个日读/夜读快捷钮(用户要求,2026-09-21;HIG 建议不做 app 级开关,但这是一本"书",读者习惯手边有夜灯——
  * 设置页「外观」仍可改回跟随系统);原生材质从 bg-sidebar 纸色下微微透出;可隐藏(⌃⌘S / 菜单 / 右上按钮)。
@@ -78,7 +79,7 @@ function Sidebar() {
   return (
     <aside aria-label="侧栏" hidden={collapsed} className="relative flex w-60 shrink-0 flex-col bg-sidebar">
       <div data-tauri-drag-region className="h-13 shrink-0" />
-      <IconButton icon="sidebar-left" label="隐藏侧栏" onClick={toggleSidebar} className="absolute top-3 right-2" />
+      <IconButton icon="sidebar-left" label="隐藏侧栏" onClick={toggleSidebar} className="absolute top-0 right-2" />
       <div className="px-5 pb-3">
         <span className="font-serif text-title2 font-semibold tracking-[0.3em] text-label-1">攻书</span>
       </div>
