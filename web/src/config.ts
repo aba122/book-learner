@@ -89,3 +89,6 @@ export const EXTRA_STAGE: Record<ExtraKind, { title: string; intro: string; open
 export const VOICE_MAX_SECONDS = 120
 export const VOICE_SAMPLE_RATE = 16_000
 export const VOICE_DEVICE_KEY = 'bookLearner.voiceDevice'
+/** 阅读时长(BL-025):累计到 60 s 落一笔;超过 90 s 没有任何操作视为走神,不计时 */
+export const READING_CLOCK_FLUSH_SECS = 60
+export const READING_CLOCK_IDLE_SECS = 90

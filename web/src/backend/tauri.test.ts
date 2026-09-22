@@ -402,7 +402,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -956,5 +956,27 @@ describe('TauriBackend v2 transport (contract-gated)', () => {
     const backend = new TauriBackend(async <T>() => [block] as T, { contract: enabledContract, listen })
     await backend.runMapJob(1, 'job-1')
     expect(subscribed).toBe(0)
+  })
+})
+
+describe('TauriBackend 阅读时长(BL-025)', () => {
+  it('readingTimeAdd 原样传三个键;readingTimeSummary 带本地日历日并解码;坏载荷 → invalid_response', async () => {
+    const calls: { command: string; payload: unknown }[] = []
+    const summary = {
+      totalSeconds: 3600, todaySeconds: 600, weekSeconds: 1200, monthSeconds: 1800,
+      days: [{ date: '2026-09-21', seconds: 600 }], weeks: [{ start: '2026-09-21', seconds: 1200 }], months: [{ month: '2026-09', seconds: 1800 }],
+      books: [{ bookId: 1, title: '微观经济学', seconds: 3600, lastRead: '2026-09-21' }, { bookId: 2, title: '乙', seconds: 0, lastRead: null }],
+    }
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
+      calls.push({ command, payload })
+      return (command === 'reading_time_summary' ? summary : null) as T
+    }
+    const backend = new TauriBackend(invoke)
+    await backend.readingTimeAdd(1, '2026-09-21', 60)
+    expect(calls[0]).toEqual({ command: 'reading_time_add', payload: { bookId: 1, date: '2026-09-21', seconds: 60 } })
+    expect(await backend.readingTimeSummary()).toEqual(summary)
+    expect(calls[1].payload).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) })
+    const bad = new TauriBackend(async <T>() => ({ ...summary, days: [{ date: 1, seconds: 'x' }] }) as T)
+    await expect(bad.readingTimeSummary()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 })

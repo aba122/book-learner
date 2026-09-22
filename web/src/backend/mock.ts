@@ -2,8 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel,
-} from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -112,6 +111,8 @@ function requireDate(date: string): void {
 
 export class MockBackend implements Backend {
   private books: Book[] = []
+  /** 阅读时长(BL-025):按笔存,汇总时按日/周/月/书聚合(与 core 同语义) */
+  private readingTimeRows: { bookId: number; date: string; seconds: number }[] = []
   private blocks: KnowledgeBlock[] = []
   private tasks: DailyTask[] = []
   private plans: StudyPlan[] = []
@@ -143,6 +144,17 @@ export class MockBackend implements Backend {
 
   constructor() {
     this.seed()
+    this.seedReadingTime()
+  }
+
+  /** 演示数据:最近 40 天里约 2/3 的日子读过书,10–50 分钟不等(确定性,便于测试) */
+  private seedReadingTime() {
+    const today = localCalendarDate()
+    for (let back = 39; back >= 0; back--) {
+      if (back % 3 === 1) continue
+      const minutes = 10 + ((back * 7) % 41)
+      this.readingTimeRows.push({ bookId: 1, date: addCalendarDays(today, -back), seconds: minutes * 60 })
+    }
   }
 
   private seed() {
@@ -285,6 +297,7 @@ export class MockBackend implements Backend {
 
   /** 删除书(测试阶段):与 core library::delete_book 同语义;主攻书删后无主攻 */
   async deleteBook(bookId: number, date: string): Promise<void> {
+    this.readingTimeRows = this.readingTimeRows.filter(r => r.bookId !== bookId)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw invalidRequest()
     const idx = this.books.findIndex(b => b.id === bookId)
     if (idx < 0) throw notFound()
@@ -852,6 +865,47 @@ export class MockBackend implements Backend {
     const nodes = row.graph.nodes.map(n => (n.id === target.id ? { ...n, title: `${n.title}(修正)`, userEdited: true } : n))
     this.lineageRows.set(bookId, { ...row, graph: { nodes, edges: row.graph.edges }, updatedAt: new Date().toISOString() })
     return this.lineageView(bookId)
+  }
+  async readingTimeAdd(bookId: number, date: string, seconds: number): Promise<void> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(seconds) || seconds <= 0 || seconds > 3600) throw invalidRequest()
+    this.readingTimeRows.push({ bookId, date, seconds })
+  }
+  async readingTimeSummary(): Promise<ReadingTimeSummary> {
+    const today = localCalendarDate()
+    const weekStart = (date: string) => {
+      const d = new Date(`${date}T00:00:00`)
+      return addCalendarDays(date, -((d.getDay() + 6) % 7))
+    }
+    const thisWeek = weekStart(today)
+    const days: ReadingDay[] = Array.from({ length: 30 }, (_, i) => ({ date: addCalendarDays(today, -(29 - i)), seconds: 0 }))
+    const weeks: ReadingWeek[] = Array.from({ length: 12 }, (_, i) => ({ start: addCalendarDays(thisWeek, -7 * (11 - i)), seconds: 0 }))
+    const months: ReadingMonth[] = []
+    {
+      let [y, m] = today.split('-').map(Number)
+      for (let i = 0; i < 12; i++) {
+        months.unshift({ month: `${y}-${String(m).padStart(2, '0')}`, seconds: 0 })
+        if (m === 1) { m = 12; y -= 1 } else m -= 1
+      }
+    }
+    let total = 0, todaySeconds = 0, weekSeconds = 0, monthSeconds = 0
+    const perBook = new Map<number, { seconds: number; lastRead: string }>()
+    for (const r of this.readingTimeRows) {
+      if (r.date > today) continue
+      total += r.seconds
+      if (r.date === today) todaySeconds += r.seconds
+      if (r.date >= thisWeek) weekSeconds += r.seconds
+      if (r.date.slice(0, 7) === today.slice(0, 7)) monthSeconds += r.seconds
+      const day = days.find(d => d.date === r.date); if (day) day.seconds += r.seconds
+      const ws = weekStart(r.date); const week = weeks.find(w => w.start === ws); if (week) week.seconds += r.seconds
+      const month = months.find(m => m.month === r.date.slice(0, 7)); if (month) month.seconds += r.seconds
+      const cur = perBook.get(r.bookId) ?? { seconds: 0, lastRead: r.date }
+      perBook.set(r.bookId, { seconds: cur.seconds + r.seconds, lastRead: r.date > cur.lastRead ? r.date : cur.lastRead })
+    }
+    const books: BookReadingTime[] = [...perBook.entries()]
+      .map(([bookId, v]) => ({ bookId, title: this.books.find(b => b.id === bookId)?.title ?? `#${bookId}`, seconds: v.seconds, lastRead: v.lastRead }))
+      .sort((a, z) => z.seconds - a.seconds || a.bookId - z.bookId)
+    return { totalSeconds: total, todaySeconds, weekSeconds, monthSeconds, days, weeks, months, books }
   }
   async lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
     const node = this.lineageRows.get(bookId)?.graph.nodes.find(n => n.id === nodeId)

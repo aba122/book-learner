@@ -530,3 +530,41 @@ describe('视觉改版第二批:阅读器工具栏与浮层', () => {
     expect(screen.queryByRole('dialog', { name: '目录' })).toBeNull()
   })
 })
+
+describe('阅读时长(BL-025)', () => {
+  /** 假定时器要在挂载前开:计时 interval 在书就绪时创建,晚开就推不动它 */
+  async function renderWithFakeClock() {
+    vi.useFakeTimers()
+    const view = renderReader('/reader/4')
+    for (let i = 0; i < 40 && !screen.queryByRole('button', { name: '书签' }); i++) {
+      await act(async () => { vi.advanceTimersByTime(50) })
+    }
+    expect(screen.getByRole('button', { name: '书签' })).toBeInTheDocument()
+    return view
+  }
+
+  it('可见且有操作时每 60 s 落一笔;离开阅读器把零头补上', async () => {
+    const { unmount } = await renderWithFakeClock()
+    const add = vi.spyOn(backendModule.backend, 'readingTimeAdd')
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(add.mock.calls[0]).toEqual([1, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 60])
+    await act(async () => { vi.advanceTimersByTime(5_000) })
+    unmount()
+    expect(add).toHaveBeenCalledTimes(2)
+    expect(add.mock.calls[1][2]).toBe(5)
+    vi.useRealTimers()
+  })
+
+  it('页面不可见时不计时', async () => {
+    const { unmount } = await renderWithFakeClock()
+    const add = vi.spyOn(backendModule.backend, 'readingTimeAdd')
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await act(async () => { vi.advanceTimersByTime(70_000) })
+    expect(add).not.toHaveBeenCalled()
+    Reflect.deleteProperty(document, 'visibilityState')
+    unmount()
+    vi.useRealTimers()
+  })
+})

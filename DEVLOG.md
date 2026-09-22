@@ -718,3 +718,10 @@
 - **日读/夜读选项不见了**:第一批按 HIG 删了侧栏底部的夜读钮、只留设置页「外观」三态,用户明确要回快捷入口。给三条路:侧栏底部 `IconButton moon/sun`「切换为夜读/切换为日读」(跟随系统时旁边标「跟随系统」);原生菜单「显示 › 外观」子菜单(跟随系统 / 浅色 / 深色 / 切换日读/夜读 ⌥⌘D);`MenuAction` 加 `appearance-system|light|dark|toggle`(mock 用 ⌥⌘D 走同一契约)。这是用户决定的 HIG 偏离,理由写在 PRODUCT_SPEC §3.7.1。
 - **右上角按钮的提示框超出窗口**:`Tooltip` 原来固定放锚点上方并用 translate 居中,标题栏带里的钮上方就是窗口外。改为按提示框实际尺寸(回调 ref 量取,尺寸不变不再 setState)计算:上方放不下翻到下方,左右夹在视口 8px 内。
 - 测试:App +1(快捷钮切换 data-theme)、+1(⌥⌘D);primitives +1(贴顶翻转与左夹);`moon` 图标进 Icon 遍历。门禁 web 433/2、tsc、oxlint 0、build;壳层 rustfmt(菜单代码 `#[cfg(target_os = "macos")]`,由 mac-foundation 编)。
+
+## 2026-09-21 · BL-025:阅读时长统计(总 / 日 / 周 / 月 / 每本书)
+- 用户要求统计页加阅读时长并做得好看些。数据源新建,不动"投入"口径:`schema v11 reading_time(book_id, date, seconds)`(按笔存,书删级联),`core::reading_time::{record, summary}`——`record` 校验日期格式、1..3600 秒、书存在;`summary(date)` 按前端本地"今天"给 总量 / 今日 / 本周(周一起)/ 本月 + 30 天 / 12 周 / 12 月桶 + 每本书(多 → 少,含最近阅读日);未来日期(时钟跑到明天)不进汇总。`SCHEMA_VERSION` 10 → 11(备份模块据此拒绝更新的快照,旧断言同步改)。
+- 契约六处:`reading_time_add(bookId, date, seconds)`、`reading_time_summary(date)`;DTO camelCase;foundation 加 round-trip 与错误码用例;`contract.test`/`tauri.test` 同步;Mock 带 40 天演示数据(确定性)并与 core 同一套聚合规则。
+- **阅读器计时** `lib/useReadingClock.ts`:每秒判定"页面可见 且 90 s 内有指针/键盘/滚轮操作"才计 1 秒,累计 60 s 落一笔,页面隐藏 / 卸载 / 换书时补零头,落库失败静默。挂在 `ReaderPage`(书就绪后)。测试要在挂载前开假定时器(interval 在就绪时创建)。
+- **统计页** `ReadingTimeSection`(放在瓦片下、三区上):总计 / 今天 / 本周 / 本月 四格(`formatDuration`:x 小时 y 分)+ 日/周/月分段切换柱状图(强调色,悬停看数值,`aria-describedby` 读屏表)+ 每本书条形(书脊色与书架同一取法、最近读于);无记录时空态。
+- 测试:core +4(汇总/空表/级联/v11 schema)、foundation +1、contract +1、tauri +1、reader +2(计时/不可见不计)、stats +3(四格与切换、空态、`formatDuration`)。门禁:core 205、clippy 0;web 439/2、tsc、oxlint 0、build。

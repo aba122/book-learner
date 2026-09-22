@@ -191,3 +191,44 @@ describe('视觉改版第三批:统计页', () => {
     expect(screen.getAllByText('攻克进度')).toHaveLength(1)
   })
 })
+
+describe('阅读时长(BL-025)', () => {
+  it('四格数字、日/周/月切换柱数、每本书一行;图表有读屏数据表', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage />)
+    const section = await screen.findByTestId('section-reading')
+    await within(section).findByTestId('reading-total')
+    expect(within(section).getByTestId('reading-total').textContent).toMatch(/小时|分/)
+    expect(within(section).getAllByTestId('reading-bar')).toHaveLength(30)
+    await user.click(within(section).getByRole('radio', { name: '周' }))
+    expect(within(section).getAllByTestId('reading-bar')).toHaveLength(12)
+    await user.click(within(section).getByRole('radio', { name: '月' }))
+    expect(within(section).getAllByTestId('reading-bar')).toHaveLength(12)
+    const chart = within(section).getByRole('img', { name: '近 12 个月每月阅读时长' })
+    expect(document.getElementById(chart.getAttribute('aria-describedby')!)!.tagName).toBe('TABLE')
+    const books = within(section).getAllByTestId('reading-book')
+    expect(books).toHaveLength(1)
+    expect(books[0]).toHaveTextContent('微观经济学')
+  })
+
+  it('没有阅读记录时显示空态', async () => {
+    vi.spyOn(backendModule.backend, 'readingTimeSummary').mockResolvedValue({
+      totalSeconds: 0, todaySeconds: 0, weekSeconds: 0, monthSeconds: 0, days: [], weeks: [], months: [], books: [],
+    })
+    render(<StatsPage />)
+    expect(await screen.findByText('还没有阅读记录')).toBeInTheDocument()
+    expect(screen.queryByTestId('reading-bar')).toBeNull()
+  })
+})
+
+describe('formatDuration', () => {
+  it('小时/分/不到一分', async () => {
+    const { formatDuration } = await import('../../lib/duration')
+    expect(formatDuration(0)).toBe('0 分')
+    expect(formatDuration(30)).toBe('不到 1 分')
+    expect(formatDuration(90)).toBe('2 分')
+    expect(formatDuration(3600)).toBe('1 小时')
+    expect(formatDuration(3600 + 25 * 60)).toBe('1 小时 25 分')
+    expect(formatDuration(3600 + 59 * 60 + 40)).toBe('2 小时')
+  })
+})

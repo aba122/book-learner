@@ -184,3 +184,15 @@ export interface LineageGraph {
   upToTitle: string; currentTitle: string
   graph: LineageGraphData; generatedAt: string | null; updatedAt: string
 }
+
+// ---- 阅读时长(BL-025,core reading_time::summary;日期数组旧 → 新)----
+export interface ReadingDay { date: string; seconds: number }
+/** start = 该周周一 */
+export interface ReadingWeek { start: string; seconds: number }
+/** month = YYYY-MM */
+export interface ReadingMonth { month: string; seconds: number }
+export interface BookReadingTime { bookId: number; title: string; seconds: number; lastRead: string | null }
+export interface ReadingTimeSummary {
+  totalSeconds: number; todaySeconds: number; weekSeconds: number; monthSeconds: number
+  days: ReadingDay[]; weeks: ReadingWeek[]; months: ReadingMonth[]; books: BookReadingTime[]
+}
