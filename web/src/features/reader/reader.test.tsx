@@ -45,6 +45,9 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock('epubjs', () => ({ default: h.ePub }))
+
+/** 唯一主题样式表最近一次注册的规则(BL-027 起不再按主题名分表) */
+const lastThemeRules = () => h.rendition.themes.register.mock.calls.at(-1)?.[1] as { body: Record<string, string> }
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
 let roInstances: { cb: ResizeObserverCallback }[] = []
@@ -99,13 +102,32 @@ describe('阅读器', () => {
     expect(h.rendition.themes.fontSize).toHaveBeenCalledWith(`${READER_FONT_STEPS[0]}%`)
   })
 
-  it('切换阅读主题调用 themes.select', async () => {
+  it('切换阅读主题:重新注册唯一样式表并选中(夜读 → 背景 #171512)', async () => {
     const user = userEvent.setup()
     renderReader('/reader/4')
     await waitFor(() => expect(h.book.renderTo).toHaveBeenCalled())
     await user.click(await screen.findByRole('button', { name: '阅读设置' }))
     await user.click(screen.getByRole('button', { name: '主题:夜读' }))
-    expect(h.rendition.themes.select).toHaveBeenCalledWith('night')
+    expect(lastThemeRules().body.background).toBe('#171512')
+    expect(h.rendition.themes.select).toHaveBeenLastCalledWith('bl-reader-theme')
+  })
+
+  it('BL-027:来回切主题时先删掉正文 iframe 里的旧样式表再重建(否则后建的表永远压住先建的)', async () => {
+    const user = userEvent.setup()
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    const doc = document.implementation.createHTMLDocument('ch')
+    const stale = doc.createElement('style')
+    stale.id = 'epubjs-inserted-css-bl-reader-theme' // epub.js 给 key 加的前缀
+    doc.head.appendChild(stale)
+    h.rendition.getContents.mockReturnValue([{ document: doc }])
+    await user.click(await screen.findByRole('button', { name: '阅读设置' }))
+    await user.click(screen.getByRole('button', { name: '主题:夜读' }))
+    expect(doc.getElementById('epubjs-inserted-css-bl-reader-theme')).toBeNull()
+    expect(lastThemeRules().body.background).toBe('#171512')
+    await user.click(screen.getByRole('button', { name: '主题:纸白' }))
+    expect(lastThemeRules().body.background).toBe('#fdfaf2')
+    expect(h.rendition.themes.select).toHaveBeenLastCalledWith('bl-reader-theme')
   })
 
   it('带 ?task= 进入学习模式:块信息栏 + 开始费曼讲授', async () => {
@@ -282,10 +304,10 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     useSession.getState().setTheme('dark')
     renderReader('/reader/4')
     await screen.findByRole('button', { name: '书签' })
-    await waitFor(() => expect(h.rendition.themes.select).toHaveBeenCalledWith('night'))
+    await waitFor(() => expect(lastThemeRules().body.background).toBe('#171512'))
     // 切回日读:正文回到默认纸白
     await act(async () => { useSession.getState().setTheme('light') })
-    await waitFor(() => expect(h.rendition.themes.select).toHaveBeenLastCalledWith('paper'))
+    await waitFor(() => expect(lastThemeRules().body.background).toBe('#fdfaf2'))
   })
 
   it('BL-018:有上次阅读位置时,连从学习任务(开始)进入也回到该位置;回读原文(back)仍到本块', async () => {
@@ -466,10 +488,10 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     await user.click(screen.getByRole('button', { name: '行高:2.1' }))
     const saved = JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}')
     expect(saved).toMatchObject({ fontIdx: READER_FONT_STEPS.indexOf(112), lineIdx: 2, overridePublisher: true })
-    const before = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'paper').at(-1)?.[1] as { body: Record<string, string> }
+    const before = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'bl-reader-theme').at(-1)?.[1] as { body: Record<string, string> }
     expect(before.body['line-height']).toBe('2.1')
     await user.click(screen.getByRole('checkbox', { name: '覆盖出版方样式' }))
-    const after = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'paper').at(-1)?.[1] as { body: Record<string, string> }
+    const after = h.rendition.themes.register.mock.calls.filter(c => c[0] === 'bl-reader-theme').at(-1)?.[1] as { body: Record<string, string> }
     expect(after.body['line-height']).toBeUndefined()
     expect(after.body.background).toBeTruthy()
     expect(JSON.parse(localStorage.getItem('bookLearner.readerPrefs') ?? '{}').overridePublisher).toBe(false)

@@ -50,6 +50,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 费曼页原文参考栏不见了 | 工具栏最左「原文参考」钮(aria-pressed)开关,状态存 `bookLearner.feynmanSource` | `web/src/features/feynman/FeynmanPage.tsx` |
 | 外观不跟随系统 / 想手动改 | `store.ts` `themePreference`(存储键仅在手动覆盖时存在);设置页「外观」三态;侧栏底部日/夜钮与菜单「显示 › 外观」(`menu_action` `appearance-*`)也改它 | `web/src/store.ts`;`SettingsPage` `AppearanceRow`;`App.tsx` Sidebar/MenuActions;`lib.rs::install_app_menu` |
 | 阅读器空白/骨架不消失 | 窗口后台节流;`library_epub_url` 返回的路径是否存在于 `books/` | `web/src/features/reader/EpubView.tsx`;壳层 `application::epub_url` |
+| 切主题/夜读时书页背景不变(来回切只有第一次生效) | epub.js 每个主题名各建一张 `<style>`,后建的压住先建的;必须只用一个 key 并在切换时删旧表重建(BL-027) | `web/src/features/reader/EpubView.tsx` `applyReaderTheme` |
 | 高亮/书签/位置丢失 | `reader_mark` 表 | `core/src/reader_marks.rs`;`web/src/features/reader/ReaderPage.tsx` |
 | 问书没回复 / 一直"思考中" | `ai_request` 表 `reading:<topic>:<clientMsgId>` 行的 status/error;用户消息 `reading_message.status`(failed → 气泡有「重试」);「取消」只是停止等待,后端照常落库 | `core/src/reading_chat.rs::send_message`;`web/src/features/reader/ReadingChatPanel.tsx` |
 | 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |

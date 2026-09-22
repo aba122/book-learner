@@ -54,6 +54,24 @@ interface SelectionContents {
 }
 
 
+/** epub.js 主题样式表只用这一个 key;它在 iframe 里的 <style> id 会被 epub.js 加上 `epubjs-inserted-css-` 前缀 */
+const READER_THEME_KEY = 'bl-reader-theme'
+const READER_THEME_STYLE_ID = `epubjs-inserted-css-${READER_THEME_KEY}`
+
+/**
+ * 把当前主题 + 排版规则注入正文 iframe(BL-027):
+ * epub.js 给每个主题名各建一个 `<style id=名>`,`select` 只往已有的那个追加规则,后建的样式表永远压住先建的——
+ * 来回切主题时只有"第一次切到"生效。这里始终只用一个 id:先删掉各 iframe 里的旧表,再注册/选中,
+ * epub.js 会重建一张只含当前规则的表(新翻到的章节由它的 content hook 注入同一套)。
+ */
+function applyReaderTheme(rendition: Rendition, theme: ReaderTheme, typography: ReaderTypography) {
+  rendition.themes.register(READER_THEME_KEY, readerThemes(typography)[theme])
+  for (const contents of rendition.getContents() as unknown as { document?: Document }[]) {
+    contents.document?.getElementById(READER_THEME_STYLE_ID)?.remove()
+  }
+  rendition.themes.select(READER_THEME_KEY)
+}
+
 const EpubView = forwardRef<
   EpubHandle,
   {
@@ -132,10 +150,7 @@ const EpubView = forwardRef<
     appliedHighlights.current = new Set()
     appliedSegments.current = new Set()
     setReady(false)
-    for (const [name, styles] of Object.entries(readerThemes(typographyRef.current))) {
-      rendition.themes.register(name, styles)
-    }
-    rendition.themes.select(themeRef.current)
+    applyReaderTheme(rendition, themeRef.current, typographyRef.current)
     rendition.display(initialHrefRef.current || undefined)
     book.loaded.navigation.then(nav => onTocRef.current?.(nav.toc))
     // 选区:epub.js 的 selected 依赖 iframe 文档的 selectionchange,WKWebView 里 sandbox 无脚本的 iframe 不派发它
@@ -262,14 +277,11 @@ const EpubView = forwardRef<
     rendition?.spread?.(spread ? 'auto' : 'none')
   }, [spread, ready])
 
-  // 主题或排版开关变化:重注册三套主题并重新选中(epub.js 会重新注入到 iframe)
+  // 主题或排版开关变化:重建唯一那张主题样式表(见 applyReaderTheme)
   useEffect(() => {
     const rendition = rendRef.current
     if (!rendition) return
-    for (const [name, styles] of Object.entries(readerThemes(typography))) {
-      rendition.themes.register(name, styles)
-    }
-    rendition.themes.select(theme)
+    applyReaderTheme(rendition, theme, typography)
   }, [theme, typography])
 
   // 高亮同步:新增的加、消失的删(按区间 CFI)
