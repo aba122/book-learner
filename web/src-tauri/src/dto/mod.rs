@@ -6,6 +6,7 @@ use book_learner_core::models::{Book, KnowledgeBlock};
 use book_learner_core::planning::StudyPlan;
 use book_learner_core::pomodoro::Snapshot;
 use book_learner_core::reading_chat::{ReadingMessage, ReadingTopic, SendResult};
+use book_learner_core::reading_time::ReadingTimeSummary;
 use book_learner_core::sched::{DailyTask, Replan, ReplanReport};
 use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
@@ -1071,4 +1072,94 @@ impl From<SendResult> for ReadingSendResultDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DistillResultDto {
     pub distilled: bool,
+}
+
+// ---- 阅读时长(BL-025)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingDayDto {
+    pub date: String,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingWeekDto {
+    pub start: String,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingMonthDto {
+    pub month: String,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookReadingTimeDto {
+    pub book_id: i64,
+    pub title: String,
+    pub seconds: i64,
+    pub last_read: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingTimeSummaryDto {
+    pub total_seconds: i64,
+    pub today_seconds: i64,
+    pub week_seconds: i64,
+    pub month_seconds: i64,
+    pub days: Vec<ReadingDayDto>,
+    pub weeks: Vec<ReadingWeekDto>,
+    pub months: Vec<ReadingMonthDto>,
+    pub books: Vec<BookReadingTimeDto>,
+}
+
+impl From<ReadingTimeSummary> for ReadingTimeSummaryDto {
+    fn from(s: ReadingTimeSummary) -> Self {
+        Self {
+            total_seconds: s.total_seconds,
+            today_seconds: s.today_seconds,
+            week_seconds: s.week_seconds,
+            month_seconds: s.month_seconds,
+            days: s
+                .days
+                .into_iter()
+                .map(|d| ReadingDayDto {
+                    date: d.date,
+                    seconds: d.seconds,
+                })
+                .collect(),
+            weeks: s
+                .weeks
+                .into_iter()
+                .map(|w| ReadingWeekDto {
+                    start: w.start,
+                    seconds: w.seconds,
+                })
+                .collect(),
+            months: s
+                .months
+                .into_iter()
+                .map(|m| ReadingMonthDto {
+                    month: m.month,
+                    seconds: m.seconds,
+                })
+                .collect(),
+            books: s
+                .books
+                .into_iter()
+                .map(|b| BookReadingTimeDto {
+                    book_id: b.book_id,
+                    title: b.title,
+                    seconds: b.seconds,
+                    last_read: b.last_read,
+                })
+                .collect(),
+        }
+    }
 }

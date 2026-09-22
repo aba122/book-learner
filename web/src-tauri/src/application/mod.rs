@@ -1122,3 +1122,23 @@ pub fn lineage_node_source(
 ) -> Result<NodeSource, IpcError> {
     state.with_connection(|c| book_learner_core::lineage::node_source(c, book_id, &node_id))
 }
+
+// ---- 阅读时长(BL-025):前端每分钟 / 离开阅读器记一笔;统计页汇总 ----
+
+pub fn reading_time_add(
+    state: &AppState,
+    book_id: i64,
+    date: &str,
+    seconds: i64,
+) -> Result<(), IpcError> {
+    state.with_connection(|c| book_learner_core::reading_time::record(c, book_id, date, seconds))
+}
+
+pub fn reading_time_summary(
+    state: &AppState,
+    date: &str,
+) -> Result<crate::dto::ReadingTimeSummaryDto, IpcError> {
+    state
+        .with_connection(|c| book_learner_core::reading_time::summary(c, date))
+        .map(Into::into)
+}

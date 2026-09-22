@@ -34,7 +34,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 当前 schema 版本(快照恢复只接受 ≤ 此版本的库)。
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -80,6 +80,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 10 {
         tx.execute_batch(SCHEMA_V10)?;
         tx.pragma_update(None, "user_version", 10)?;
+    }
+    if v < 11 {
+        tx.execute_batch(SCHEMA_V11)?;
+        tx.pragma_update(None, "user_version", 11)?;
     }
     tx.commit()
 }
@@ -353,6 +357,19 @@ CREATE TABLE lineage_graph(
   generated_at TEXT, updated_at TEXT NOT NULL);
 "#;
 
+/// v11(阅读时长,BL-025 2026-09-21):阅读器里"可见且有操作"的秒数,前端每分钟/离开时记一笔;
+/// 按书按日累计,书删除时级联删除;与 `study_minutes`(番茄钟)分开,不改"投入"口径。
+const SCHEMA_V11: &str = r#"
+CREATE TABLE reading_time(
+  id INTEGER PRIMARY KEY,
+  book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  seconds INTEGER NOT NULL CHECK(seconds > 0),
+  created_at TEXT NOT NULL);
+CREATE INDEX reading_time_date ON reading_time(date);
+CREATE INDEX reading_time_book_date ON reading_time(book_id, date);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -399,7 +416,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 10);
+        assert_eq!(v, 11);
         for t in [
             "book",
             "knowledge_block",
@@ -674,7 +691,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -808,7 +825,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -858,7 +875,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         for t in [
             "spine_item",
             "block_anchor",
@@ -913,7 +930,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1089,7 +1106,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v6_and_v5_rows_survive() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         assert!(has_column(&conn, "feynman_session", "book_id"));
         let idx: i64 = conn
             .query_row(
@@ -1120,7 +1137,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
         let book_id: Option<i64> = conn
             .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
@@ -1139,13 +1156,13 @@ mod tests {
         conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
         drop(conn);
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 10);
+        assert_eq!(user_version(&again), 11);
     }
 
     #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1219,7 +1236,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1244,7 +1261,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 10);
+        assert_eq!(user_version(&again), 11);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 
@@ -1254,7 +1271,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 10);
+        assert_eq!(v, 11);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1293,9 +1310,41 @@ mod tests {
     }
 
     #[test]
+    fn v11_creates_reading_time_with_check_and_cascade() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 11);
+        let book = crate::models::insert_book(
+            &conn,
+            "书",
+            "",
+            crate::models::BookType::Textbook,
+            "bk-reading-time",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO reading_time(book_id,date,seconds,created_at) VALUES(?1,'2026-09-21',60,'2026-09-21T00:00:00Z')",
+            [book],
+        )
+        .unwrap();
+        // seconds > 0 的 CHECK
+        assert!(conn
+            .execute(
+                "INSERT INTO reading_time(book_id,date,seconds,created_at) VALUES(?1,'2026-09-21',0,'x')",
+                [book],
+            )
+            .is_err());
+        conn.execute("DELETE FROM book WHERE id=?1", [book])
+            .unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM reading_time", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
     fn v10_creates_lineage_graph_with_cascade() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 10);
+        assert_eq!(user_version(&conn), 11);
         let book = crate::models::insert_book(
             &conn,
             "书",
