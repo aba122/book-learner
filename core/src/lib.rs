@@ -19,6 +19,7 @@ pub mod projection;
 pub mod prompts;
 pub mod reader_marks;
 pub mod reading_chat;
+pub mod reading_time;
 pub mod sched;
 pub mod session;
 pub mod settings;

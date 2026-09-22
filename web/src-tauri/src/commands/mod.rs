@@ -147,6 +147,9 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("lineage_update", &["bookId"]),
     ("lineage_revise", &["bookId", "nodeId", "instruction"]),
     ("lineage_node_source", &["bookId", "nodeId"]),
+    // BL-025:阅读时长(记一笔 / 汇总;date 由前端本地日历日提供)
+    ("reading_time_add", &["bookId", "date", "seconds"]),
+    ("reading_time_summary", &["date"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1673,4 +1676,44 @@ pub async fn lineage_node_source(
     node_id: String,
 ) -> Result<book_learner_core::lineage::NodeSource, IpcError> {
     lineage_node_source_inner(&state, book_id, node_id)
+}
+
+// ---- 阅读时长(BL-025)----
+
+pub fn reading_time_add_inner(
+    state: &AppState,
+    book_id: i64,
+    date: &str,
+    seconds: i64,
+) -> Result<(), IpcError> {
+    run_command(state, "reading_time_add", || {
+        application::reading_time_add(state, book_id, date, seconds)
+    })
+}
+
+pub fn reading_time_summary_inner(
+    state: &AppState,
+    date: &str,
+) -> Result<crate::dto::ReadingTimeSummaryDto, IpcError> {
+    run_command(state, "reading_time_summary", || {
+        application::reading_time_summary(state, date)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn reading_time_add(
+    state: State<'_, AppState>,
+    book_id: i64,
+    date: String,
+    seconds: i64,
+) -> Result<(), IpcError> {
+    reading_time_add_inner(&state, book_id, &date, seconds)
+}
+
+#[tauri::command(async)]
+pub async fn reading_time_summary(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<crate::dto::ReadingTimeSummaryDto, IpcError> {
+    reading_time_summary_inner(&state, &date)
 }

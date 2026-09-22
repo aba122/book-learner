@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
@@ -791,6 +791,37 @@ function decodeStatsDetail(value: unknown): StatsDetail {
   }
 }
 
+function decodeReadingTimeSummary(value: unknown): ReadingTimeSummary {
+  const wire = objectAt(value, 'readingTime')
+  return {
+    totalSeconds: safeIntegerAt(wire.totalSeconds, 'readingTime.totalSeconds'),
+    todaySeconds: safeIntegerAt(wire.todaySeconds, 'readingTime.todaySeconds'),
+    weekSeconds: safeIntegerAt(wire.weekSeconds, 'readingTime.weekSeconds'),
+    monthSeconds: safeIntegerAt(wire.monthSeconds, 'readingTime.monthSeconds'),
+    days: arrayAt(wire.days, 'readingTime.days', (item, path) => {
+      const d = objectAt(item, path)
+      return { date: stringAt(d.date, `${path}.date`), seconds: safeIntegerAt(d.seconds, `${path}.seconds`) }
+    }),
+    weeks: arrayAt(wire.weeks, 'readingTime.weeks', (item, path) => {
+      const w = objectAt(item, path)
+      return { start: stringAt(w.start, `${path}.start`), seconds: safeIntegerAt(w.seconds, `${path}.seconds`) }
+    }),
+    months: arrayAt(wire.months, 'readingTime.months', (item, path) => {
+      const m = objectAt(item, path)
+      return { month: stringAt(m.month, `${path}.month`), seconds: safeIntegerAt(m.seconds, `${path}.seconds`) }
+    }),
+    books: arrayAt(wire.books, 'readingTime.books', (item, path) => {
+      const b = objectAt(item, path)
+      return {
+        bookId: safeIntegerAt(b.bookId, `${path}.bookId`),
+        title: stringAt(b.title, `${path}.title`),
+        seconds: safeIntegerAt(b.seconds, `${path}.seconds`),
+        lastRead: nullableAt(b.lastRead, `${path}.lastRead`, stringAt),
+      }
+    }),
+  }
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -1212,6 +1243,17 @@ export class TauriBackend implements Backend {
       outboundString(instruction, 'instruction')
       return this.decode('lineage_revise', { bookId, nodeId, instruction }, value => decodeLineageGraph(value, 'lineage_revise'))
     })
+  }
+  readingTimeAdd(bookId: number, date: string, seconds: number): Promise<void> {
+    return this.gated('readingTimeAdd', async () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(date, 'date')
+      outboundInteger(seconds, 'seconds')
+      await this.decode('reading_time_add', { bookId, date, seconds }, value => unitAt(value, 'reading_time_add'))
+    })
+  }
+  readingTimeSummary(): Promise<ReadingTimeSummary> {
+    return this.gated('readingTimeSummary', () => this.decode('reading_time_summary', { date: localCalendarDate() }, decodeReadingTimeSummary))
   }
   lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
     return this.gated('lineageNodeSource', () => {

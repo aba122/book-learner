@@ -725,3 +725,12 @@
 - 修法:去掉 `trafficLightPosition`(红绿灯回原生位置,标题栏容器回原生 28px);侧栏「隐藏侧栏」钮上移到 `top-0` 与红绿灯同行。带高度、拖动区、其余布局不变。
 - 验证:Mac 当时屏幕锁定(SSH 起的调试窗口 AX 里看不到、WebView 不加载),真实点击矩阵(y=30 / 不设 / y=12,`cliclick` + AX 读 DOM)没跑出结果;装机后请用户直接点;矩阵脚本留在 `~/Developer/bl-logs/b4matrix-cmd.sh`,屏幕解锁时可补跑。
 - 教训:透明标题栏 + 自定义红绿灯位置的组合,**必须用真实鼠标点击验证带内按钮**(`cliclick`,已装在 Mac),桥的 `element.click()` 与 AX 按压都绕过了 AppKit 的命中测试。
+
+- 测试:App +1(快捷钮切换 data-theme)、+1(⌥⌘D);primitives +1(贴顶翻转与左夹);`moon` 图标进 Icon 遍历。门禁 web 433/2、tsc、oxlint 0、build;壳层 rustfmt(菜单代码 `#[cfg(target_os = "macos")]`,由 mac-foundation 编)。
+
+## 2026-09-21 · BL-025:阅读时长统计(总 / 日 / 周 / 月 / 每本书)
+- 用户要求统计页加阅读时长并做得好看些。数据源新建,不动"投入"口径:`schema v11 reading_time(book_id, date, seconds)`(按笔存,书删级联),`core::reading_time::{record, summary}`——`record` 校验日期格式、1..3600 秒、书存在;`summary(date)` 按前端本地"今天"给 总量 / 今日 / 本周(周一起)/ 本月 + 30 天 / 12 周 / 12 月桶 + 每本书(多 → 少,含最近阅读日);未来日期(时钟跑到明天)不进汇总。`SCHEMA_VERSION` 10 → 11(备份模块据此拒绝更新的快照,旧断言同步改)。
+- 契约六处:`reading_time_add(bookId, date, seconds)`、`reading_time_summary(date)`;DTO camelCase;foundation 加 round-trip 与错误码用例;`contract.test`/`tauri.test` 同步;Mock 带 40 天演示数据(确定性)并与 core 同一套聚合规则。
+- **阅读器计时** `lib/useReadingClock.ts`:每秒判定"页面可见 且 90 s 内有指针/键盘/滚轮操作"才计 1 秒,累计 60 s 落一笔,页面隐藏 / 卸载 / 换书时补零头,落库失败静默。挂在 `ReaderPage`(书就绪后)。测试要在挂载前开假定时器(interval 在就绪时创建)。
+- **统计页** `ReadingTimeSection`(放在瓦片下、三区上):总计 / 今天 / 本周 / 本月 四格(`formatDuration`:x 小时 y 分)+ 日/周/月分段切换柱状图(强调色,悬停看数值,`aria-describedby` 读屏表)+ 每本书条形(书脊色与书架同一取法、最近读于);无记录时空态。
+- 测试:core +4(汇总/空表/级联/v11 schema)、foundation +1、contract +1、tauri +1、reader +2(计时/不可见不计)、stats +3(四格与切换、空态、`formatDuration`)。门禁:core 205、clippy 0;web 439/2、tsc、oxlint 0、build。

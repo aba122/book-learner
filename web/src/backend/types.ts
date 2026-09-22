@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
 } from '../types'
 
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
@@ -79,6 +79,10 @@ export interface Backend {
   lineageUpdate(bookId: number): Promise<LineageGraph>
   lineageRevise(bookId: number, nodeId: string | null, instruction: string): Promise<LineageGraph>
   lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource>
+  /** 阅读时长(BL-025):阅读器每分钟 / 离开时记一笔"可见且有操作"的秒数(1..3600);date 为前端本地日历日 */
+  readingTimeAdd(bookId: number, date: string, seconds: number): Promise<void>
+  /** 阅读时长汇总:总量 / 今日 / 本周 / 本月 + 30 天 / 12 周 / 12 月 + 每本书;"今天"由前端本地日历日决定 */
+  readingTimeSummary(): Promise<ReadingTimeSummary>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>

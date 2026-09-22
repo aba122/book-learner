@@ -56,6 +56,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>:r<n>` 行(每次重生成 n+1;若只见 :s<seq> 无 :r 是旧版);"先读一部分再生成"= 已读范围没有正文章(封面/目录/分部页不算);面板显示章节标题不是 spine 序号;`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
+| 阅读时长没涨 / 涨得不对 | 只在阅读器页面可见且 90 s 内有指针/键盘/滚轮操作时计秒,60 s 落一笔、离开补零头(`reading_time` 表按笔存);周从周一起、本月从 1 日起;未来日期不进汇总 | `web/src/lib/useReadingClock.ts`;`core/src/reading_time.rs` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
 
 ## 2. 诊断工具箱
@@ -186,6 +187,8 @@ select * from setting;
 | `web/src-tauri/tauri.conf.json` / `capabilities/default.json` / `lib.rs::install_app_menu` | 透明标题栏 + `windowEffects: sidebar` + `macOSPrivateApi`;拖动权限 `core:window:allow-start-dragging`;原生菜单栏(攻书/编辑/显示/窗口/帮助) |
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)
+
+`reading_time.rs`(BL-025):阅读时长 `record`/`summary`,schema v11 `reading_time`;`db::SCHEMA_VERSION` 改版号时备份模块的"拒绝更新快照"断言要跟着改。
 
 **模块职责**
 

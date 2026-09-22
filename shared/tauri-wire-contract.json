@@ -549,6 +549,22 @@
         "bookId",
         "nodeId"
       ]
+    },
+    {
+      "method": "readingTimeAdd",
+      "command": "reading_time_add",
+      "payloadKeys": [
+        "bookId",
+        "date",
+        "seconds"
+      ]
+    },
+    {
+      "method": "readingTimeSummary",
+      "command": "reading_time_summary",
+      "payloadKeys": [
+        "date"
+      ]
     }
   ],
   "unsupportedCapabilities": [

@@ -149,6 +149,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'lineageUpdate', command: 'lineage_update', payloadKeys: ['bookId'] },
       { method: 'lineageRevise', command: 'lineage_revise', payloadKeys: ['bookId', 'nodeId', 'instruction'] },
       { method: 'lineageNodeSource', command: 'lineage_node_source', payloadKeys: ['bookId', 'nodeId'] },
+      // BL-025:阅读时长
+      { method: 'readingTimeAdd', command: 'reading_time_add', payloadKeys: ['bookId', 'date', 'seconds'] },
+      { method: 'readingTimeSummary', command: 'reading_time_summary', payloadKeys: ['date'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
@@ -469,5 +472,33 @@ describe('MockBackend confirmMap v2(稳定 id 操作集 + 修订号)', () => {
     expect(src.excerpt).toContain('新穷人')
     await b.deleteBook(1, '2026-09-19')
     expect(await b.lineageGet(1)).toBeNull()
+  })
+})
+
+describe('MockBackend 阅读时长(BL-025)', () => {
+  it('记一笔要校验书/日期/秒数;汇总按日/周/月/书聚合,周从周一起', async () => {
+    const b = new MockBackend()
+    const base = await b.readingTimeSummary()
+    expect(base.days).toHaveLength(30)
+    expect(base.weeks).toHaveLength(12)
+    expect(base.months).toHaveLength(12)
+    expect(base.books[0]).toMatchObject({ bookId: 1, title: '微观经济学' })
+    const today = base.days[29].date
+    await b.readingTimeAdd(1, today, 120)
+    const s = await b.readingTimeSummary()
+    expect(s.todaySeconds).toBe(base.todaySeconds + 120)
+    expect(s.weekSeconds).toBe(base.weekSeconds + 120)
+    expect(s.monthSeconds).toBe(base.monthSeconds + 120)
+    expect(s.totalSeconds).toBe(base.totalSeconds + 120)
+    expect(s.days[29].seconds).toBe(base.days[29].seconds + 120)
+    expect(s.weeks[11].seconds).toBe(base.weeks[11].seconds + 120)
+    expect(new Date(`${s.weeks[11].start}T00:00:00`).getDay()).toBe(1)
+    expect(s.months[11].month).toBe(today.slice(0, 7))
+    expect(s.books[0].seconds).toBe(base.books[0].seconds + 120)
+    expect(s.books[0].lastRead).toBe(today)
+    await expect(b.readingTimeAdd(99, today, 10)).rejects.toMatchObject({ code: 'not_found' })
+    await expect(b.readingTimeAdd(1, '2026/09/21', 10)).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.readingTimeAdd(1, today, 0)).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(b.readingTimeAdd(1, today, 3601)).rejects.toMatchObject({ code: 'invalid_request' })
   })
 })

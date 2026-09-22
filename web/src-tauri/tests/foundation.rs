@@ -891,6 +891,43 @@ fn stats_detail_serializes_three_sections_with_camel_case_and_nullable_fields() 
 }
 
 #[test]
+fn reading_time_add_and_summary_round_trip_with_camel_case() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("reading-time.db")).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    commands::reading_time_add_inner(&state, first, DAY, 90).unwrap();
+    commands::reading_time_add_inner(&state, first, DAY, 30).unwrap();
+    let summary = commands::reading_time_summary_inner(&state, DAY).unwrap();
+    let value = serde_json::to_value(&summary).unwrap();
+    assert_eq!(value["todaySeconds"], json!(120));
+    assert_eq!(value["totalSeconds"], json!(120));
+    assert_eq!(value["days"].as_array().unwrap().len(), 30);
+    assert_eq!(value["weeks"].as_array().unwrap().len(), 12);
+    assert_eq!(value["months"].as_array().unwrap().len(), 12);
+    assert_eq!(value["books"][0]["bookId"], json!(first));
+    assert_eq!(value["books"][0]["seconds"], json!(120));
+    assert_eq!(value["books"][0]["lastRead"], json!(DAY));
+    assert_eq!(
+        commands::reading_time_add_inner(&state, first, DAY, 0)
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        commands::reading_time_add_inner(&state, 9_999, DAY, 10)
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::NotFound
+    );
+    assert_eq!(
+        commands::reading_time_summary_inner(&state, "bad")
+            .unwrap_err()
+            .code,
+        book_learner_app::error::ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
 fn reader_marks_round_trip_through_commands() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("marks.db")).unwrap();
@@ -2493,6 +2530,8 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 json!({"bookId": first, "nodeId": null, "instruction": "把主线说清楚"})
             }
             "lineage_node_source" => json!({"bookId": first, "nodeId": "a"}),
+            "reading_time_add" => json!({"bookId": first, "date": DAY, "seconds": 90}),
+            "reading_time_summary" => json!({"date": DAY}),
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
                 let sent = commands::reading_send_inner(

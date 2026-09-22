@@ -1,11 +1,14 @@
-import { useCallback, useId } from 'react'
+import { useCallback, useId, useState } from 'react'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Card from '../../components/Card'
+import EmptyState from '../../components/EmptyState'
 import PageHeader from '../../components/PageHeader'
 import ProgressRing from '../../components/ProgressRing'
+import Segmented from '../../components/Segmented'
 import Skeleton from '../../components/Skeleton'
 import Toolbar from '../../components/Toolbar'
+import { formatDuration } from '../../lib/duration'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import type { BackendError } from '../../backend/errors'
 import type { BookProgress, Stats, StatsDetail } from '../../types'
@@ -220,6 +223,112 @@ function QualitySection({ detail }: { detail: StatsDetail }) {
   )
 }
 
+type ReadingRange = 'day' | 'week' | 'month'
+/** 书脊色:与书架封面同一取法(按书名首字符稳定取三任务色之一,只作装饰) */
+const SPINE = ['bg-new', 'bg-review', 'bg-weak']
+const spineColor = (title: string) => SPINE[(title.codePointAt(0) ?? 0) % SPINE.length]
+
+function ReadingStat({ label, seconds, testId }: { label: string; seconds: number; testId: string }) {
+  return (
+    <div className="rounded-m bg-inset px-3 py-2.5">
+      <div className="text-footnote text-label-3">{label}</div>
+      <div className="mt-0.5 font-serif text-title2 font-semibold text-label-1 tabular-nums" data-testid={testId}>{formatDuration(seconds)}</div>
+    </div>
+  )
+}
+
+/**
+ * 阅读时长(BL-025):总计 / 今天 / 本周 / 本月 四格 + 日/周/月三档柱状图(强调色,悬停看数值,读屏走数据表)+ 每本书条形。
+ * 数据来自阅读器"可见且有操作"的计时,与番茄钟无关。
+ */
+function ReadingTimeSection() {
+  const summary = useAsyncResource(useCallback(() => backend.readingTimeSummary(), []))
+  const [range, setRange] = useState<ReadingRange>('day')
+  const tableId = useId()
+  const data = summary.data
+  const buckets = data === null ? [] : range === 'day'
+    ? data.days.map(d => ({ key: d.date, label: mmdd(d.date), full: d.date, seconds: d.seconds }))
+    : range === 'week'
+      ? data.weeks.map(w => ({ key: w.start, label: mmdd(w.start), full: `${w.start} 起的一周`, seconds: w.seconds }))
+      : data.months.map(m => ({ key: m.month, label: m.month.slice(2), full: m.month, seconds: m.seconds }))
+  const max = Math.max(1, ...buckets.map(b => b.seconds))
+  const maxBook = Math.max(1, ...(data?.books.map(b => b.seconds) ?? [1]))
+  const rangeLabel = range === 'day' ? '近 30 天每日阅读时长' : range === 'week' ? '近 12 周每周阅读时长' : '近 12 个月每月阅读时长'
+  return (
+    <Card className="p-5" data-testid="section-reading">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="font-serif text-title3 font-semibold text-label-1">阅读时长</h2>
+        {data && data.totalSeconds > 0 && (
+          <Segmented<ReadingRange>
+            aria-label="阅读时长范围"
+            size="sm"
+            value={range}
+            onChange={setRange}
+            options={[
+              { value: 'day', label: '日' },
+              { value: 'week', label: '周' },
+              { value: 'month', label: '月' },
+            ]}
+          />
+        )}
+      </div>
+      {data === null ? (
+        summary.error
+          ? <div className="mt-3"><AsyncError error={summary.error} onRetry={summary.reload} variant="compact" /></div>
+          : <div aria-busy="true" className="mt-3"><Skeleton lines={3} /></div>
+      ) : data.totalSeconds === 0 ? (
+        <EmptyState compact icon="timer" title="还没有阅读记录" body="打开阅读器读一会儿,这里就会按日、周、月和每本书统计时长。" className="mt-2" />
+      ) : (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-3 @2xl:grid-cols-4">
+            <ReadingStat label="总计" seconds={data.totalSeconds} testId="reading-total" />
+            <ReadingStat label="今天" seconds={data.todaySeconds} testId="reading-today" />
+            <ReadingStat label="本周" seconds={data.weekSeconds} testId="reading-week" />
+            <ReadingStat label="本月" seconds={data.monthSeconds} testId="reading-month" />
+          </div>
+          <div className="mt-5 flex h-32 items-end gap-1 border-b border-sep pb-px" role="img" aria-label={rangeLabel} aria-describedby={tableId}>
+            {buckets.map(b => (
+              <div
+                key={b.key}
+                data-testid="reading-bar"
+                title={`${b.full}:${formatDuration(b.seconds)}`}
+                className={`flex-1 rounded-t-xs transition-colors duration-[var(--dur-fast)] ${b.seconds > 0 ? 'bg-accent/75 hover:bg-accent' : 'bg-inset'}`}
+                style={{ height: `${b.seconds > 0 ? Math.max(4, Math.round((b.seconds / max) * 100)) : 2}%` }}
+              />
+            ))}
+          </div>
+          {buckets.length > 0 && (
+            <div className="mt-1 flex justify-between text-footnote text-label-3 tabular-nums">
+              <span>{buckets[0].label}</span>
+              <span>{buckets[Math.floor(buckets.length / 2)].label}</span>
+              <span>{buckets[buckets.length - 1].label}</span>
+            </div>
+          )}
+          <SrTable id={tableId} caption={`${rangeLabel}数据表`} head={[range === 'month' ? '月份' : range === 'week' ? '周(周一)' : '日期', '时长']} rows={buckets.map(b => [b.full, formatDuration(b.seconds)])} />
+          <h3 className="mt-5 text-footnote font-medium text-label-3">每本书</h3>
+          <ul className="mt-2 flex flex-col gap-2">
+            {data.books.map(b => (
+              <li key={b.bookId} data-testid="reading-book" className="flex items-center gap-3">
+                <span aria-hidden className={`h-7 w-1.5 shrink-0 rounded-full ${spineColor(b.title)}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="truncate font-serif text-body text-label-1">{b.title}</span>
+                    <span className="shrink-0 text-callout font-medium text-label-1 tabular-nums">{formatDuration(b.seconds)}</span>
+                  </div>
+                  <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-inset">
+                    <div className="h-full rounded-full bg-accent/75" style={{ width: `${Math.round((b.seconds / maxBook) * 100)}%` }} />
+                  </div>
+                  <p className="mt-0.5 text-footnote text-label-3">{b.lastRead ? `最近读于 ${b.lastRead}` : '—'}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  )
+}
+
 /** 大数瓦片:衬线 Large Title 数字 + 单位 */
 function Tile({ label, value, unit, testId }: { label: string; value: number; unit: string; testId: string }) {
   return (
@@ -320,6 +429,9 @@ function StatsBody({ stats: s, error, onRetry }: { stats: Stats; error: BackendE
         </Card>
       </div>
 
+      <div className="mt-6">
+        <ReadingTimeSection />
+      </div>
       <StatsDetailSections />
     </>
   )

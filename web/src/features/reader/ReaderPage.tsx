@@ -15,6 +15,7 @@ import Toolbar, { ToolbarDivider } from '../../components/Toolbar'
 import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
 import { useBackendOperation } from '../../lib/useBackendOperation'
+import { useReadingClock } from '../../lib/useReadingClock'
 import { useSession } from '../../store'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import type { HighlightColor, KnowledgeBlock, ReaderMark } from '../../types'
@@ -215,6 +216,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const initialHref = backTaskId ? blockStart : (position?.cfiStart ?? (learning ? blockStart : source?.href))
   const highlights = currentMarks.filter(m => m.kind === 'highlight' && m.cfiEnd).map(m => ({ cfiRange: m.cfiEnd as string, color: m.color }))
   const bookId = block?.bookId ?? null
+  // 阅读时长(BL-025):书打开后开始计;可见且有操作才算
+  useReadingClock(bookId, ready)
 
   const addMarkOp = useBackendOperation(async (mark: Parameters<typeof backend.readerMarkAdd>[1]) => {
     if (bookId === null) return
