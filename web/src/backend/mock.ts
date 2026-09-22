@@ -464,6 +464,10 @@ export class MockBackend implements Backend {
       } else if (e.metaKey && e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         handler('toggle-sidebar')
+      } else if (e.metaKey && e.altKey && (e.key === 'd' || e.key === 'D' || e.key === '∂')) {
+        // ⌥⌘D:浅色/深色互换(与原生「显示 › 外观」同一契约;mock 只给一个快捷键)
+        e.preventDefault()
+        handler('appearance-toggle')
       }
     }
     window.addEventListener('keydown', onKey)

@@ -190,3 +190,23 @@ describe('EmptyState', () => {
     expect(screen.getByRole('button', { name: '生成' })).toBeInTheDocument()
   })
 })
+
+describe('Tooltip 位置(2026-09-21)', () => {
+  it('锚点贴着视口顶部时翻到下方,左边夹在 8px 内', async () => {
+    const user = userEvent.setup()
+    render(
+      <Tooltip content="阅读设置" delay={0}>
+        {t => (
+          <button ref={t.setAnchor} aria-describedby={t['aria-describedby']} onMouseEnter={t.onMouseEnter} onMouseLeave={t.onMouseLeave} onFocus={t.onFocus} onBlur={t.onBlur}>
+            Aa
+          </button>
+        )}
+      </Tooltip>,
+    )
+    // jsdom 的 getBoundingClientRect 全 0:相当于钮贴在左上角
+    await user.hover(screen.getByRole('button', { name: 'Aa' }))
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.style.top).toBe('6px')
+    expect(tip.style.left).toBe('8px')
+  })
+})

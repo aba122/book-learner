@@ -18,7 +18,7 @@
 
   /* ── 表面 ── */
   --surface-window: #f6f1e6;                  /* 浏览器 mock 时 html 底;Tauri 下 html/body 透明 */
-  --surface-sidebar: rgb(246 241 230 / 0.42); /* 叠在原生 sidebar 材质上,染成纸色 */
+  --surface-sidebar: rgb(246 241 230 / 0.84); /* 叠在原生 sidebar 材质上染成纸色;0.42 时用户反馈“太蒙看不清”(2026-09-21),提到 0.84 只留一点材质感 */
   --surface-sidebar-opaque: #efe8da;          /* 减少透明度 / 浏览器回退 */
   --surface-content: #f6f1e6;
   --surface-card: #fdfaf2;
@@ -123,7 +123,7 @@
   color-scheme: dark;
 
   --surface-window: #16130e;
-  --surface-sidebar: rgb(25 21 15 / 0.5);
+  --surface-sidebar: rgb(25 21 15 / 0.8);
   --surface-sidebar-opaque: #1e1912;
   --surface-content: #19150f;
   --surface-card: #211c14;

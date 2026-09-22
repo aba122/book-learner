@@ -238,7 +238,7 @@ pub fn orderly_shutdown(state: &state::AppState, grace: Duration) -> bool {
 const MENU_ACTION_EVENT: &str = "menu_action";
 
 /// 原生菜单栏(视觉改版第一批):攻书 / 编辑 / 显示 / 窗口 / 帮助。
-/// 替换默认菜单后必须自建「编辑」,否则 WebView 里 ⌘C/⌘V/⌘A 失效;外观跟随系统,不进菜单。
+/// 替换默认菜单后必须自建「编辑」,否则 WebView 里 ⌘C/⌘V/⌘A 失效;「显示 › 外观」给日读/夜读快捷入口(用户要求)。
 #[cfg(target_os = "macos")]
 fn install_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     use tauri::menu::{
@@ -279,12 +279,25 @@ fn install_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Resu
         .paste_with_text("粘贴")
         .select_all_with_text("全选")
         .build()?;
+    // 外观子菜单(用户要求,2026-09-21):跟随系统 / 浅色 / 深色;⌥⌘D 在浅深之间互换
+    let appearance = SubmenuBuilder::new(app, "外观")
+        .item(&MenuItemBuilder::with_id("appearance-system", "跟随系统").build(app)?)
+        .item(&MenuItemBuilder::with_id("appearance-light", "浅色").build(app)?)
+        .item(&MenuItemBuilder::with_id("appearance-dark", "深色").build(app)?)
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("appearance-toggle", "切换日读/夜读")
+                .accelerator("Alt+Cmd+D")
+                .build(app)?,
+        )
+        .build()?;
     let view = SubmenuBuilder::new(app, "显示")
         .item(
             &MenuItemBuilder::with_id("toggle-sidebar", "隐藏/显示侧栏")
                 .accelerator("Ctrl+Cmd+S")
                 .build(app)?,
         )
+        .item(&appearance)
         .separator()
         .fullscreen_with_text("进入全屏")
         .build()?;
@@ -309,6 +322,10 @@ fn install_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Resu
         }
         "toggle-sidebar" => {
             let _ = app.emit(MENU_ACTION_EVENT, "toggle-sidebar");
+        }
+        id @ ("appearance-system" | "appearance-light" | "appearance-dark"
+        | "appearance-toggle") => {
+            let _ = app.emit(MENU_ACTION_EVENT, id);
         }
         "help-logs" => {
             let state = app.state::<state::AppState>();

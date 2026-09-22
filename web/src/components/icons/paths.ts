@@ -11,6 +11,7 @@ export interface IconPath {
 export const ICON_PATHS = {
   // 侧栏
   sun: { d: ['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4'] },
+  moon: { d: ['M19.5 14.2A7.5 7.5 0 0 1 9.8 4.5a8 8 0 1 0 9.7 9.7z'] },
   books: { d: ['M4 4h4v16H4z', 'M10 4h4v16h-4z', 'M15 5.5l3.5-.9 3.5 13.5-3.5.9z'] },
   map: { d: ['M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z', 'M9 4v14M15 6v14'] },
   'chart-bar': { d: ['M4 20h16', 'M7 20v-9M12 20V5M17 20v-6'] },
