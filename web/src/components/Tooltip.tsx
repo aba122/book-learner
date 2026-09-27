@@ -23,6 +23,7 @@ interface Props {
  * 提示(视觉改版第一批,无第三方库、无 ref):悬停 400ms / 聚焦即显;`role=tooltip` portal 到 body,
  * 可见时经 aria-describedby 关联;Esc、离开、失焦即隐。取代原生 title=。
  * 位置(2026-09-21 修):按提示框实际尺寸算——上方放不下就翻到下方(标题栏带里的钮),左右夹在视口内 8px 之内。
+ * 2026-09-27(BL-029 顺带):量尺寸那一帧先放在左缘,否则贴右缘的钮(讲授页「脉络图」、阅读器「展开侧栏」)提示框被压成竖排。
  */
 export default function Tooltip({ content, children, placement = 'top', delay = 400 }: Props) {
   const id = useId()
@@ -71,7 +72,8 @@ export default function Tooltip({ content, children, placement = 'top', delay = 
     let top = placement === 'top' ? r.top - gap - h : r.bottom + gap
     if (placement === 'top' && top < margin) top = r.bottom + gap
     else if (placement === 'bottom' && top + h > window.innerHeight - margin) top = r.top - gap - h
-    const left = Math.max(margin, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - margin - w))
+    // 量尺寸的那一帧先放在左缘:fixed 元素若先落在右缘,会被视口右边压窄成竖排,量到的就是压窄后的宽度
+    const left = size ? Math.max(margin, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - margin - w)) : margin
     pos = { left, top }
   }
 

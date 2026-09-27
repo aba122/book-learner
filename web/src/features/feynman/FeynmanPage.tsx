@@ -13,7 +13,7 @@ import Spinner from '../../components/Spinner'
 import Tag from '../../components/Tag'
 import Textarea from '../../components/Textarea'
 import Toolbar from '../../components/Toolbar'
-import { FEYNMAN_SOURCE_KEY, KIND_LABEL, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT, TYPEWRITER_CHAR_MS } from '../../config'
+import { FEYNMAN_LINEAGE_KEY, FEYNMAN_SOURCE_KEY, KIND_LABEL, OPENER_TEXT, OPENER_TURN_ID, SESSION_HINT, TYPEWRITER_CHAR_MS } from '../../config'
 import { newClientId } from '../../lib/ids'
 import { localCalendarDate } from '../../lib/localDate'
 import { useReducedMotion } from '../../lib/motion'
@@ -23,6 +23,7 @@ import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { DailyTask, EvalResult, EvaluationView, KnowledgeBlock, SessionView, TurnResult } from '../../types'
 import EvalCard from './EvalCard'
 import ExtraStage from './ExtraStage'
+import LineageAside from './LineageAside'
 import TranscriptLines, { STUDENT_BUBBLE, StudentAvatar, USER_BUBBLE, type Line } from './Transcript'
 import VoiceInput from './VoiceInput'
 
@@ -149,6 +150,12 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
   const setSourceOpen = (open: boolean) => {
     setSourceOpenState(open)
     writePref(FEYNMAN_SOURCE_KEY, open ? 'open' : 'closed')
+  }
+  // 脉络图栏开/收(BL-029):同样每台设备记住(默认开)
+  const [lineageOpen, setLineageOpenState] = useState(() => readPref(FEYNMAN_LINEAGE_KEY) !== 'closed')
+  const setLineageOpen = (open: boolean) => {
+    setLineageOpenState(open)
+    writePref(FEYNMAN_LINEAGE_KEY, open ? 'open' : 'closed')
   }
   const reducedMotion = useReducedMotion()
   const scrollAnchor = useRef<HTMLDivElement>(null)
@@ -291,6 +298,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
     void abandonOp.run('abandon')
   }
 
+  const goReader = () => navigate(`/reader/${block.id}?back=${taskId}`)
   const endLabel = evaluating ? (ending ? '评估中…' : '继续评估') : ending ? '评估中…' : '结束讲授'
 
   return (
@@ -304,7 +312,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
         {SESSION_HINT[view.kind] && (
           <span className="hidden max-w-64 truncate text-footnote text-label-3 @xl:inline">{SESSION_HINT[view.kind]}</span>
         )}
-        <Button size="sm" onClick={() => navigate(`/reader/${block.id}?back=${taskId}`)}>
+        <Button size="sm" onClick={goReader}>
           回读原文
         </Button>
         <Button
@@ -319,6 +327,7 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
         <Button size="sm" disabled={anyPending} onClick={() => setAbandonOpen(true)}>
           放弃本次
         </Button>
+        <IconButton icon="sidebar-right" label="脉络图" active={lineageOpen} onClick={() => setLineageOpen(!lineageOpen)} className="-mr-1" />
       </Toolbar>
 
       {(endError || abandonError) && (
@@ -417,6 +426,9 @@ function TeachingRoom({ session, today, taskId }: { session: TeachingSession; to
             </div>
           </div>
         </div>
+
+        {/* 右:可隐藏的脉络图栏(BL-029),只读展示阅读时生成的这本书的脉络图 */}
+        {lineageOpen && <LineageAside bookId={block.bookId} onGoReader={goReader} />}
       </div>
 
       {extraOffer && <ExtraStage block={block} onDone={() => navigate('/')} />}
