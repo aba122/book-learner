@@ -580,3 +580,67 @@ describe('视觉改版第三批:讲授页', () => {
     expect(card.contains(document.activeElement)).toBe(true)
   })
 })
+
+describe('BL-029:费曼页右侧脉络图栏', () => {
+  beforeEach(() => {
+    const memory = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => memory.get(k) ?? null,
+      setItem: (k: string, v: string) => void memory.set(k, String(v)),
+      removeItem: (k: string) => void memory.delete(k),
+      clear: () => memory.clear(),
+    })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('工具栏「脉络图」钮切换右栏(aria-pressed)并记住;没图时空态给「去阅读器生成」', async () => {
+    await renderFeynman()
+    await act(async () => {}) // lineageGet
+    const toolbar = screen.getByRole('toolbar', { name: '讲授工具栏' })
+    const toggle = within(toolbar).getByRole('button', { name: '脉络图' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    const aside = screen.getByRole('complementary', { name: '脉络图' })
+    expect(within(aside).getByText('还没有脉络图')).toBeInTheDocument()
+    // 原文参考栏照旧在左
+    expect(screen.getByRole('complementary', { name: '原文参考' })).toBeInTheDocument()
+
+    await click(toggle)
+    expect(screen.queryByRole('complementary', { name: '脉络图' })).toBeNull()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(localStorage.getItem('bookLearner.feynmanLineage')).toBe('closed')
+    await click(toggle)
+    expect(screen.getByRole('complementary', { name: '脉络图' })).toBeInTheDocument()
+    expect(localStorage.getItem('bookLearner.feynmanLineage')).toBe('open')
+
+    await click(within(screen.getByRole('complementary', { name: '脉络图' })).getByRole('button', { name: '去阅读器生成' }))
+    expect(screen.getByTestId('loc')).toHaveTextContent('/reader/4?back=3')
+  })
+
+  it('偏好为 closed 时默认收起', async () => {
+    localStorage.setItem('bookLearner.feynmanLineage', 'closed')
+    await renderFeynman()
+    expect(screen.queryByRole('complementary', { name: '脉络图' })).toBeNull()
+    expect(within(screen.getByRole('toolbar', { name: '讲授工具栏' })).getByRole('button', { name: '脉络图' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('阅读时生成过的脉络图只读展示:节点、覆盖进度;点节点看详情,不可编辑', async () => {
+    const mock = new MockBackend()
+    await mock.lineageGenerate(1)
+    ;(backendModule as unknown as { backend: Backend }).backend = mock
+    await renderFeynman()
+    await act(async () => {})
+    const aside = screen.getByRole('complementary', { name: '脉络图' })
+    expect(within(aside).getByText('生产者社会')).toBeInTheDocument()
+    expect(within(aside).getByText('消费者社会')).toBeInTheDocument()
+    expect(within(aside).getByText(/覆盖到:第二章/)).toBeInTheDocument()
+    expect(within(aside).queryByRole('button', { name: /生成|重新生成|更新到最新进度/ })).toBeNull()
+
+    await click(within(aside).getByText('生产者社会'))
+    const detail = within(aside).getByRole('dialog', { name: '节点 生产者社会' })
+    expect(detail).toHaveTextContent('工作伦理把有纪律的劳动规定为正常生活的核心。')
+    expect(within(detail).queryByRole('textbox')).toBeNull()
+    expect(within(detail).queryByRole('button', { name: '删除节点' })).toBeNull()
+    await click(within(detail).getByRole('button', { name: '关闭' }))
+    expect(within(aside).queryByRole('dialog')).toBeNull()
+  })
+})

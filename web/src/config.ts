@@ -61,6 +61,8 @@ export const FINAL_EXAM_MIN_ANSWERS = 2
 export const REPLAN_DISMISSED_KEY = 'bookLearner.replanDismissed'
 /** 费曼页原文参考栏开/收(每台设备,localStorage;视觉改版第三批) */
 export const FEYNMAN_SOURCE_KEY = 'bookLearner.feynmanSource'
+/** 费曼页脉络图栏开/收(每台设备,localStorage;BL-029) */
+export const FEYNMAN_LINEAGE_KEY = 'bookLearner.feynmanLineage'
 /** 通过后附加环节(M2 T5):按书类型选种类;opener 为前端固定开场回合文案(core 回合协议要求用户先开口) */
 export const EXTRA_KIND_FOR_BOOK: Record<BookType, ExtraKind> = {
   textbook: 'application', methodology: 'methodology', humanities: 'discussion',

@@ -746,3 +746,10 @@
 - 右栏左缘加 `PanelResizeHandle`(`role=separator aria-orientation=vertical aria-valuenow`):指针拖动(`setPointerCapture`,划过正文 iframe 也不丢事件)、←/→ 每次 16px(⇧ 64px)、Home/End 最宽/最窄、双击回默认;宽度按标签各记一个(学习模式 288 / 问书 384 / 脉络图 640),范围 256 ~ 78% 视口,存 `bookLearner.readerPanelWidths`。原「放大/收窄」保留,改为在窄默认与 640 之间切;拖出来的宽度 ≥640 也算"放大"态(显示收窄)。EpubView 的 ResizeObserver(BL-019)让正文随之重排。
 - 收起/展开:「收起侧栏」搬进右栏头部(与左侧栏一样"在栏内关它");收起后工具栏才出现「展开侧栏」,右缘的标签名边条也能展开。右栏打开时工具栏不再有重名按钮(`readingChat.test:238` 的 `getByRole('button', {name:'收起侧栏'})` 保持唯一)。方向键在把手上被消费(`preventDefault`),不触发全局翻页。
 - 测试:reader +3(拖动/键盘/持久化/双击/放大收窄;收起→展开两条路;每标签各自宽度),原「工具栏含收起侧栏」断言改到右栏头部。headless Chromium:真拖 150px 右栏 384 → 538、双击回 384、收起后「展开侧栏」出现并能展开。门禁 web 443/2、tsc、oxlint 0、build。
+
+## 2026-09-27 · BL-029:费曼页右侧「脉络图」栏(讲授时对照阅读时生成的脉络图)
+- 用户:做费曼讲授的时候,除了原文导读外,再加上阅读时生成的思维导图。脉络图是每书一张(`lineage_graph`),原来只能在阅读器右栏第三标签看。
+- 费曼页镜像阅读器的布局:左「原文参考」、右「脉络图」。工具栏最右加 `IconButton sidebar-right`「脉络图」(aria-pressed),偏好 `bookLearner.feynmanLineage`(默认开,关着时卸载、再开重取)。新组件 `features/feynman/LineageAside.tsx`:`useAsyncResource` 读 `lineageGet(block.bookId)`(包成 `{graph}`,区分"没生成过"与"未加载");有图 → 「覆盖到:章节」(读到更后面时提示可在阅读器里更新)+ 复用 `reader/lineage/LineageGraph` 画布(缩放、←→ 选节点照旧),点节点开只读详情浮层(编号·性质·标题·摘要·详情,只有「关闭」);没图 → 空态「去阅读器生成」(与「回读原文」同一去处 `/reader/<block>?back=<task>`);失败 → `AsyncError compact` 可重试。生成/更新/修正/手改仍只在阅读器里做,这里不写库。
+- 宽度 `w-96`(与问书默认一致);图在 384px 里两列会横向滚,用画布自带的「缩小/适配窗口」即可。
+- **顺带修 Tooltip 贴右缘竖排**:headless 截图发现新钮的提示框「脉 络 图」竖排成三行。根因:`Tooltip` 量尺寸那一帧就按 w=0 把 `fixed` 框放到 `r.left + r.width/2`(贴右缘约 1258px),shrink-to-fit 只剩视口右边 20 余像素,量到的就是压窄后的宽度,之后夹边也按这个窄宽算——阅读器最右的「展开侧栏」同样会中招(BL-024 只验证过贴顶翻转与左夹)。修法:`size` 未量到时先放 `left = margin`,量完再定位。primitives +1(mock shrink-to-fit:右缘钮提示框最终 left = 1280 − 8 − 52)。
+- 测试:feynman +3(开关与偏好、closed 默认收起、只读展示与详情浮层)、primitives +1。门禁:web 447/2、tsc、oxlint 0、build;headless Chromium(mock 后端,1280×800 浅/深色):三栏 288 + 对话 + 384 无横向溢出、空态「去阅读器生成」→ 阅读器生成 → 回讲授页出图、点节点只读详情、缩小 85%、收起后偏好 closed、右缘提示框单行。

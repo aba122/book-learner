@@ -209,4 +209,31 @@ describe('Tooltip 位置(2026-09-21)', () => {
     expect(tip.style.top).toBe('6px')
     expect(tip.style.left).toBe('8px')
   })
+
+  it('BL-029:锚点贴着视口右缘时提示框不被压窄——先在左缘量宽,再夹到右缘 8px 内', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('innerWidth', 1280)
+    // 模拟浏览器的 shrink-to-fit:fixed 元素落在右缘时可用宽只剩 视口宽 − left
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') !== 'tooltip') return 36
+      return Math.min(52, 1280 - parseFloat(this.style.left || '0'))
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(24)
+    render(
+      <Tooltip content="脉络图" delay={0}>
+        {t => (
+          <button ref={t.setAnchor} aria-describedby={t['aria-describedby']} onMouseEnter={t.onMouseEnter} onMouseLeave={t.onMouseLeave} onFocus={t.onFocus} onBlur={t.onBlur}>
+            Aa
+          </button>
+        )}
+      </Tooltip>,
+    )
+    const btn = screen.getByRole('button', { name: 'Aa' })
+    vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({ left: 1240, right: 1276, width: 36, top: 10, bottom: 46, height: 36, x: 1240, y: 10, toJSON: () => ({}) })
+    await user.hover(btn)
+    const tip = await screen.findByRole('tooltip')
+    await waitFor(() => expect(tip.style.visibility).toBe('visible'))
+    expect(tip.style.left).toBe(`${1280 - 8 - 52}px`)
+    vi.unstubAllGlobals()
+  })
 })
