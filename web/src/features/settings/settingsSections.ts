@@ -4,6 +4,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'ai', label: 'AI 与导出' },
   { id: 'voice', label: '语音' },
   { id: 'profile', label: '画像' },
+  { id: 'weread', label: '微信读书' },
   { id: 'data', label: '数据' },
   { id: 'diagnostics', label: '诊断' },
 ] as const

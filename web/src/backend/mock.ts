@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek } from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadReadingDays, WereadStatus } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -113,6 +113,10 @@ export class MockBackend implements Backend {
   private books: Book[] = []
   /** 阅读时长(BL-025):按笔存,汇总时按日/周/月/书聚合(与 core 同语义) */
   private readingTimeRows: { bookId: number; date: string; seconds: number }[] = []
+  // ---- 微信读书(BL-030):与 core::weread 同语义;connect 用 wrk- 前缀模拟鉴权 ----
+  private wereadAccount: { connectedAt: string; autoSync: boolean; lastSyncAt: string | null; lastSyncOk: boolean | null; lastError: string | null; upgradeMessage: string | null; totalSeconds: number; totalReadDays: number } | null = null
+  private wereadBookRows: WereadBook[] = []
+  private wereadDayRows = new Map<string, number>()
   private blocks: KnowledgeBlock[] = []
   private tasks: DailyTask[] = []
   private plans: StudyPlan[] = []
@@ -298,6 +302,8 @@ export class MockBackend implements Backend {
   /** 删除书(测试阶段):与 core library::delete_book 同语义;主攻书删后无主攻 */
   async deleteBook(bookId: number, date: string): Promise<void> {
     this.readingTimeRows = this.readingTimeRows.filter(r => r.bookId !== bookId)
+    // 镜像 weread_book.local_book_id ON DELETE SET NULL
+    this.wereadBookRows = this.wereadBookRows.map(b => (b.localBookId === bookId ? { ...b, localBookId: null, localTitle: null } : b))
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw invalidRequest()
     const idx = this.books.findIndex(b => b.id === bookId)
     if (idx < 0) throw notFound()
@@ -1162,5 +1168,129 @@ export class MockBackend implements Backend {
     if (s.version !== expectedVersion) throw conflict()
     s.state = 'abandoned'
     s.version += 1
+  }
+
+  // ---- 微信读书同步(BL-030)----
+  private wereadNormalize(text: string) {
+    return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+  }
+  private wereadAutoLink() {
+    const locals = this.books.map(b => ({ id: b.id, title: this.wereadNormalize(b.title), author: this.wereadNormalize(b.author ?? '') }))
+    this.wereadBookRows = this.wereadBookRows.map(row => {
+      if (row.removed || row.linkSource === 'manual' || (row.linkSource === 'auto' && row.localBookId !== null)) return row
+      const title = this.wereadNormalize(row.title)
+      const author = this.wereadNormalize(row.author)
+      const hits = locals.filter(l => {
+        if (!title || !l.title) return false
+        if (title === l.title) return true
+        const [short, long] = title.length <= l.title.length ? [title, l.title] : [l.title, title]
+        if (short.length < 2 || !long.includes(short)) return false
+        return !!author && !!l.author && (author === l.author || author.includes(l.author) || l.author.includes(author))
+      })
+      if (hits.length !== 1) return row
+      return { ...row, localBookId: hits[0].id, localTitle: this.books.find(b => b.id === hits[0].id)?.title ?? null, linkSource: 'auto' }
+    })
+  }
+  /** 演示书架:前两本按本地书造(一本同名、一本"全译本"版),其余四本本地没有 */
+  private wereadSeed() {
+    const now = Math.floor(Date.now() / 1000)
+    const mk = (wereadId: string, title: string, author: string, progress: number, minutes: number, daysAgo: number, finished = false): WereadBook => ({
+      wereadId, title, author, category: '文学', coverUrl: '', finishReading: finished, readUpdateTime: now - daysAgo * 86_400,
+      progress, readingSeconds: minutes * 60, localBookId: null, localTitle: null, linkSource: 'none', removed: false,
+    })
+    const [first, second] = this.books
+    this.wereadBookRows = [
+      mk('wr-1', first?.title ?? '微观经济学', first?.author ?? '', 64, 312, 0),
+      mk('wr-2', `${second?.title ?? '半途'}（全译本）`, second?.author ?? '', 21, 95, 1),
+      mk('wr-3', '置身事内', '兰小欢', 100, 540, 3, true),
+      mk('wr-4', '被讨厌的勇气', '岸见一郎', 37, 125, 5),
+      mk('wr-5', '认知觉醒', '周岭', 12, 48, 9),
+      mk('wr-6', '思考,快与慢', '丹尼尔·卡尼曼', 5, 20, 20),
+    ]
+    const today = localCalendarDate()
+    this.wereadDayRows.clear()
+    for (let back = 29; back >= 0; back--) {
+      if (back % 4 === 2) continue
+      this.wereadDayRows.set(addCalendarDays(today, -back), (15 + ((back * 11) % 50)) * 60)
+    }
+    this.wereadAutoLink()
+  }
+  private wereadStatusView(): WereadStatus {
+    const a = this.wereadAccount
+    if (!a) {
+      return { connected: false, autoSync: true, connectedAt: null, lastSyncAt: null, lastSyncOk: null, lastError: null, upgradeMessage: null, bookCount: 0, linkedCount: 0, albumCount: 0, mpCount: 0, totalSeconds: 0, totalReadDays: 0, syncing: false }
+    }
+    const shelf = this.wereadBookRows.filter(b => !b.removed)
+    return {
+      connected: true, autoSync: a.autoSync, connectedAt: a.connectedAt, lastSyncAt: a.lastSyncAt, lastSyncOk: a.lastSyncOk, lastError: a.lastError, upgradeMessage: a.upgradeMessage,
+      bookCount: shelf.length, linkedCount: shelf.filter(b => b.localBookId !== null).length, albumCount: 1, mpCount: 0,
+      totalSeconds: a.totalSeconds, totalReadDays: a.totalReadDays, syncing: false,
+    }
+  }
+  async wereadStatus(): Promise<WereadStatus> {
+    return this.wereadStatusView()
+  }
+  async wereadConnect(apiKey: string): Promise<WereadStatus> {
+    const key = apiKey.trim()
+    const disconnected = (lastError: string): WereadStatus => ({ ...this.wereadStatusView(), connected: false, lastError })
+    if (!key) return disconnected('请先填入 API Key')
+    if (!key.startsWith('wrk-')) return disconnected('API Key 无效或已撤销,请到微信读书重新获取(HTTP 401)')
+    if (!this.wereadAccount) this.wereadSeed()
+    this.wereadAccount = {
+      connectedAt: new Date().toISOString(), autoSync: this.wereadAccount?.autoSync ?? true, lastSyncAt: null, lastSyncOk: null, lastError: null, upgradeMessage: null,
+      totalSeconds: 0, totalReadDays: 0,
+    }
+    return this.wereadSync()
+  }
+  async wereadSync(): Promise<WereadStatus> {
+    const a = this.wereadAccount
+    if (!a) throw notFound()
+    this.wereadAutoLink()
+    let total = 0
+    for (const s of this.wereadDayRows.values()) total += s
+    a.totalSeconds = total + 96 * 3600
+    a.totalReadDays = this.wereadDayRows.size + 120
+    a.lastSyncAt = new Date().toISOString()
+    a.lastSyncOk = true
+    a.lastError = null
+    return this.wereadStatusView()
+  }
+  async wereadDisconnect(purge: boolean): Promise<void> {
+    this.wereadAccount = null
+    if (purge) {
+      this.wereadBookRows = []
+      this.wereadDayRows.clear()
+    }
+  }
+  async wereadSetAutoSync(enabled: boolean): Promise<WereadStatus> {
+    if (!this.wereadAccount) throw notFound()
+    this.wereadAccount.autoSync = enabled
+    return this.wereadStatusView()
+  }
+  async wereadBooks(): Promise<WereadBook[]> {
+    return [...this.wereadBookRows]
+      .sort((a, z) => Number(a.removed) - Number(z.removed) || z.readUpdateTime - a.readUpdateTime || a.title.localeCompare(z.title))
+      .map(b => ({ ...b }))
+  }
+  async wereadLink(wereadId: string, localBookId: number | null): Promise<WereadBook> {
+    if (localBookId !== null && !this.books.some(b => b.id === localBookId)) throw notFound()
+    const row = this.wereadBookRows.find(b => b.wereadId === wereadId)
+    if (!row) throw notFound()
+    row.localBookId = localBookId
+    row.localTitle = localBookId === null ? null : (this.books.find(b => b.id === localBookId)?.title ?? null)
+    row.linkSource = 'manual'
+    return { ...row }
+  }
+  async wereadReadingDays(from: string, to: string): Promise<WereadReadingDays> {
+    const re = /^\d{4}-\d{2}-\d{2}$/
+    if (!re.test(from) || !re.test(to) || from > to) throw invalidRequest()
+    const days: ReadingDay[] = [...this.wereadDayRows.entries()]
+      .filter(([date]) => date >= from && date <= to)
+      .sort(([a], [z]) => a.localeCompare(z))
+      .map(([date, seconds]) => ({ date, seconds }))
+    return { days }
+  }
+  async wereadOpenKeyPage(): Promise<void> {
+    // 浏览器 mock:不真的打开;真实壳层用 open 打开官方页面
   }
 }

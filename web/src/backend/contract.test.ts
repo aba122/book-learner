@@ -152,6 +152,16 @@ describe('Tauri wire contract fixture', () => {
       // BL-025:阅读时长
       { method: 'readingTimeAdd', command: 'reading_time_add', payloadKeys: ['bookId', 'date', 'seconds'] },
       { method: 'readingTimeSummary', command: 'reading_time_summary', payloadKeys: ['date'] },
+      // BL-030:微信读书同步
+      { method: 'wereadStatus', command: 'weread_status', payloadKeys: [] },
+      { method: 'wereadConnect', command: 'weread_connect', payloadKeys: ['apiKey', 'date'] },
+      { method: 'wereadSync', command: 'weread_sync', payloadKeys: ['date'] },
+      { method: 'wereadDisconnect', command: 'weread_disconnect', payloadKeys: ['purge'] },
+      { method: 'wereadSetAutoSync', command: 'weread_set_auto_sync', payloadKeys: ['enabled'] },
+      { method: 'wereadBooks', command: 'weread_books', payloadKeys: [] },
+      { method: 'wereadLink', command: 'weread_link', payloadKeys: ['wereadId', 'localBookId'] },
+      { method: 'wereadReadingDays', command: 'weread_reading_days', payloadKeys: ['from', 'to'] },
+      { method: 'wereadOpenKeyPage', command: 'weread_open_key_page', payloadKeys: [] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

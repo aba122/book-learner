@@ -88,3 +88,29 @@ describe('App 外壳 · 视觉改版第一批', () => {
     expect(await screen.findByRole('heading', { level: 1, name: '设置' })).toBeInTheDocument()
   })
 })
+
+describe('App 外壳 · 微信读书启动自动同步(BL-030)', () => {
+  beforeEach(() => {
+    window.history.pushState(null, '', '/')
+  })
+
+  it('已连接、开了自动同步且距上次同步超过 20 小时 → 启动后静默同步一次;刚同步过则不动', async () => {
+    const status = {
+      connected: true, autoSync: true, connectedAt: '2026-09-28T00:00:00Z', lastSyncAt: '2020-01-01T00:00:00Z', lastSyncOk: true,
+      lastError: null, upgradeMessage: null, bookCount: 1, linkedCount: 0, albumCount: 0, mpCount: 0, totalSeconds: 0, totalReadDays: 0, syncing: false,
+    }
+    const statusSpy = vi.spyOn(backend, 'wereadStatus').mockResolvedValue(status)
+    const sync = vi.spyOn(backend, 'wereadSync').mockResolvedValue(status)
+    const first = render(<App />)
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+    first.unmount()
+
+    statusSpy.mockResolvedValue({ ...status, lastSyncAt: new Date().toISOString() })
+    render(<App />)
+    await screen.findByRole('link', { name: '书架' })
+    await waitFor(() => expect(statusSpy).toHaveBeenCalledTimes(2))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(sync).toHaveBeenCalledTimes(1)
+    vi.restoreAllMocks()
+  })
+})

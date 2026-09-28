@@ -136,6 +136,21 @@ Mock:内置 6 本演示书(2 本能自动匹配本地书)、30 天时长、`conn
 - **接口可能变**:请求带 `skill_version`,`upgrade_info` 直显;解析一律容错(缺字段取默认,不因未知字段失败)。
 - **验证手段**:core 单测(假网关 fixtures:书架 upsert/移除、进度按变化拉、时长分桶转日期与首次回补、自动匹配唯一性、鉴权失败不落 Key、单本失败不中断、upgrade_info);`HttpGateway` 对本地 TCP 假服务器验证请求头/体形状与 errcode 处理;web 单测(设置分区三态、书架分区与关联、统计双序列、启动自动同步只跑一次);headless 截图;Mac 真机 + 真 Key。
 
-## 9. 实现落点(仓库)
+## 9. 实现落点(第一批,2026-09-28 回填)
 
-见本文件末尾「落点清单」(实现时回填)。
+| 层 | 文件 | 内容 |
+|---|---|---|
+| core | `core/src/weread.rs` | 网关 trait/`HttpGateway`(ureq 2,rustls)、类型、账号/书/时长读写、`plan/fetch/apply`、`connect/sync`、`normalize`+`auto_link`、13 个单测(含本地 TCP 假服务器验证请求头/体与 401/errcode 归类) |
+| core | `core/src/db.rs` | `SCHEMA_VERSION` 12、`SCHEMA_V12`、迁移测试 |
+| core | `core/Cargo.toml` | `ureq = { version = "2", features = ["json"] }` |
+| 壳层 | `web/src-tauri/src/state.rs` | `weread_gateway_override`(测试注入)、`weread_syncing`(进程内互斥) |
+| 壳层 | `application/mod.rs` | `weread_*`:计划(持锁)→ 拉取(不持锁)→ 落库(持锁);`open_key_page` 走 `open` |
+| 壳层 | `dto/mod.rs`、`commands/mod.rs`、`lib.rs` | `WereadStatusDto`(+`syncing`)/`WereadBookDto`/`WereadReadingDaysDto`;九条命令 + `WIRE_COMMANDS` |
+| 契约 | `shared/tauri-wire-contract.json`、`tests/foundation.rs`、`contract.test.ts`、`tauri.test.ts` | 六处同步;foundation 用 `FakeWeread` 跑 round-trip 与 wire 循环 |
+| web | `backend/types.ts`、`tauri.ts`、`mock.ts`、`types.ts` | 接口、解码/出站校验、Mock(6 本演示书 + 30 天时长,`wrk-` 前缀模拟鉴权) |
+| web | `features/settings/WereadSection.tsx`(+`settingsSections.ts`) | 设置分区 |
+| web | `features/library/WereadShelf.tsx`、`LibraryPage.tsx` | 书架分区与本地卡一行进度 |
+| web | `features/stats/StatsPage.tsx` | 阅读时长第二序列、图例、读屏表列 |
+| web | `App.tsx` `WereadAutoSync` | 启动后 20 h 未同步则静默同步 |
+
+**待办**:真网关实测(用户 Key)→ 校正字段缺省与错误码;第二批划线/想法;Key 迁 Keychain。

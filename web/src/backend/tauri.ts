@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadReadingDays, WereadStatus,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
@@ -822,6 +822,57 @@ function decodeReadingTimeSummary(value: unknown): ReadingTimeSummary {
   }
 }
 
+const WEREAD_LINK_SOURCES = ['none', 'auto', 'manual'] as const satisfies readonly WereadBook['linkSource'][]
+
+function decodeWereadStatus(value: unknown): WereadStatus {
+  const wire = objectAt(value, 'weread')
+  return {
+    connected: booleanAt(wire.connected, 'weread.connected'),
+    autoSync: booleanAt(wire.autoSync, 'weread.autoSync'),
+    connectedAt: nullableAt(wire.connectedAt, 'weread.connectedAt', stringAt),
+    lastSyncAt: nullableAt(wire.lastSyncAt, 'weread.lastSyncAt', stringAt),
+    lastSyncOk: nullableAt(wire.lastSyncOk, 'weread.lastSyncOk', booleanAt),
+    lastError: nullableAt(wire.lastError, 'weread.lastError', stringAt),
+    upgradeMessage: nullableAt(wire.upgradeMessage, 'weread.upgradeMessage', stringAt),
+    bookCount: safeIntegerAt(wire.bookCount, 'weread.bookCount'),
+    linkedCount: safeIntegerAt(wire.linkedCount, 'weread.linkedCount'),
+    albumCount: safeIntegerAt(wire.albumCount, 'weread.albumCount'),
+    mpCount: safeIntegerAt(wire.mpCount, 'weread.mpCount'),
+    totalSeconds: safeIntegerAt(wire.totalSeconds, 'weread.totalSeconds'),
+    totalReadDays: safeIntegerAt(wire.totalReadDays, 'weread.totalReadDays'),
+    syncing: booleanAt(wire.syncing, 'weread.syncing'),
+  }
+}
+
+function decodeWereadBook(value: unknown, path: string): WereadBook {
+  const wire = objectAt(value, path)
+  return {
+    wereadId: stringAt(wire.wereadId, `${path}.wereadId`),
+    title: stringAt(wire.title, `${path}.title`),
+    author: stringAt(wire.author, `${path}.author`),
+    category: stringAt(wire.category, `${path}.category`),
+    coverUrl: stringAt(wire.coverUrl, `${path}.coverUrl`),
+    finishReading: booleanAt(wire.finishReading, `${path}.finishReading`),
+    readUpdateTime: safeIntegerAt(wire.readUpdateTime, `${path}.readUpdateTime`),
+    progress: safeIntegerAt(wire.progress, `${path}.progress`),
+    readingSeconds: safeIntegerAt(wire.readingSeconds, `${path}.readingSeconds`),
+    localBookId: nullableAt(wire.localBookId, `${path}.localBookId`, safeIntegerAt),
+    localTitle: nullableAt(wire.localTitle, `${path}.localTitle`, stringAt),
+    linkSource: enumAt(wire.linkSource, `${path}.linkSource`, WEREAD_LINK_SOURCES),
+    removed: booleanAt(wire.removed, `${path}.removed`),
+  }
+}
+
+function decodeWereadReadingDays(value: unknown): WereadReadingDays {
+  const wire = objectAt(value, 'wereadDays')
+  return {
+    days: arrayAt(wire.days, 'wereadDays.days', (item, path) => {
+      const d = objectAt(item, path)
+      return { date: stringAt(d.date, `${path}.date`), seconds: safeIntegerAt(d.seconds, `${path}.seconds`) }
+    }),
+  }
+}
+
 function decodeStats(value: unknown): Stats {
   const wire = objectAt(value, 'stats')
   const field = (key: keyof Stats) => safeIntegerAt(wire[key], `stats.${key}`)
@@ -1254,6 +1305,54 @@ export class TauriBackend implements Backend {
   }
   readingTimeSummary(): Promise<ReadingTimeSummary> {
     return this.gated('readingTimeSummary', () => this.decode('reading_time_summary', { date: localCalendarDate() }, decodeReadingTimeSummary))
+  }
+
+  // ---- 微信读书同步(BL-030)----
+  wereadStatus(): Promise<WereadStatus> {
+    return this.gated('wereadStatus', () => this.decode('weread_status', {}, decodeWereadStatus))
+  }
+  wereadConnect(apiKey: string): Promise<WereadStatus> {
+    return this.gated('wereadConnect', () => {
+      outboundString(apiKey, 'apiKey')
+      return this.decode('weread_connect', { apiKey, date: localCalendarDate() }, decodeWereadStatus)
+    })
+  }
+  wereadSync(): Promise<WereadStatus> {
+    return this.gated('wereadSync', () => this.decode('weread_sync', { date: localCalendarDate() }, decodeWereadStatus))
+  }
+  wereadDisconnect(purge: boolean): Promise<void> {
+    return this.gated('wereadDisconnect', async () => {
+      outboundBoolean(purge, 'purge')
+      await this.decode('weread_disconnect', { purge }, value => unitAt(value, 'weread_disconnect'))
+    })
+  }
+  wereadSetAutoSync(enabled: boolean): Promise<WereadStatus> {
+    return this.gated('wereadSetAutoSync', () => {
+      outboundBoolean(enabled, 'enabled')
+      return this.decode('weread_set_auto_sync', { enabled }, decodeWereadStatus)
+    })
+  }
+  wereadBooks(): Promise<WereadBook[]> {
+    return this.gated('wereadBooks', () => this.decode('weread_books', {}, value => arrayAt(value, 'wereadBooks', decodeWereadBook)))
+  }
+  wereadLink(wereadId: string, localBookId: number | null): Promise<WereadBook> {
+    return this.gated('wereadLink', () => {
+      outboundString(wereadId, 'wereadId')
+      if (localBookId !== null) outboundInteger(localBookId, 'localBookId')
+      return this.decode('weread_link', { wereadId, localBookId }, value => decodeWereadBook(value, 'wereadBook'))
+    })
+  }
+  wereadReadingDays(from: string, to: string): Promise<WereadReadingDays> {
+    return this.gated('wereadReadingDays', () => {
+      outboundString(from, 'from')
+      outboundString(to, 'to')
+      return this.decode('weread_reading_days', { from, to }, decodeWereadReadingDays)
+    })
+  }
+  wereadOpenKeyPage(): Promise<void> {
+    return this.gated('wereadOpenKeyPage', async () => {
+      await this.decode('weread_open_key_page', {}, value => unitAt(value, 'weread_open_key_page'))
+    })
   }
   lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
     return this.gated('lineageNodeSource', () => {

@@ -53,6 +53,27 @@ function MenuActions() {
   return null
 }
 
+/** 微信读书(BL-030):已连接且开了自动同步、距上次同步超过 20 小时 → 启动后静默同步一次;失败只记在设置页 */
+const WEREAD_AUTO_SYNC_AFTER_MS = 20 * 3600 * 1000
+function WereadAutoSync() {
+  useEffect(() => {
+    let alive = true
+    void backend
+      .wereadStatus()
+      .then(status => {
+        if (!alive || !status.connected || !status.autoSync || status.syncing) return
+        const last = status.lastSyncAt ? new Date(status.lastSyncAt).getTime() : 0
+        if (Number.isFinite(last) && Date.now() - last < WEREAD_AUTO_SYNC_AFTER_MS) return
+        return backend.wereadSync().then(() => undefined)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  return null
+}
+
 /**
  * 侧栏(视觉改版第一批):顶部 52px 是标题栏带(透明标题栏下红绿灯落在这里的左上角——原生位置,不设 trafficLightPosition,
  * 否则 tao 会把 NSTitlebarContainerView 撑高到 按钮高+y,标题栏吃掉带内所有点击,BL-026;整条可拖动窗口);
@@ -138,6 +159,7 @@ export default function App() {
     <BrowserRouter>
       <RouteLogger />
       <MenuActions />
+      <WereadAutoSync />
       <div className="flex h-full">
         <Sidebar />
         {/* 主区不透明。每个页面自己渲染 52px 的 Toolbar 带(components/Toolbar)作为拖动区与标题栏延伸 */}

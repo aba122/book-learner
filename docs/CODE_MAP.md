@@ -59,6 +59,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |
 | 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>:r<n>` 行(每次重生成 n+1;若只见 :s<seq> 无 :r 是旧版);"先读一部分再生成"= 已读范围没有正文章(封面/目录/分部页不算);面板显示章节标题不是 spine 序号;`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
+| 微信读书连不上 / 同步失败 / 书没关联上 | 失败原因是数据不是异常:`weread_account.last_error`(设置页原样显示);鉴权按 HTTP 401/403 或 errcode 文案归类;书架拉不到整次失败、单本进度失败跳过;自动匹配只在唯一候选时关联(`link_source` none/auto),manual 永不覆盖;时长按北京时间分桶转日期;真网关字段以 `docs/design/2026-09-28-weread-sync.md` §2 为准 | `core/src/weread.rs`;`web/src/features/settings/WereadSection.tsx` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
 | 阅读时长没涨 / 涨得不对 | 只在阅读器页面可见且 90 s 内有指针/键盘/滚轮操作时计秒,60 s 落一笔、离开补零头(`reading_time` 表按笔存);周从周一起、本月从 1 日起;未来日期不进汇总 | `web/src/lib/useReadingClock.ts`;`core/src/reading_time.rs` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
@@ -136,14 +137,14 @@ select * from setting;
 | 路由 | 页面 | 读 | 写 |
 |---|---|---|---|
 | `/` | `features/today/TodayPage` | `listBooks` → `checkBehind`(先)→ `todayQueue` → 每书 `listBlocks`;`stats`;`pomodoroState` | `completeTask`(Tauri 下有意 unsupported)、`pomodoroStart` |
-| `/library` | `features/library/LibraryPage` | `listBooks` | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
+| `/library` | `features/library/LibraryPage` | `listBooks`;`wereadStatus` → 已连接再 `wereadBooks`(`WereadShelf` 分区 + 本地卡一行进度,BL-030) | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
 | `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
 | ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,按真实卡高布局,`layout.ts`)| 点节点开底部浮层:改名·摘要·详情·删节点 → 800 ms 防抖 `lineageSave`,卸载补写;「看原文」`lineageNodeSource` → `epubRef.display`;「问一问」→ quoteDraft 切问书;读到更后面 →「更新到最新进度」`lineageUpdate`;「让 AI 按我的理解修正」`lineageRevise`;缩放/方向键选节点;hidden 不卸载 |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession`;右栏「脉络图」`LineageAside`:`lineageGet`(只读) | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
-| `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试) | — |
-| `/settings` | `features/settings/SettingsPage` | `getSettings`、`codexBinGet`、`voiceModels`、`profileGet`、`backupList`、`gitRemoteGet` | `saveSettings`、`codexBinSet`、`voice*`、`profileSave`、`backup*`、`gitRemoteSet/gitPushNow` |
+| `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试);`readingTimeSummary`;`wereadStatus` → 已连接再 `wereadReadingDays`(近 370 天,前端按日/周/月分桶作第二序列) | — |
+| `/settings` | `features/settings/SettingsPage` | `getSettings`、`codexBinGet`、`voiceModels`、`profileGet`、`backupList`、`gitRemoteGet`、`wereadStatus` | `saveSettings`、`codexBinSet`、`voice*`、`profileSave`、`backup*`、`gitRemoteSet/gitPushNow`;`WereadSection`:`wereadConnect/Sync/SetAutoSync/Disconnect/OpenKeyPage` |
 
 跨页会话态只有 zustand `store.ts`(`activeBookId/currentTaskId/theme/pendingNotice`,内存态;夜读模式**不持久化**);领域数据一律走 backend。侧栏「知识地图」目标依赖 `activeBookId`,为空退回 `/library`。
 
@@ -213,6 +214,7 @@ select * from setting;
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
 | `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
+| `weread.rs` | 微信读书同步(BL-030):`Gateway` trait + `HttpGateway`(ureq,`POST i.weread.qq.com/api/agent/gateway`,Bearer Key,`api_name`+`skill_version`+平铺参数;`check_errcode` 把 errcode≠0 归为 Auth/Gateway)、`plan`(读库:每本 `progress_fetched_for`、要拉的月份——首次回补 11 个月,每月 1–3 日补上月)→ `fetch`(只网络:书架 → 变化的进度 ≤60 本 → overall + 各月;书架失败 `fatal`)→ `apply`(一个事务:书架 upsert/标 removed、进度、`weread_reading_day` 按北京时间分桶、`auto_link` 唯一候选、account 状态);`connect`(先 `validate_key`,失败不落库)、`books/link/book_for_local/reading_days/status/set_auto_sync/disconnect`;`Status::last_error` 承载失败原因(壳层会把异常消息替换成固定文案) | weread_account、weread_book、weread_reading_day |
 | `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`is_content_chapter`(剔封面/版权/目录/分部页与 <200 字页)、`generate`(已读正文章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>:r<n>`(n=同前缀已有行数,否则同进度重生成会重放旧结果),非事务)、`get`(带 current_seq 与两端章节标题)、`save`(清洗后保留 up_to_seq)、`update`(只喂新读章节,`merge_preserving` 保留 userEdited 节点与其旧边)、`revise`(指令 + 可聚焦节点,改动节点标 userEdited)、`node_source`(章节/块/节选)、`render_markdown`;`clean_graph`(空标题/重 id/悬空自环边/截 40;AI 无边时串链);所有写库经 `upsert` 入队 `sync_lineage`(op_id 带内容哈希) | lineage_graph |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
 | `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON)、`lineage_update_prompt`(旧图 + 新章,userEdited 不许改)、`lineage_revise_prompt`(指令 + 现图) | — |
@@ -231,7 +233,7 @@ select * from setting;
 
 ## 6. 契约六处同步(改任何命令都要同一提交)
 
-1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。原始体命令 payloadKeys 为 `[]`。**载荷形状变了(命令名不变)也要动**:`tauri.ts` 的出站校验器(如 `MAP_OPS` + `validateMapOps`)、`tauri.test.ts` 的 payload 断言、壳层 DTO 与 foundation 的 DTO 形状断言——2026-09-11 BL-002 新增 delete/split 漏了出站校验器,Mac 上定稿被本地拦成「请求内容无法安全传输」(CI 全绿也测不出,只有调试包实测能发现)。
+1. `shared/tauri-wire-contract.json` 2. `web/src-tauri/src/commands/mod.rs::WIRE_COMMANDS` 3. `web/src-tauri/src/lib.rs::register_commands` 4. `web/src-tauri/tests/foundation.rs` wire 用例(payload 分支)5. `web/src/backend/contract.test.ts` 6. `web/src/backend/tauri.test.ts::NATIVE_METHODS`;外加 `Backend` 接口(`web/src/backend/types.ts`)、`TauriBackend`(`tauri.ts`)、`MockBackend`(`mock.ts`)同语义。壳层要做网络的命令(微信读书)在 `application/mod.rs` 里把网络放在两次 `with_connection` 之间,别在持锁时调网关;测试用 `AppState::with_weread_gateway` 注入假网关(`tests/foundation.rs` `FakeWeread`),`weread_open_key_page` 注入了假网关就不真的 `open`。原始体命令 payloadKeys 为 `[]`。**载荷形状变了(命令名不变)也要动**:`tauri.ts` 的出站校验器(如 `MAP_OPS` + `validateMapOps`)、`tauri.test.ts` 的 payload 断言、壳层 DTO 与 foundation 的 DTO 形状断言——2026-09-11 BL-002 新增 delete/split 漏了出站校验器,Mac 上定稿被本地拦成「请求内容无法安全传输」(CI 全绿也测不出,只有调试包实测能发现)。
 
 ## 7. 构建、测试、CI
 

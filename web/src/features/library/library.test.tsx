@@ -438,3 +438,47 @@ describe('书架 · 导出到 Obsidian(M3 T2)', () => {
   })
 })
 
+describe('书架 · 微信读书分区(BL-030)', () => {
+  const renderPage = () =>
+    render(
+      <MemoryRouter initialEntries={['/library']}>
+        <Routes>
+          <Route path="/library" element={<LibraryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('未连接不渲染分区;连接后有书卡(进度/时长/读完)、关联下拉与「同步」;已关联的本地书卡带微信读书一行', async () => {
+    const user = userEvent.setup()
+    const first = renderPage()
+    await screen.findByRole('heading', { level: 1, name: '书架' })
+    await waitFor(() => expect(screen.getAllByRole('article').length).toBeGreaterThan(0))
+    expect(screen.queryByTestId('weread-shelf')).toBeNull()
+    first.unmount()
+
+    const mock = backendModule.backend as MockBackend
+    await mock.wereadConnect('wrk-demo')
+    renderPage()
+    const shelf = await screen.findByTestId('weread-shelf')
+    expect(within(shelf).getAllByTestId('weread-book')).toHaveLength(6)
+    const done = within(shelf).getByRole('article', { name: '微信读书《置身事内》' })
+    expect(done).toHaveTextContent('读完')
+    expect(done).toHaveTextContent('读了 9 小时')
+    expect(within(shelf).getByRole('article', { name: '微信读书《认知觉醒》' })).toHaveTextContent('12%')
+    expect(screen.getAllByTestId('weread-badge').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('weread-badge')[0]).toHaveTextContent(/微信读书 · \d+%/)
+
+    const target = (await mock.listBooks())[0]
+    const select = within(shelf).getByLabelText('《置身事内》关联本地书')
+    expect(select).toHaveValue('')
+    await user.selectOptions(select, String(target.id))
+    await waitFor(() => expect(within(shelf).getByLabelText('《置身事内》关联本地书')).toHaveValue(String(target.id)))
+    const linked = (await mock.wereadBooks()).find(b => b.title === '置身事内')!
+    expect(linked.localBookId).toBe(target.id)
+    expect(linked.linkSource).toBe('manual')
+
+    const sync = vi.spyOn(mock, 'wereadSync')
+    await user.click(within(shelf).getByRole('button', { name: '同步' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+  })
+})

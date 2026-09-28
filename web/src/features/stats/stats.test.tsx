@@ -232,3 +232,37 @@ describe('formatDuration', () => {
     expect(formatDuration(3600 + 59 * 60 + 40)).toBe('2 小时')
   })
 })
+
+describe('阅读时长 · 微信读书序列(BL-030)', () => {
+  it('已连接时柱状图加第二序列与图例、读屏表多一列;本机无记录但微信读书有也不显示空态', async () => {
+    const mock = backendModule.backend as MockBackend
+    await mock.wereadConnect('wrk-demo')
+    const first = render(<StatsPage />)
+    const section = await screen.findByTestId('section-reading')
+    await within(section).findByTestId('reading-legend')
+    expect(within(section).getAllByTestId('reading-bar')).toHaveLength(30)
+    expect(within(section).getAllByTestId('reading-bar-weread')).toHaveLength(30)
+    expect(within(section).getByTestId('reading-legend')).toHaveTextContent('微信读书总计')
+    const chart = within(section).getByRole('img', { name: '近 30 天每日阅读时长' })
+    const table = document.getElementById(chart.getAttribute('aria-describedby')!)!
+    expect(within(table).getByText('微信读书')).toBeInTheDocument()
+    expect(within(table).getByText('攻书')).toBeInTheDocument()
+    first.unmount()
+
+    vi.spyOn(backendModule.backend, 'readingTimeSummary').mockResolvedValue({
+      totalSeconds: 0, todaySeconds: 0, weekSeconds: 0, monthSeconds: 0, days: [], weeks: [], months: [], books: [],
+    })
+    render(<StatsPage />)
+    const again = await screen.findByTestId('section-reading')
+    await within(again).findByTestId('reading-legend')
+    expect(screen.queryByText('还没有阅读记录')).toBeNull()
+  })
+
+  it('未连接时没有第二序列与图例', async () => {
+    render(<StatsPage />)
+    const section = await screen.findByTestId('section-reading')
+    await within(section).findByTestId('reading-total')
+    expect(within(section).queryByTestId('reading-legend')).toBeNull()
+    expect(within(section).queryByTestId('reading-bar-weread')).toBeNull()
+  })
+})
