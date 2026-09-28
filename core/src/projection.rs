@@ -231,6 +231,16 @@ fn process(conn: &Connection, memory: &MemoryStore, kind: &str, payload: &str) -
             }
             memory.sync_reading(&slug, &title, &entries)
         }
+        "sync_weread" => {
+            let book_id = field_i64(&p, "book_id")?;
+            let (slug, title) = book_slug_title(conn, book_id)?;
+            memory.ensure_book(&slug, &title)?;
+            let notes = crate::weread::notes_for_local(conn, book_id)?;
+            if notes.marks.is_empty() && notes.thoughts.is_empty() {
+                return Ok(()); // 已取消关联 / 已清空:no-op(文件留着不删)
+            }
+            memory.sync_weread(&slug, &crate::weread::render_markdown(&title, &notes))
+        }
         "sync_lineage" => {
             let book_id = field_i64(&p, "book_id")?;
             let (slug, title) = book_slug_title(conn, book_id)?;

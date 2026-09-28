@@ -308,14 +308,24 @@ pub fn fixed_context_for_block(
             prereq.push(format!("- {}:{}", p.title, p.status));
         }
     }
-    let reading_notes = crate::reading_chat::reading_notes_for_block(
+    let mut reading_lines = crate::reading_chat::reading_notes_for_block(
         conn,
         block.book_id,
         block_id,
         crate::reading_chat::READING_NOTES_PER_BLOCK,
     )
-    .unwrap_or_default()
-    .join("\n");
+    .unwrap_or_default();
+    // 微信读书划线(BL-030 第二批):该块章节里已定位的划线与想法,和阅读对话提炼一起注入
+    reading_lines.extend(
+        crate::weread::notes_for_block(
+            conn,
+            block.book_id,
+            block_id,
+            crate::reading_chat::READING_NOTES_PER_BLOCK,
+        )
+        .unwrap_or_default(),
+    );
+    let reading_notes = reading_lines.join("\n");
     Ok(FixedContext {
         profile_summary: profile_summary.to_string(),
         block_title: block.title,

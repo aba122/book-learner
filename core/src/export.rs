@@ -352,6 +352,24 @@ pub fn plan(conn: &Connection, book_id: i64, target_dir: &Path) -> Result<Export
             });
         }
     }
+    // 微信读书划线/想法(BL-030 第二批):有数据才导出,内容同记忆库 _weread.md
+    {
+        let notes = crate::weread::notes_for_local(conn, book_id)?;
+        if !notes.marks.is_empty() || !notes.thoughts.is_empty() {
+            files.push(ExportFile {
+                rel_path: format!("{book_dir}/03-微信读书划线.md"),
+                content: format!(
+                    "{}{}",
+                    frontmatter(&[
+                        ("book", yaml_str(&title)),
+                        ("kind", "weread".into()),
+                        ("tags", tags.clone()),
+                    ]),
+                    crate::weread::render_markdown(&title, &notes)
+                ),
+            });
+        }
+    }
     // 学习报告(始终生成:无报告时占位并给出块索引)
     let block_index = blocks
         .iter()
@@ -643,5 +661,44 @@ mod tests {
         assert!(f.content.starts_with("---\n"));
         assert!(f.content.contains("kind: lineage"));
         assert!(f.content.contains("1. **供需** — 价格调节"));
+    }
+
+    #[test]
+    fn plan_includes_weread_notes_file_only_when_linked_book_has_notes() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let (book, _) = seed(&conn);
+        let before = plan(&conn, book, Path::new("/vault")).unwrap();
+        assert!(!before
+            .files
+            .iter()
+            .any(|f| f.rel_path.ends_with("03-微信读书划线.md")));
+        conn.execute(
+            "INSERT INTO weread_book(weread_id, title, local_book_id, link_source, first_seen_at, last_seen_at)
+             VALUES('w1', '同书', ?1, 'manual', 't', 't')",
+            [book],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO weread_mark(bookmark_id, weread_id, chapter_uid, chapter_idx, chapter_title, range, mark_text, fetched_at)
+             VALUES('bm1', 'w1', 3, 1, '第一章', '10-20', '价格是信号', 't')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO weread_thought(review_id, weread_id, content, abstract, range, chapter_uid, fetched_at)
+             VALUES('r1', 'w1', '所以别管价格', '价格是信号', '10-20', 3, 't')",
+            [],
+        )
+        .unwrap();
+        let after = plan(&conn, book, Path::new("/vault")).unwrap();
+        let f = after
+            .files
+            .iter()
+            .find(|f| f.rel_path.ends_with("03-微信读书划线.md"))
+            .expect("weread export file");
+        assert!(f.content.contains("kind: weread"));
+        assert!(f.content.contains("## 第一章"));
+        assert!(f.content.contains("> 价格是信号"));
+        assert!(f.content.contains("💬 所以别管价格"));
     }
 }

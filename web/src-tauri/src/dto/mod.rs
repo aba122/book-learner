@@ -942,6 +942,9 @@ pub struct ReaderMarkDto {
     pub note: String,
     pub created_at: String,
     pub updated_at: String,
+    /// local | weread(BL-030 第二批)
+    pub source: String,
+    pub external_id: Option<String>,
 }
 
 impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
@@ -958,6 +961,8 @@ impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
             note: m.note,
             created_at: m.created_at,
             updated_at: m.updated_at,
+            source: m.source,
+            external_id: m.external_id,
         }
     }
 }
@@ -976,6 +981,11 @@ pub struct NewReaderMarkDto {
     pub color: String,
     #[serde(default)]
     pub note: String,
+    /// local | weread(BL-030 第二批);省略 = local
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
 }
 
 impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
@@ -988,6 +998,8 @@ impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
             text: m.text,
             color: m.color,
             note: m.note,
+            source: m.source,
+            external_id: m.external_id,
         }
     }
 }
