@@ -1311,12 +1311,14 @@ export class MockBackend implements Backend {
     const mk = (bookmarkId: string, chapterIdx: number, chapterTitle: string, range: string, markText: string, colorStyle: number): WereadMark => ({
       bookmarkId, wereadId, chapterUid: chapterIdx, chapterIdx, chapterTitle, range, markText, colorStyle, createdAt: 1_789_000_000 + chapterIdx, localMarkId: null, locateStatus: 'pending',
     })
+    // 三条演示划线:全文命中(located)/ 只有前缀命中(partial)/ 找不到(missing)——对应 fixtures/sample.epub 第一章
     this.wereadMarkRows.push(
-      mk(`${wereadId}-bm1`, 1, '第一章', '10-24', '需求曲线向右下方倾斜', 0),
-      mk(`${wereadId}-bm2`, 2, '第二章', '40-58', '这句原文在本地 EPUB 里找不到', 2),
+      mk(`${wereadId}-bm1`, 1, '第一章', '10-24', '价格上升,需求量下降。这条向右下方倾斜的曲线', 0),
+      mk(`${wereadId}-bm2`, 1, '第一章', '60-90', '均衡不是静止,而是无数次微小调整的结果——价格是市场的语言。但本地版本没有后面这半句话,只有微信读书的版本才有', 2),
+      mk(`${wereadId}-bm3`, 2, '第二章', '40-58', '这句原文在本地 EPUB 里找不到', 1),
     )
     this.wereadThoughtRows.push(
-      { reviewId: `${wereadId}-rv1`, wereadId, content: '价格上升,需求量减少', abstractText: '需求曲线向右下方倾斜', range: '10-24', chapterUid: 1, chapterTitle: '第一章', createdAt: 1_789_000_050, star: -1, localMarkId: null, locateStatus: 'pending' },
+      { reviewId: `${wereadId}-rv1`, wereadId, content: '价格上升,需求量减少', abstractText: '价格上升,需求量下降。这条向右下方倾斜的曲线', range: '10-24', chapterUid: 1, chapterTitle: '第一章', createdAt: 1_789_000_050, star: -1, localMarkId: null, locateStatus: 'pending' },
       { reviewId: `${wereadId}-rv2`, wereadId, content: '整本读完,受益', abstractText: '', range: '', chapterUid: 0, chapterTitle: '', createdAt: 1_789_000_900, star: 5, localMarkId: null, locateStatus: 'pending' },
     )
   }

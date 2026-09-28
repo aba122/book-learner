@@ -154,7 +154,20 @@ Mock:内置 6 本演示书(2 本能自动匹配本地书)、30 天时长、`conn
 | web | `features/stats/StatsPage.tsx` | 阅读时长第二序列、图例、读屏表列 |
 | web | `App.tsx` `WereadAutoSync` | 启动后 20 h 未同步则静默同步 |
 
-**待办**:真网关实测(用户 Key)→ 校正字段缺省与错误码;第二批划线/想法;Key 迁 Keychain。
+**第二批落点(2026-09-28 回填)**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| core | `core/src/db.rs` | v13:`weread_mark`、`weread_thought`、`reader_mark.source/external_id` |
+| core | `core/src/reader_marks.rs` | `NewMark/ReaderMark` 加 `source/external_id`;外部 id 幂等 |
+| core | `core/src/weread.rs` | `plan.linked` → `fetch` 拉划线/分页想法 → `apply_marks/apply_thoughts` → `enqueue_notes_projection`;`notes_for_local/weread`、`locate`、`render_markdown`、`notes_for_block` |
+| core | `projection.rs` / `memory.rs` / `export.rs` / `session.rs` | `sync_weread` → `_weread.md`(INDEX 提示);`03-微信读书划线.md`;FixedContext 追加划线行 |
+| 壳层 | `dto` / `application` / `commands` / `lib.rs` / `foundation.rs` | `weread_notes`、`weread_locate`;`weread_connect/sync` 后 `replay_projection_after` |
+| web | `backend/*`、`types.ts` | `wereadNotes/wereadLocate`;`ReaderMark.source/externalId`;Mock 演示划线(第一条能在 fixtures/sample.epub 定位到) |
+| web | `features/library/wereadLocate.ts`(+test) | `candidates`(全文 → 前缀 40/20)、`locateWereadNotes`(逐章 load/search/unload;划线建高亮、想法挂批注或自定位)、`epubSearchSections` |
+| web | `WereadShelf.tsx` / `LibraryPage.tsx` / `MarksPanel.tsx` | 「划线 N · 想法 M · 已导入 K」+「导入划线」(按钮上显示进度,完成 toast);标记面板「微信读书」小标 |
+
+**待办**:Key 迁 Keychain;删掉的本地高亮「重新定位」;有声书条目。
 
 ## 10. 第二批设计:划线 / 想法 → 本地高亮、记忆库、Obsidian(2026-09-28 补)
 

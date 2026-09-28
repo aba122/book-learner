@@ -19,6 +19,9 @@ export interface LocateBackend {
 
 export interface LocateSummary { located: number; partial: number; missing: number; attached: number }
 
+/** 还没定位的条数(划线 + 想法);书架卡片用 */
+export const pendingNotes = (n: WereadNotes) => n.pendingCount + n.thoughts.filter(t => t.locateStatus === 'pending').length
+
 /** 微信读书 colorStyle(0–4,含义未公开)→ 本地四色,按顺序循环 */
 const COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'pink']
 export const wereadColor = (colorStyle: number): HighlightColor => COLORS[((colorStyle % COLORS.length) + COLORS.length) % COLORS.length]

@@ -20,6 +20,9 @@ function Row({ mark, label, onJump, onRemove }: { mark: ReaderMark; label: strin
         <span className="flex items-center gap-2 text-body text-label-1">
           {mark.kind === 'highlight' && <span aria-hidden className={`inline-block size-2.5 shrink-0 rounded-full ${COLOR_DOT[mark.color] ?? COLOR_DOT.yellow}`} />}
           <span className="truncate">{label}</span>
+          {mark.source === 'weread' && (
+            <span className="shrink-0 rounded-full bg-inset px-1.5 py-px text-[10px] font-medium text-label-3" data-testid="mark-source-weread">微信读书</span>
+          )}
         </span>
         {mark.note && <span className="mt-0.5 block truncate text-footnote text-label-3">{mark.note}</span>}
       </button>
