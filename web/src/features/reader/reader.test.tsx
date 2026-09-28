@@ -516,11 +516,12 @@ describe('视觉改版第二批:阅读器工具栏与浮层', () => {
   it('工具栏带含 目录/书签/标记/阅读设置,右栏 tab 带 aria-controls', async () => {
     renderReader('/reader/4?task=3')
     const toolbar = await screen.findByRole('toolbar', { name: '阅读器工具栏' })
+    // 工具栏在加载态就在,带内按钮要等书就绪才渲染:逐个等待(CI 慢机器上曾抢跑,PR #69)
     for (const name of ['目录', '书签', '标记', '阅读设置']) {
-      expect(within(toolbar).getByRole('button', { name })).toBeInTheDocument()
+      expect(await within(toolbar).findByRole('button', { name })).toBeInTheDocument()
     }
     // 收起/放大在右栏自己的头部(BL-028),工具栏只在收起后给「展开侧栏」
-    const aside = screen.getByRole('complementary', { name: '阅读辅助' })
+    const aside = await screen.findByRole('complementary', { name: '阅读辅助' })
     expect(within(aside).getByRole('button', { name: '收起侧栏' })).toBeInTheDocument()
     expect(within(toolbar).queryByRole('button', { name: '展开侧栏' })).toBeNull()
     const tab = screen.getByRole('tab', { name: '问书' })
