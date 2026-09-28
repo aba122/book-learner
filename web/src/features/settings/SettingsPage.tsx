@@ -18,6 +18,7 @@ import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import SettingsSection, { SettingsRow } from './SettingsSection'
 import { SETTINGS_SECTIONS, sectionDomId, type SettingsSectionId } from './settingsSections'
 import VoiceSection from './VoiceSection'
+import WereadSection from './WereadSection'
 
 type NumericField = 'pomodoroMinutes' | 'breakMinutes'
 const NUMERIC_FIELDS: NumericField[] = ['pomodoroMinutes', 'breakMinutes']
@@ -505,6 +506,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
           </SettingsSection>
           <VoiceSection />
           <ProfileSection />
+          <WereadSection />
           <DataSection />
           <DiagnosticsSection />
         </div>

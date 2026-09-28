@@ -9,9 +9,10 @@ import Segmented from '../../components/Segmented'
 import Skeleton from '../../components/Skeleton'
 import Toolbar from '../../components/Toolbar'
 import { formatDuration } from '../../lib/duration'
+import { addCalendarDays, localCalendarDate } from '../../lib/localDate'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import type { BackendError } from '../../backend/errors'
-import type { BookProgress, Stats, StatsDetail } from '../../types'
+import type { BookProgress, ReadingDay, Stats, StatsDetail, WereadStatus } from '../../types'
 
 const BOOK_STATUS_LABEL: Record<BookProgress['status'], string> = { active: '主攻中', paused: '已暂停', finished: '已学完' }
 const mmdd = (date: string) => date.slice(5)
@@ -243,22 +244,43 @@ function ReadingStat({ label, seconds, testId }: { label: string; seconds: numbe
  */
 function ReadingTimeSection() {
   const summary = useAsyncResource(useCallback(() => backend.readingTimeSummary(), []))
+  // 微信读书(BL-030):已连接时取近一年的每日时长,按同样的日/周/月分桶作第二序列;未连接或失败 → 只画本机
+  const weread = useAsyncResource(useCallback(async (): Promise<{ status: WereadStatus; days: ReadingDay[] } | null> => {
+    const status = await backend.wereadStatus()
+    if (!status.connected) return null
+    const today = localCalendarDate()
+    const { days } = await backend.wereadReadingDays(addCalendarDays(today, -370), today)
+    return { status, days }
+  }, []))
   const [range, setRange] = useState<ReadingRange>('day')
   const tableId = useId()
   const data = summary.data
-  const buckets = data === null ? [] : range === 'day'
+  const wr = weread.data
+  const wereadTotal = wr?.days.reduce((sum, d) => sum + d.seconds, 0) ?? 0
+  const wereadBy = new Map<string, number>()
+  if (wr) {
+    const weekStart = (date: string) => addCalendarDays(date, -((new Date(`${date}T00:00:00`).getDay() + 6) % 7))
+    for (const d of wr.days) {
+      const key = range === 'day' ? d.date : range === 'week' ? weekStart(d.date) : d.date.slice(0, 7)
+      wereadBy.set(key, (wereadBy.get(key) ?? 0) + d.seconds)
+    }
+  }
+  const buckets = data === null ? [] : (range === 'day'
     ? data.days.map(d => ({ key: d.date, label: mmdd(d.date), full: d.date, seconds: d.seconds }))
     : range === 'week'
       ? data.weeks.map(w => ({ key: w.start, label: mmdd(w.start), full: `${w.start} 起的一周`, seconds: w.seconds }))
       : data.months.map(m => ({ key: m.month, label: m.month.slice(2), full: m.month, seconds: m.seconds }))
-  const max = Math.max(1, ...buckets.map(b => b.seconds))
+  ).map(b => ({ ...b, weread: wereadBy.get(b.key) ?? 0 }))
+  const max = Math.max(1, ...buckets.map(b => Math.max(b.seconds, b.weread)))
   const maxBook = Math.max(1, ...(data?.books.map(b => b.seconds) ?? [1]))
   const rangeLabel = range === 'day' ? '近 30 天每日阅读时长' : range === 'week' ? '近 12 周每周阅读时长' : '近 12 个月每月阅读时长'
+  const hasAny = data !== null && (data.totalSeconds > 0 || wereadTotal > 0)
+  const barHeight = (seconds: number) => `${seconds > 0 ? Math.max(4, Math.round((seconds / max) * 100)) : 2}%`
   return (
     <Card className="p-5" data-testid="section-reading">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="font-serif text-title3 font-semibold text-label-1">阅读时长</h2>
-        {data && data.totalSeconds > 0 && (
+        {hasAny && (
           <Segmented<ReadingRange>
             aria-label="阅读时长范围"
             size="sm"
@@ -276,7 +298,7 @@ function ReadingTimeSection() {
         summary.error
           ? <div className="mt-3"><AsyncError error={summary.error} onRetry={summary.reload} variant="compact" /></div>
           : <div aria-busy="true" className="mt-3"><Skeleton lines={3} /></div>
-      ) : data.totalSeconds === 0 ? (
+      ) : !hasAny ? (
         <EmptyState compact icon="timer" title="还没有阅读记录" body="打开阅读器读一会儿,这里就会按日、周、月和每本书统计时长。" className="mt-2" />
       ) : (
         <>
@@ -286,15 +308,33 @@ function ReadingTimeSection() {
             <ReadingStat label="本周" seconds={data.weekSeconds} testId="reading-week" />
             <ReadingStat label="本月" seconds={data.monthSeconds} testId="reading-month" />
           </div>
-          <div className="mt-5 flex h-32 items-end gap-1 border-b border-sep pb-px" role="img" aria-label={rangeLabel} aria-describedby={tableId}>
+          {wr && (
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-footnote text-label-3" data-testid="reading-legend">
+              <span className="flex items-center gap-1.5"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-xs bg-accent/75" />攻书</span>
+              <span className="flex items-center gap-1.5"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-xs bg-ok/75" />微信读书</span>
+              <span className="ml-auto tabular-nums">
+                微信读书总计 {formatDuration(wr.status.totalSeconds)} · 阅读 {wr.status.totalReadDays} 天
+              </span>
+            </div>
+          )}
+          <div className={`${wr ? 'mt-2' : 'mt-5'} flex h-32 items-end gap-1 border-b border-sep pb-px`} role="img" aria-label={rangeLabel} aria-describedby={tableId}>
             {buckets.map(b => (
-              <div
-                key={b.key}
-                data-testid="reading-bar"
-                title={`${b.full}:${formatDuration(b.seconds)}`}
-                className={`flex-1 rounded-t-xs transition-colors duration-[var(--dur-fast)] ${b.seconds > 0 ? 'bg-accent/75 hover:bg-accent' : 'bg-inset'}`}
-                style={{ height: `${b.seconds > 0 ? Math.max(4, Math.round((b.seconds / max) * 100)) : 2}%` }}
-              />
+              <div key={b.key} className="flex h-full min-w-0 flex-1 items-end gap-px">
+                <div
+                  data-testid="reading-bar"
+                  title={`${b.full}:${formatDuration(b.seconds)}`}
+                  className={`min-w-0 flex-1 rounded-t-xs transition-colors duration-[var(--dur-fast)] ${b.seconds > 0 ? 'bg-accent/75 hover:bg-accent' : 'bg-inset'}`}
+                  style={{ height: barHeight(b.seconds) }}
+                />
+                {wr && (
+                  <div
+                    data-testid="reading-bar-weread"
+                    title={`${b.full} 微信读书:${formatDuration(b.weread)}`}
+                    className={`min-w-0 flex-1 rounded-t-xs transition-colors duration-[var(--dur-fast)] ${b.weread > 0 ? 'bg-ok/75 hover:bg-ok' : 'bg-inset'}`}
+                    style={{ height: barHeight(b.weread) }}
+                  />
+                )}
+              </div>
             ))}
           </div>
           {buckets.length > 0 && (
@@ -304,7 +344,12 @@ function ReadingTimeSection() {
               <span>{buckets[buckets.length - 1].label}</span>
             </div>
           )}
-          <SrTable id={tableId} caption={`${rangeLabel}数据表`} head={[range === 'month' ? '月份' : range === 'week' ? '周(周一)' : '日期', '时长']} rows={buckets.map(b => [b.full, formatDuration(b.seconds)])} />
+          <SrTable
+            id={tableId}
+            caption={`${rangeLabel}数据表`}
+            head={[range === 'month' ? '月份' : range === 'week' ? '周(周一)' : '日期', wr ? '攻书' : '时长', ...(wr ? ['微信读书'] : [])]}
+            rows={buckets.map(b => [b.full, formatDuration(b.seconds), ...(wr ? [formatDuration(b.weread)] : [])])}
+          />
           <h3 className="mt-5 text-footnote font-medium text-label-3">每本书</h3>
           <ul className="mt-2 flex flex-col gap-2">
             {data.books.map(b => (

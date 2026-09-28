@@ -196,3 +196,36 @@ export interface ReadingTimeSummary {
   totalSeconds: number; todaySeconds: number; weekSeconds: number; monthSeconds: number
   days: ReadingDay[]; weeks: ReadingWeek[]; months: ReadingMonth[]; books: BookReadingTime[]
 }
+
+// ---- 微信读书同步(BL-030,core weread;docs/design/2026-09-28-weread-sync.md)----
+export interface WereadStatus {
+  connected: boolean; autoSync: boolean
+  connectedAt: string | null; lastSyncAt: string | null
+  /** null = 还没同步过 */
+  lastSyncOk: boolean | null
+  /** 失败原因(中文;鉴权 / 网络 / 网关),连接失败时也放这里 */
+  lastError: string | null
+  /** 网关要求升级 skill 时的提示 */
+  upgradeMessage: string | null
+  bookCount: number; linkedCount: number; albumCount: number; mpCount: number
+  /** overall 总阅读秒数 / 有效阅读天数 */
+  totalSeconds: number; totalReadDays: number
+  /** 壳层进程内同步标志 */
+  syncing: boolean
+}
+export type WereadLinkSource = 'none' | 'auto' | 'manual'
+export interface WereadBook {
+  wereadId: string; title: string; author: string; category: string; coverUrl: string
+  finishReading: boolean
+  /** 最近阅读时间(秒级时间戳,0 = 未知) */
+  readUpdateTime: number
+  /** 0–100 */
+  progress: number
+  /** 累计阅读秒数 */
+  readingSeconds: number
+  localBookId: number | null; localTitle: string | null
+  linkSource: WereadLinkSource
+  /** 已从微信读书书架移除(记录保留) */
+  removed: boolean
+}
+export interface WereadReadingDays { days: ReadingDay[] }

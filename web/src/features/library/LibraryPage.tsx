@@ -18,9 +18,11 @@ import { toast } from '../../lib/toastStore'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { Book, BookStatus } from '../../types'
+import type { Book, BookStatus, WereadBook, WereadStatus } from '../../types'
 import ExportDialog from './ExportDialog'
 import ImportWizard from './ImportWizard'
+import WereadShelf from './WereadShelf'
+import { formatDuration } from '../../lib/duration'
 
 const STATUS_LABEL: Record<BookStatus, string> = {
   active: '主攻中',
@@ -55,6 +57,22 @@ export default function LibraryPage() {
     const list = await backend.listBooks()
     return [...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active'))
   }, []))
+  // 微信读书(BL-030):未连接就只拿状态;失败不影响本地书架(分区不渲染)
+  const weread = useAsyncResource(useCallback(async (): Promise<{ status: WereadStatus; books: WereadBook[] }> => {
+    const status = await backend.wereadStatus()
+    return { status, books: status.connected ? await backend.wereadBooks() : [] }
+  }, []))
+  const wereadSyncOp = useBackendOperation(async () => {
+    await backend.wereadSync()
+    await weread.reload()
+  })
+  const wereadLinkOp = useBackendOperation(async (wereadId: string, localBookId: number | null) => {
+    await backend.wereadLink(wereadId, localBookId)
+    await weread.reload()
+  })
+  /** 本地书 id → 关联的微信读书记录(卡片下方一行进度/时长) */
+  const wereadByLocal = new Map<number, WereadBook>()
+  for (const b of weread.data?.books ?? []) if (b.localBookId !== null && !b.removed && !wereadByLocal.has(b.localBookId)) wereadByLocal.set(b.localBookId, b)
 
   const switchOp = useBackendOperation(
     (bookId: number) => backend.setActiveBook(bookId),
@@ -244,8 +262,30 @@ export default function LibraryPage() {
                     />
                   </div>
                   {STATUS_NOTE[book.status] && <p className="mt-1 text-footnote text-label-3">{STATUS_NOTE[book.status]}</p>}
+                  {wereadByLocal.has(book.id) && (
+                    <p className="mt-1 text-footnote text-label-3 tabular-nums" data-testid="weread-badge">
+                      微信读书 · {wereadByLocal.get(book.id)!.finishReading ? '读完' : `${wereadByLocal.get(book.id)!.progress}%`}
+                      {wereadByLocal.get(book.id)!.readingSeconds > 0 && ` · ${formatDuration(wereadByLocal.get(book.id)!.readingSeconds)}`}
+                    </p>
+                  )}
                 </article>
               ))}
+            </div>
+          )}
+
+          {weread.data?.status.connected && (
+            <WereadShelf
+              status={weread.data.status}
+              books={weread.data.books}
+              localBooks={list ?? []}
+              syncing={wereadSyncOp.pending.size > 0}
+              onSync={() => { wereadSyncOp.clearError('sync'); void wereadSyncOp.run('sync') }}
+              onLink={(id, local) => { wereadLinkOp.clearError('link'); void wereadLinkOp.run('link', id, local) }}
+            />
+          )}
+          {(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link')) && (
+            <div className="mt-3">
+              <AsyncError error={(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link'))!} variant="compact" />
             </div>
           )}
         </div>

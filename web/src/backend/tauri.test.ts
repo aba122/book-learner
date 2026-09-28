@@ -402,7 +402,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary', 'wereadStatus', 'wereadConnect', 'wereadSync', 'wereadDisconnect', 'wereadSetAutoSync', 'wereadBooks', 'wereadLink', 'wereadReadingDays', 'wereadOpenKeyPage']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -978,5 +978,52 @@ describe('TauriBackend 阅读时长(BL-025)', () => {
     expect(calls[1].payload).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) })
     const bad = new TauriBackend(async <T>() => ({ ...summary, days: [{ date: 1, seconds: 'x' }] }) as T)
     await expect(bad.readingTimeSummary()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+})
+
+describe('TauriBackend 微信读书同步(BL-030)', () => {
+  const status = {
+    connected: true, autoSync: true, connectedAt: '2026-09-28T00:00:00Z', lastSyncAt: '2026-09-28T01:00:00Z', lastSyncOk: true,
+    lastError: null, upgradeMessage: null, bookCount: 2, linkedCount: 1, albumCount: 0, mpCount: 0, totalSeconds: 7200, totalReadDays: 3, syncing: false,
+  }
+  const book = {
+    wereadId: 'w1', title: '活着', author: '余华', category: '文学', coverUrl: '', finishReading: false, readUpdateTime: 100,
+    progress: 42, readingSeconds: 3600, localBookId: 1, localTitle: '活着', linkSource: 'auto', removed: false,
+  }
+  it('九条命令按契约传键;connect/sync 带本地日历日;状态/书/时长解码;坏载荷 → invalid_response', async () => {
+    const calls: { command: string; payload: unknown }[] = []
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'weread_books') return [book] as T
+      if (command === 'weread_link') return { ...book, localBookId: null, localTitle: null, linkSource: 'manual' } as T
+      if (command === 'weread_reading_days') return { days: [{ date: '2026-09-01', seconds: 1200 }] } as T
+      if (command === 'weread_disconnect' || command === 'weread_open_key_page') return null as T
+      return status as T
+    }
+    const backend = new TauriBackend(invoke)
+    expect(await backend.wereadStatus()).toEqual(status)
+    expect(calls[0]).toEqual({ command: 'weread_status', payload: {} })
+    await backend.wereadConnect('wrk-abc')
+    expect(calls[1]).toEqual({ command: 'weread_connect', payload: { apiKey: 'wrk-abc', date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } })
+    await backend.wereadSync()
+    expect(calls[2]).toEqual({ command: 'weread_sync', payload: { date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } })
+    await backend.wereadDisconnect(true)
+    expect(calls[3]).toEqual({ command: 'weread_disconnect', payload: { purge: true } })
+    expect((await backend.wereadSetAutoSync(false)).autoSync).toBe(true)
+    expect(calls[4]).toEqual({ command: 'weread_set_auto_sync', payload: { enabled: false } })
+    expect(await backend.wereadBooks()).toEqual([book])
+    expect((await backend.wereadLink('w1', null)).linkSource).toBe('manual')
+    expect(calls[6]).toEqual({ command: 'weread_link', payload: { wereadId: 'w1', localBookId: null } })
+    await backend.wereadLink('w1', 2)
+    expect(calls[7].payload).toEqual({ wereadId: 'w1', localBookId: 2 })
+    expect(await backend.wereadReadingDays('2026-09-01', '2026-09-30')).toEqual({ days: [{ date: '2026-09-01', seconds: 1200 }] })
+    await backend.wereadOpenKeyPage()
+    expect(calls[9]).toEqual({ command: 'weread_open_key_page', payload: {} })
+
+    await expect(backend.wereadLink('w1', 1.5)).rejects.toMatchObject({ code: 'invalid_request' })
+    const badStatus = new TauriBackend(async <T>() => ({ ...status, lastSyncOk: 'yes' }) as T)
+    await expect(badStatus.wereadStatus()).rejects.toMatchObject({ code: 'invalid_response' })
+    const badBook = new TauriBackend(async <T>() => [{ ...book, linkSource: 'magic' }] as T)
+    await expect(badBook.wereadBooks()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 })

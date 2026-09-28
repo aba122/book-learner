@@ -437,14 +437,14 @@ describe('设置页 · 外观(视觉改版第一批)', () => {
 })
 
 describe('设置页 · 分区导航(视觉改版第三批)', () => {
-  it('左列六个分区,点「画像」滚到分区并标为当前;工具栏带里有「保存」', async () => {
+  it('左列七个分区,点「画像」滚到分区并标为当前;工具栏带里有「保存」', async () => {
     const user = userEvent.setup()
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
     render(<SettingsPage />)
     await screen.findByLabelText('番茄钟(分钟)')
     const nav = screen.getByRole('navigation', { name: '设置分区' })
-    expect(within(nav).getAllByRole('button').map(b => b.textContent)).toEqual(['通用', 'AI 与导出', '语音', '画像', '数据', '诊断'])
+    expect(within(nav).getAllByRole('button').map(b => b.textContent)).toEqual(['通用', 'AI 与导出', '语音', '画像', '微信读书', '数据', '诊断'])
     expect(within(nav).getByRole('button', { name: '通用' })).toHaveAttribute('aria-current', 'true')
     await user.click(within(nav).getByRole('button', { name: '画像' }))
     expect(scrollIntoView).toHaveBeenCalled()
@@ -453,7 +453,7 @@ describe('设置页 · 分区导航(视觉改版第三批)', () => {
     const toolbar = screen.getByRole('toolbar', { name: '设置工具栏' })
     expect(within(toolbar).getByRole('button', { name: '保存' })).toBeInTheDocument()
     // 六个分区全部渲染(不隐藏),标题顺序固定
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['通用', 'AI 与导出', '语音', '学习者画像', '数据', '诊断'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['通用', 'AI 与导出', '语音', '学习者画像', '微信读书', '数据', '诊断'])
   })
 
   it('校验提示仍是 role=alert,分区里的行是分组列表', async () => {
@@ -465,5 +465,41 @@ describe('设置页 · 分区导航(视觉改版第三批)', () => {
     const general = screen.getByRole('region', { name: '通用' })
     expect(within(general).getByRole('radiogroup', { name: '外观' })).toBeInTheDocument()
     expect(within(general).getByLabelText('提醒时间')).toBeInTheDocument()
+  })
+})
+
+describe('设置 · 微信读书(BL-030)', () => {
+  it('未连接:Key 空则禁用;坏 Key 显示原因不抛;好 Key 连接后有状态/立即同步/自动同步开关;断开并清除回到未连接', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    const section = await screen.findByRole('region', { name: '微信读书' })
+    expect(within(section).getByRole('button', { name: '连接并同步' })).toBeDisabled()
+    expect(within(section).getByRole('button', { name: '打开获取页面' })).toBeInTheDocument()
+    const input = within(section).getByLabelText('API Key')
+    expect(input).toHaveAttribute('type', 'password')
+    await user.type(input, 'bad-key')
+    await user.click(within(section).getByRole('button', { name: '连接并同步' }))
+    expect(await within(section).findByRole('alert')).toHaveTextContent('API Key 无效')
+    expect(within(section).getByRole('button', { name: '连接并同步' })).toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'wrk-demo')
+    await user.click(within(section).getByRole('button', { name: '连接并同步' }))
+    const status = await within(section).findByTestId('weread-status')
+    expect(status).toHaveTextContent(/电子书 6 本 · 已关联 [12] 本/)
+    expect(within(section).getByTestId('weread-last-sync')).toHaveTextContent('成功')
+    expect(within(section).queryByLabelText('API Key')).toBeNull()
+    const toggle = within(section).getByRole('switch', { name: '启动时自动同步' })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await user.click(toggle)
+    await waitFor(() => expect(within(section).getByRole('switch', { name: '启动时自动同步' })).toHaveAttribute('aria-checked', 'false'))
+    const sync = vi.spyOn(backendModule.backend, 'wereadSync')
+    await user.click(within(section).getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+
+    await user.click(within(section).getByRole('button', { name: '断开并清除数据' }))
+    await user.click(await screen.findByRole('button', { name: '断开并清除' }))
+    expect(await within(section).findByRole('button', { name: '连接并同步' })).toBeInTheDocument()
+    expect(await backendModule.backend.wereadBooks()).toEqual([])
   })
 })

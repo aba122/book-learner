@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadReadingDays, WereadStatus,
 } from '../types'
 
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
@@ -83,6 +83,19 @@ export interface Backend {
   readingTimeAdd(bookId: number, date: string, seconds: number): Promise<void>
   /** 阅读时长汇总:总量 / 今日 / 本周 / 本月 + 30 天 / 12 周 / 12 月 + 每本书;"今天"由前端本地日历日决定 */
   readingTimeSummary(): Promise<ReadingTimeSummary>
+  /** 微信读书同步(BL-030):连接 = 验 Key + 首次同步(失败原因在 status.lastError,不抛);sync 计划→拉取→落库;"今天"由前端本地日历日决定 */
+  wereadStatus(): Promise<WereadStatus>
+  wereadConnect(apiKey: string): Promise<WereadStatus>
+  wereadSync(): Promise<WereadStatus>
+  wereadDisconnect(purge: boolean): Promise<void>
+  wereadSetAutoSync(enabled: boolean): Promise<WereadStatus>
+  wereadBooks(): Promise<WereadBook[]>
+  /** 手动关联 / 取消关联(null);之后自动匹配不再碰这本 */
+  wereadLink(wereadId: string, localBookId: number | null): Promise<WereadBook>
+  /** [from, to] 闭区间内有记录的日子 */
+  wereadReadingDays(from: string, to: string): Promise<WereadReadingDays>
+  /** 在系统浏览器打开官方 Key 获取页 */
+  wereadOpenKeyPage(): Promise<void>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>
