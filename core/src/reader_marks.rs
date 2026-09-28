@@ -21,6 +21,10 @@ pub struct ReaderMark {
     pub note: String,
     pub created_at: String,
     pub updated_at: String,
+    /// local | weread(微信读书导入,BL-030 第二批)
+    pub source: String,
+    /// 外部 id(微信读书 bookmarkId / reviewId);同书同来源同 id 幂等
+    pub external_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,8 +36,12 @@ pub struct NewMark {
     pub text: String,
     pub color: String,
     pub note: String,
+    /// local | weread;空当 local
+    pub source: String,
+    pub external_id: Option<String>,
 }
 
+pub const SOURCES: [&str; 2] = ["local", "weread"];
 pub const KINDS: [&str; 3] = ["highlight", "bookmark", "position"];
 pub const COLORS: [&str; 4] = ["yellow", "green", "blue", "pink"];
 const MAX_TEXT: usize = 4000;
@@ -80,6 +88,19 @@ fn validate(mark: &NewMark) -> Result<()> {
     if mark.text.len() > MAX_TEXT || mark.note.len() > MAX_NOTE {
         return Err(CoreError::InvalidInput("mark text/note too long".into()));
     }
+    if !mark.source.is_empty() && !SOURCES.contains(&mark.source.as_str()) {
+        return Err(CoreError::InvalidInput(format!(
+            "unknown mark source {:?}",
+            mark.source
+        )));
+    }
+    if mark
+        .external_id
+        .as_deref()
+        .is_some_and(|id| id.is_empty() || id.len() > 200)
+    {
+        return Err(CoreError::InvalidInput("bad external id".into()));
+    }
     Ok(())
 }
 
@@ -111,6 +132,24 @@ pub fn add(conn: &Connection, book_id: i64, mark: &NewMark) -> Result<ReaderMark
             return get(conn, existing);
         }
     }
+    let source = if mark.source.is_empty() {
+        "local"
+    } else {
+        mark.source.as_str()
+    };
+    // 外部来源同 id 幂等(重复导入返回既有行)
+    if let Some(external) = &mark.external_id {
+        if let Some(existing) = conn
+            .query_row(
+                "SELECT id FROM reader_mark WHERE book_id=?1 AND source=?2 AND external_id=?3",
+                rusqlite::params![book_id, source, external],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        {
+            return get(conn, existing);
+        }
+    }
     let ts = now();
     let color = if mark.kind == "highlight" && mark.color.is_empty() {
         COLORS[0].to_string()
@@ -118,8 +157,8 @@ pub fn add(conn: &Connection, book_id: i64, mark: &NewMark) -> Result<ReaderMark
         mark.color.clone()
     };
     conn.execute(
-        "INSERT INTO reader_mark(book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",
+        "INSERT INTO reader_mark(book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at,source,external_id) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?10,?11)",
         rusqlite::params![
             book_id,
             mark.kind,
@@ -129,7 +168,9 @@ pub fn add(conn: &Connection, book_id: i64, mark: &NewMark) -> Result<ReaderMark
             mark.text,
             color,
             mark.note,
-            ts
+            ts,
+            source,
+            mark.external_id
         ],
     )?;
     get(conn, conn.last_insert_rowid())
@@ -208,7 +249,7 @@ pub fn remove(conn: &Connection, id: i64) -> Result<()> {
 
 pub fn get(conn: &Connection, id: i64) -> Result<ReaderMark> {
     conn.query_row(
-        "SELECT id,book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at FROM reader_mark WHERE id=?1",
+        "SELECT id,book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at,source,external_id FROM reader_mark WHERE id=?1",
         [id],
         row,
     )
@@ -229,6 +270,8 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ReaderMark> {
         note: r.get(8)?,
         created_at: r.get(9)?,
         updated_at: r.get(10)?,
+        source: r.get(11)?,
+        external_id: r.get(12)?,
     })
 }
 
@@ -236,7 +279,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ReaderMark> {
 pub fn list(conn: &Connection, book_id: i64) -> Result<Vec<ReaderMark>> {
     book_exists(conn, book_id)?;
     let mut st = conn.prepare(
-        "SELECT id,book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at \
+        "SELECT id,book_id,kind,spine_href,cfi_start,cfi_end,text,color,note,created_at,updated_at,source,external_id \
          FROM reader_mark WHERE book_id=?1 ORDER BY created_at, id",
     )?;
     let rows = st.query_map([book_id], row)?;
@@ -246,6 +289,29 @@ pub fn list(conn: &Connection, book_id: i64) -> Result<Vec<ReaderMark>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_source_marks_are_idempotent_and_validated() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let book = seed(&conn);
+        let mut m = hl("划线");
+        m.source = "weread".into();
+        m.external_id = Some("bm-1".into());
+        let a = add(&conn, book, &m).unwrap();
+        let b = add(&conn, book, &m).unwrap();
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.source, "weread");
+        assert_eq!(a.external_id.as_deref(), Some("bm-1"));
+        assert_eq!(list(&conn, book).unwrap().len(), 1);
+        m.source = "kindle".into();
+        assert!(matches!(
+            add(&conn, book, &m),
+            Err(CoreError::InvalidInput(_))
+        ));
+        let local = add(&conn, book, &hl("本地")).unwrap();
+        assert_eq!(local.source, "local");
+        assert_eq!(local.external_id, None);
+    }
 
     fn seed(conn: &Connection) -> i64 {
         crate::models::insert_book(conn, "书", "", crate::models::BookType::Textbook, "bk").unwrap()
@@ -259,6 +325,8 @@ mod tests {
             text: text.into(),
             color: "".into(),
             note: "".into(),
+            source: String::new(),
+            external_id: None,
         }
     }
 

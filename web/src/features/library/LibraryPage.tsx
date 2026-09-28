@@ -18,10 +18,12 @@ import { toast } from '../../lib/toastStore'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useSession } from '../../store'
-import type { Book, BookStatus, WereadBook, WereadStatus } from '../../types'
+import type { Book, BookStatus, WereadBook, WereadNotes, WereadStatus } from '../../types'
 import ExportDialog from './ExportDialog'
 import ImportWizard from './ImportWizard'
-import WereadShelf from './WereadShelf'
+import WereadShelf, { type ImportProgress } from './WereadShelf'
+import { openEpub } from '../../epub/extract'
+import { epubSearchSections, locateWereadNotes } from './wereadLocate'
 import CoverTile from './CoverTile'
 import { formatDuration } from '../../lib/duration'
 
@@ -56,10 +58,40 @@ export default function LibraryPage() {
     return [...list].sort((a, z) => Number(z.status === 'active') - Number(a.status === 'active'))
   }, []))
   // 微信读书(BL-030):未连接就只拿状态;失败不影响本地书架(分区不渲染)
-  const weread = useAsyncResource(useCallback(async (): Promise<{ status: WereadStatus; books: WereadBook[] }> => {
+  const weread = useAsyncResource(useCallback(async (): Promise<{ status: WereadStatus; books: WereadBook[]; notes: Map<string, WereadNotes> }> => {
     const status = await backend.wereadStatus()
-    return { status, books: status.connected ? await backend.wereadBooks() : [] }
+    const books = status.connected ? await backend.wereadBooks() : []
+    // 第二批:已关联书的划线/想法计数(逐本取;失败不影响书架)
+    const notes = new Map<string, WereadNotes>()
+    for (const b of books) {
+      if (b.localBookId === null || b.removed) continue
+      try {
+        notes.set(b.wereadId, await backend.wereadNotes(b.localBookId))
+      } catch {
+        // 计数拿不到只是少一行文字
+      }
+    }
+    return { status, books, notes }
   }, []))
+  /** 「导入划线」:打开本地 EPUB,逐章查找原文,落成 source=weread 的高亮;进度显示在按钮上 */
+  const [importing, setImporting] = useState<ImportProgress | null>(null)
+  const importOp = useBackendOperation(async (wereadId: string, localBookId: number) => {
+    const notes = await backend.wereadNotes(localBookId)
+    const book = await openEpub(await backend.epubUrl(localBookId))
+    try {
+      setImporting({ wereadId, done: 0, total: 0 })
+      const summary = await locateWereadNotes(localBookId, notes, epubSearchSections(book), backend, (done, total) => setImporting({ wereadId, done, total }))
+      const found = summary.located + summary.partial
+      toast({
+        message: found > 0 ? `已导入 ${found} 条划线到高亮` : '这次没有定位到划线',
+        description: [summary.attached > 0 ? `${summary.attached} 条想法挂到了高亮` : '', summary.missing > 0 ? `${summary.missing} 条在本地 EPUB 里找不到原文` : ''].filter(Boolean).join(';') || undefined,
+      })
+    } finally {
+      book.destroy()
+      setImporting(null)
+    }
+    await weread.reload()
+  })
   const wereadSyncOp = useBackendOperation(async () => {
     await backend.wereadSync()
     await weread.reload()
@@ -274,14 +306,17 @@ export default function LibraryPage() {
               status={weread.data.status}
               books={weread.data.books}
               localBooks={list ?? []}
+              notes={weread.data.notes}
               syncing={wereadSyncOp.pending.size > 0}
+              importing={importing}
               onSync={() => { wereadSyncOp.clearError('sync'); void wereadSyncOp.run('sync') }}
               onLink={(id, local) => { wereadLinkOp.clearError('link'); void wereadLinkOp.run('link', id, local) }}
+              onImport={(id, local) => { importOp.clearError('import'); void importOp.run('import', id, local) }}
             />
           )}
-          {(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link')) && (
+          {(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link') ?? importOp.errors.get('import')) && (
             <div className="mt-3">
-              <AsyncError error={(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link'))!} variant="compact" />
+              <AsyncError error={(wereadSyncOp.errors.get('sync') ?? wereadLinkOp.errors.get('link') ?? importOp.errors.get('import'))!} variant="compact" />
             </div>
           )}
         </div>

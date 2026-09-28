@@ -2,25 +2,33 @@ import Button from '../../components/Button'
 import Select from '../../components/Select'
 import Tag from '../../components/Tag'
 import CoverTile from './CoverTile'
+import { pendingNotes } from './wereadLocate'
 import { formatDuration } from '../../lib/duration'
-import type { Book, WereadBook, WereadStatus } from '../../types'
+import type { Book, WereadBook, WereadNotes, WereadStatus } from '../../types'
 
 const fmtDay = (iso: string) => iso.slice(0, 10)
+
+export interface ImportProgress { wereadId: string; done: number; total: number }
 
 interface Props {
   status: WereadStatus
   books: WereadBook[]
   localBooks: Book[]
+  /** 已关联书的划线/想法(按 wereadId;第二批) */
+  notes?: Map<string, WereadNotes>
   syncing: boolean
+  importing?: ImportProgress | null
   onSync: () => void
   onLink: (wereadId: string, localBookId: number | null) => void
+  onImport?: (wereadId: string, localBookId: number) => void
 }
+
 
 /**
  * 书架 › 微信读书分区(BL-030):每本一张签名封面卡 + 进度/时长/读完;右下用下拉关联本地书(自动匹配的标「自动」)。
  * 已从微信读书书架移除的书压暗并标出;未连接时由父组件不渲染本分区。
  */
-export default function WereadShelf({ status, books, localBooks, syncing, onSync, onLink }: Props) {
+export default function WereadShelf({ status, books, localBooks, notes, syncing, importing = null, onSync, onLink, onImport }: Props) {
   return (
     <section aria-labelledby="weread-shelf-title" className="mt-12" data-testid="weread-shelf">
       <div className="flex items-baseline justify-between gap-4">
@@ -74,6 +82,28 @@ export default function WereadShelf({ status, books, localBooks, syncing, onSync
                 </Select>
                 {b.localBookId !== null && b.linkSource === 'auto' && <span className="shrink-0 text-footnote text-label-3">自动</span>}
               </div>
+              {b.localBookId !== null && notes?.get(b.wereadId) && (() => {
+                const n = notes.get(b.wereadId)!
+                const pending = pendingNotes(n)
+                const busy = importing !== null
+                const mine = importing?.wereadId === b.wereadId
+                if (n.markCount === 0 && n.thoughtCount === 0) return null
+                return (
+                  <div className="mt-2 flex items-center justify-between gap-2 text-footnote text-label-3" data-testid="weread-notes">
+                    <span className="tabular-nums">
+                      划线 {n.markCount} · 想法 {n.thoughtCount}
+                      {n.locatedCount > 0 && ` · 已导入 ${n.locatedCount}`}
+                    </span>
+                    {pending > 0 ? (
+                      <Button size="sm" disabled={busy || !onImport} onClick={() => onImport?.(b.wereadId, b.localBookId!)}>
+                        {mine ? `定位中 ${importing.done}/${importing.total}` : '导入划线'}
+                      </Button>
+                    ) : (
+                      <span className="shrink-0">已处理</span>
+                    )}
+                  </div>
+                )
+              })()}
             </article>
           ))}
         </div>

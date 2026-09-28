@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadReadingDays, WereadStatus,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus,
 } from '../types'
 
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
@@ -96,6 +96,9 @@ export interface Backend {
   wereadReadingDays(from: string, to: string): Promise<WereadReadingDays>
   /** 在系统浏览器打开官方 Key 获取页 */
   wereadOpenKeyPage(): Promise<void>
+  /** 第二批:本地书关联的微信读书划线/想法(没关联 → 空);定位结果落库(可顺带建 source=weread 的高亮,或把想法挂到既有高亮当批注) */
+  wereadNotes(localBookId: number): Promise<WereadNotes>
+  wereadLocate(kind: 'mark' | 'thought', id: string, status: WereadLocateStatus, localBookId: number, mark: NewReaderMark | null, attachTo: number | null): Promise<ReaderMark | null>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>

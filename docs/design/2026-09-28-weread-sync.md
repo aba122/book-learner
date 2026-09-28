@@ -154,4 +154,51 @@ Mock:内置 6 本演示书(2 本能自动匹配本地书)、30 天时长、`conn
 | web | `features/stats/StatsPage.tsx` | 阅读时长第二序列、图例、读屏表列 |
 | web | `App.tsx` `WereadAutoSync` | 启动后 20 h 未同步则静默同步 |
 
-**待办**:真网关实测(用户 Key)→ 校正字段缺省与错误码;第二批划线/想法;Key 迁 Keychain。
+**第二批落点(2026-09-28 回填)**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| core | `core/src/db.rs` | v13:`weread_mark`、`weread_thought`、`reader_mark.source/external_id` |
+| core | `core/src/reader_marks.rs` | `NewMark/ReaderMark` 加 `source/external_id`;外部 id 幂等 |
+| core | `core/src/weread.rs` | `plan.linked` → `fetch` 拉划线/分页想法 → `apply_marks/apply_thoughts` → `enqueue_notes_projection`;`notes_for_local/weread`、`locate`、`render_markdown`、`notes_for_block` |
+| core | `projection.rs` / `memory.rs` / `export.rs` / `session.rs` | `sync_weread` → `_weread.md`(INDEX 提示);`03-微信读书划线.md`;FixedContext 追加划线行 |
+| 壳层 | `dto` / `application` / `commands` / `lib.rs` / `foundation.rs` | `weread_notes`、`weread_locate`;`weread_connect/sync` 后 `replay_projection_after` |
+| web | `backend/*`、`types.ts` | `wereadNotes/wereadLocate`;`ReaderMark.source/externalId`;Mock 演示划线(第一条能在 fixtures/sample.epub 定位到) |
+| web | `features/library/wereadLocate.ts`(+test) | `candidates`(全文 → 前缀 40/20)、`locateWereadNotes`(逐章 load/search/unload;划线建高亮、想法挂批注或自定位)、`epubSearchSections` |
+| web | `WereadShelf.tsx` / `LibraryPage.tsx` / `MarksPanel.tsx` | 「划线 N · 想法 M · 已导入 K」+「导入划线」(按钮上显示进度,完成 toast);标记面板「微信读书」小标 |
+
+**待办**:Key 迁 Keychain;删掉的本地高亮「重新定位」;有声书条目。
+
+## 10. 第二批设计:划线 / 想法 → 本地高亮、记忆库、Obsidian(2026-09-28 补)
+
+**目标**:已关联本地书的微信读书划线与想法,进到攻书自己的高亮里(阅读器里能看到、标记面板能管理),并镜像到记忆库与 Obsidian 导出。未关联的书只存不定位。
+
+**数据(schema v13,只加)**:
+```
+weread_mark      -- 划线(/book/bookmarklist updated[],type=1)
+  bookmark_id TEXT PRIMARY KEY, weread_id TEXT NOT NULL, chapter_uid INTEGER, chapter_idx INTEGER,
+  chapter_title TEXT NOT NULL DEFAULT '', range TEXT NOT NULL DEFAULT '', mark_text TEXT NOT NULL,
+  color_style INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0,
+  local_mark_id INTEGER REFERENCES reader_mark(id) ON DELETE SET NULL,
+  locate_status TEXT NOT NULL DEFAULT 'pending'   -- pending | located | partial | missing
+  removed INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL
+weread_thought   -- 想法/点评(/review/list/mine reviews[].review)
+  review_id TEXT PRIMARY KEY, weread_id TEXT NOT NULL, content TEXT NOT NULL, abstract TEXT NOT NULL DEFAULT '',
+  range TEXT NOT NULL DEFAULT '', chapter_uid INTEGER, chapter_title TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0, star INTEGER NOT NULL DEFAULT -1,
+  local_mark_id INTEGER REFERENCES reader_mark(id) ON DELETE SET NULL,
+  removed INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL
+reader_mark      -- 加两列:source TEXT NOT NULL DEFAULT 'local'('local'|'weread'),external_id TEXT
+```
+
+**同步**(在 §4 的 fetch 里追加一步,只对 `local_book_id IS NOT NULL` 且未移除的书):`/book/bookmarklist` + `/review/list/mine`(分页到 `hasMore=0`)→ upsert 两张表(本次没出现的标 `removed=1`;已定位的保留 `local_mark_id`)。每本 2+ 次调用,间隔 100 ms;首次关联时也会在下次同步补拉。
+
+**定位(web,`features/library/wereadLocate.ts`)**:书架分区里已关联的书卡有「导入划线」钮(显示 划线 N / 想法 M / 已导入 K)。点击:`wereadMarksPending(localBookId)` 取待定位划线与带原文的想法 → `openEpub(epubUrl)` → 按 spine 顺序 `section.load()` 后 `section.search(markText)`(epub.js 跨最多 5 个文本节点的精确子串;先试全文,失败再试去首尾标点的前 40 / 20 字前缀 → `partial`;都失败 → `missing`)→ 命中就 `readerMarkAdd({kind:'highlight', cfi, text: markText, color, note, source:'weread', externalId: bookmarkId})`,core 在同一事务里写 `weread_mark.local_mark_id/locate_status`。想法:`range` 与某条划线相同 → 写成该高亮的 `note`;有 `abstract` 但无对应划线 → 用 abstract 定位成一条带 note 的高亮;无原文的章节/整本点评 → 不进阅读器,只进记忆库。颜色:`colorStyle` 按顺序映射到本地四色。已定位的划线在阅读器里与本地高亮一样显示,标记面板每行带「微信读书」小标;删除本地高亮不会再次导入(`local_mark_id` 置空但 `locate_status` 保持,重新导入需用户点「重新定位」——第二批不做,记为后续)。
+
+**记忆库**:投影 kind `sync_weread`(op_id 带内容哈希)→ `books/<slug>/_weread.md`:按章节分组的划线(引用格式)与挂在其下的想法、无原文的点评单列;供 codex 上下文的 `FixedContext` 追加该文件的前 N 条(按 `_reading.md` 同样的截断规则)。
+
+**Obsidian 导出**:每本书目录新增 `03-微信读书划线.md`(同上内容);无数据不生成。
+
+**契约**:`weread_marks(localBookId) → {marks[], thoughts[], counts}`、`weread_mark_locate(bookmarkId, localMarkId|null, status)`(由 `readerMarkAdd` 扩展:`NewReaderMark` 加可选 `source/externalId`,core 在写高亮时按 externalId 回填 `weread_mark`)。六处同步。
+
+**验证**:core(升 v13、同步拉划线/想法只对已关联书、upsert/移除、投影 md 幂等、导出文件);web(定位算法用假 section 单测;书架钮与计数;标记面板小标);真机:关联《罪与罚》后导入,阅读器里能看到微信读书划线并可删除。

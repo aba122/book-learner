@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadReadingDays, WereadStatus,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
@@ -452,6 +452,7 @@ function decodePushResult(value: unknown): PushResult {
 }
 
 const READER_MARK_KINDS = ['highlight', 'bookmark', 'position'] as const satisfies readonly ReaderMarkKind[]
+const READER_MARK_SOURCES = ['local', 'weread'] as const satisfies readonly ReaderMark['source'][]
 
 function decodeAppInfo(value: unknown): AppInfo {
   const wire = objectAt(value, 'appInfo')
@@ -613,6 +614,20 @@ function outboundNullableInteger(value: unknown, path: string): void {
   if (value !== null) outboundInteger(value, path)
 }
 
+/** NewReaderMark → 壳层 `NewReaderMarkDto`(deny_unknown_fields:只发它认识的键;来源两键只在给了时才发) */
+function newReaderMarkPayload(mark: NewReaderMark): Record<string, unknown> {
+  const wire = objectAt(mark, 'mark', 'invalid_request')
+  outboundString(wire.kind, 'mark.kind')
+  outboundString(wire.spineHref, 'mark.spineHref')
+  outboundString(wire.cfiStart, 'mark.cfiStart')
+  return {
+    kind: mark.kind, spineHref: mark.spineHref, cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd ?? null,
+    text: mark.text ?? '', color: mark.color ?? '', note: mark.note ?? '',
+    ...(mark.source ? { source: mark.source } : {}),
+    ...(mark.externalId ? { externalId: mark.externalId } : {}),
+  }
+}
+
 function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
   const wire = objectAt(value, path)
   return {
@@ -627,6 +642,54 @@ function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
     note: stringAt(wire.note, `${path}.note`),
     createdAt: stringAt(wire.createdAt, `${path}.createdAt`),
     updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
+    // 来源(BL-030 第二批):旧壳层没有这两个键 → local / null
+    source: Object.hasOwn(wire, 'source') ? enumAt(wire.source, `${path}.source`, READER_MARK_SOURCES) : 'local',
+    externalId: Object.hasOwn(wire, 'externalId') ? nullableAt(wire.externalId, `${path}.externalId`, stringAt) : null,
+  }
+}
+
+const WEREAD_LOCATE_STATUSES = ['pending', 'located', 'partial', 'missing'] as const satisfies readonly WereadLocateStatus[]
+
+function decodeWereadNotes(value: unknown): WereadNotes {
+  const wire = objectAt(value, 'wereadNotes')
+  return {
+    wereadId: nullableAt(wire.wereadId, 'wereadNotes.wereadId', stringAt),
+    marks: arrayAt(wire.marks, 'wereadNotes.marks', (item, path) => {
+      const m = objectAt(item, path)
+      return {
+        bookmarkId: stringAt(m.bookmarkId, `${path}.bookmarkId`),
+        wereadId: stringAt(m.wereadId, `${path}.wereadId`),
+        chapterUid: safeIntegerAt(m.chapterUid, `${path}.chapterUid`),
+        chapterIdx: safeIntegerAt(m.chapterIdx, `${path}.chapterIdx`),
+        chapterTitle: stringAt(m.chapterTitle, `${path}.chapterTitle`),
+        range: stringAt(m.range, `${path}.range`),
+        markText: stringAt(m.markText, `${path}.markText`),
+        colorStyle: safeIntegerAt(m.colorStyle, `${path}.colorStyle`),
+        createdAt: safeIntegerAt(m.createdAt, `${path}.createdAt`),
+        localMarkId: nullableAt(m.localMarkId, `${path}.localMarkId`, safeIntegerAt),
+        locateStatus: enumAt(m.locateStatus, `${path}.locateStatus`, WEREAD_LOCATE_STATUSES),
+      }
+    }),
+    thoughts: arrayAt(wire.thoughts, 'wereadNotes.thoughts', (item, path) => {
+      const t = objectAt(item, path)
+      return {
+        reviewId: stringAt(t.reviewId, `${path}.reviewId`),
+        wereadId: stringAt(t.wereadId, `${path}.wereadId`),
+        content: stringAt(t.content, `${path}.content`),
+        abstractText: stringAt(t.abstractText, `${path}.abstractText`),
+        range: stringAt(t.range, `${path}.range`),
+        chapterUid: safeIntegerAt(t.chapterUid, `${path}.chapterUid`),
+        chapterTitle: stringAt(t.chapterTitle, `${path}.chapterTitle`),
+        createdAt: safeIntegerAt(t.createdAt, `${path}.createdAt`),
+        star: safeIntegerAt(t.star, `${path}.star`),
+        localMarkId: nullableAt(t.localMarkId, `${path}.localMarkId`, safeIntegerAt),
+        locateStatus: enumAt(t.locateStatus, `${path}.locateStatus`, WEREAD_LOCATE_STATUSES),
+      }
+    }),
+    markCount: safeIntegerAt(wire.markCount, 'wereadNotes.markCount'),
+    locatedCount: safeIntegerAt(wire.locatedCount, 'wereadNotes.locatedCount'),
+    pendingCount: safeIntegerAt(wire.pendingCount, 'wereadNotes.pendingCount'),
+    thoughtCount: safeIntegerAt(wire.thoughtCount, 'wereadNotes.thoughtCount'),
   }
 }
 
@@ -1356,6 +1419,21 @@ export class TauriBackend implements Backend {
       await this.decode('weread_open_key_page', {}, value => unitAt(value, 'weread_open_key_page'))
     })
   }
+  wereadNotes(localBookId: number): Promise<WereadNotes> {
+    return this.gated('wereadNotes', () => {
+      outboundInteger(localBookId, 'localBookId')
+      return this.decode('weread_notes', { localBookId }, decodeWereadNotes)
+    })
+  }
+  wereadLocate(kind: 'mark' | 'thought', id: string, status: WereadLocateStatus, localBookId: number, mark: NewReaderMark | null, attachTo: number | null): Promise<ReaderMark | null> {
+    return this.gated('wereadLocate', () => {
+      outboundString(id, 'id')
+      outboundInteger(localBookId, 'localBookId')
+      if (attachTo !== null) outboundInteger(attachTo, 'attachTo')
+      const payload = { kind, id, status, localBookId, mark: mark ? newReaderMarkPayload(mark) : null, attachTo }
+      return this.decode('weread_locate', payload, value => nullableAt(value, 'weread_locate', v => decodeReaderMark(v)))
+    })
+  }
   lineageNodeSource(bookId: number, nodeId: string): Promise<LineageNodeSource> {
     return this.gated('lineageNodeSource', () => {
       outboundInteger(bookId, 'bookId')
@@ -1376,10 +1454,7 @@ export class TauriBackend implements Backend {
       outboundString(wire.kind, 'mark.kind')
       outboundString(wire.spineHref, 'mark.spineHref')
       outboundString(wire.cfiStart, 'mark.cfiStart')
-      const payload = {
-        kind: mark.kind, spineHref: mark.spineHref, cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd ?? null,
-        text: mark.text ?? '', color: mark.color ?? '', note: mark.note ?? '',
-      }
+      const payload = newReaderMarkPayload(mark)
       return this.decode('reader_mark_add', { bookId, mark: payload }, value => decodeReaderMark(value))
     })
   }

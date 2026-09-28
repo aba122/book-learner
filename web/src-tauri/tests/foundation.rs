@@ -1008,6 +1008,62 @@ fn weread_connect_sync_books_link_days_round_trip_with_camel_case() {
     assert!(!again.auto_sync);
     commands::weread_open_key_page_inner(&state).unwrap();
 
+    // 第二批:w1 已关联 first → 第二次同步拉到划线/想法;定位落成本地高亮(source=weread)
+    let notes = serde_json::to_value(commands::weread_notes_inner(&state, first).unwrap()).unwrap();
+    assert_eq!(notes["wereadId"], json!("w1"));
+    assert_eq!(notes["markCount"], json!(1));
+    assert_eq!(notes["pendingCount"], json!(1));
+    assert_eq!(notes["marks"][0]["bookmarkId"], json!("bm-1"));
+    assert_eq!(notes["marks"][0]["chapterTitle"], json!("第一章"));
+    assert_eq!(notes["thoughts"][0]["abstractText"], json!("知识块"));
+    let created = commands::weread_locate_inner(
+        &state,
+        "mark",
+        "bm-1",
+        "located",
+        first,
+        Some(book_learner_app::dto::NewReaderMarkDto {
+            kind: "highlight".into(),
+            spine_href: "ch0.xhtml".into(),
+            cfi_start: "epubcfi(/6/2!/4/2/1:0)".into(),
+            cfi_end: Some("epubcfi(/6/2!/4/2/1:3)".into()),
+            text: "知识块".into(),
+            color: "green".into(),
+            note: String::new(),
+            source: String::new(),
+            external_id: None,
+        }),
+        None,
+    )
+    .unwrap()
+    .expect("highlight created");
+    let created_json = serde_json::to_value(&created).unwrap();
+    assert_eq!(created_json["source"], json!("weread"));
+    assert_eq!(created_json["externalId"], json!("bm-1"));
+    assert!(commands::weread_locate_inner(
+        &state,
+        "thought",
+        "rv-1",
+        "located",
+        first,
+        None,
+        Some(created.id)
+    )
+    .unwrap()
+    .is_none());
+    let notes = commands::weread_notes_inner(&state, first).unwrap();
+    assert_eq!(notes.located_count, 1);
+    assert_eq!(notes.thoughts[0].local_mark_id, Some(created.id));
+    let marks = commands::reader_mark_list_inner(&state, first).unwrap();
+    let hl = marks.iter().find(|m| m.id == created.id).unwrap();
+    assert_eq!(hl.note, "重点");
+    assert_eq!(
+        commands::weread_locate_inner(&state, "mark", "nope", "missing", first, None, None)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+
     commands::weread_disconnect_inner(&state, true).unwrap();
     assert!(!commands::weread_status_inner(&state).unwrap().connected);
     assert!(commands::weread_books_inner(&state).unwrap().is_empty());
@@ -1535,6 +1591,14 @@ impl book_learner_core::weread::Gateway for FakeWeread {
                 json!({"totalReadTime": 7200, "readDays": 3})
             }
             "/readdata/detail" => json!({"readTimes": {WEREAD_DAY_TS.to_string(): 1200}}),
+            "/book/bookmarklist" => json!({
+                "chapters": [{"chapterUid": 1, "chapterIdx": 1, "title": "第一章"}],
+                "updated": [{"bookmarkId": "bm-1", "chapterUid": 1, "range": "0-4", "markText": "知识块", "colorStyle": 1, "type": 1, "createTime": 10}]
+            }),
+            "/review/list/mine" => json!({
+                "reviews": [{"review": {"reviewId": "rv-1", "content": "重点", "abstract": "知识块", "range": "0-4", "chapterUid": 1, "createTime": 11, "star": -1}}],
+                "hasMore": 0, "synckey": 1
+            }),
             _ => json!({}),
         })
     }
@@ -2659,6 +2723,13 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "reading_time_add" => json!({"bookId": first, "date": DAY, "seconds": 90}),
             "reading_time_summary" => json!({"date": DAY}),
             "weread_status" | "weread_books" | "weread_open_key_page" => json!({}),
+            "weread_notes" => json!({"localBookId": first}),
+            "weread_locate" => {
+                let state = app.state::<AppState>();
+                commands::weread_connect_inner(&state, "wrk-test", DAY).unwrap();
+                commands::weread_sync_inner(&state, DAY).unwrap();
+                json!({"kind": "mark", "id": "bm-1", "status": "missing", "localBookId": first, "mark": null, "attachTo": null})
+            }
             "weread_connect" => json!({"apiKey": "wrk-test", "date": DAY}),
             "weread_disconnect" => json!({"purge": false}),
             "weread_reading_days" => json!({"from": DAY, "to": "2026-09-30"}),

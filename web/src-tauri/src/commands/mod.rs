@@ -160,6 +160,12 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("weread_link", &["wereadId", "localBookId"]),
     ("weread_reading_days", &["from", "to"]),
     ("weread_open_key_page", &[]),
+    // BL-030 第二批:已关联书的划线/想法与定位落库
+    ("weread_notes", &["localBookId"]),
+    (
+        "weread_locate",
+        &["kind", "id", "status", "localBookId", "mark", "attachTo"],
+    ),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1806,20 +1812,27 @@ pub async fn weread_status(
 }
 
 #[tauri::command(async)]
-pub async fn weread_connect(
+pub async fn weread_connect<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     api_key: String,
     date: String,
 ) -> Result<crate::dto::WereadStatusDto, IpcError> {
-    weread_connect_inner(&state, &api_key, &date)
+    let status = weread_connect_inner(&state, &api_key, &date)?;
+    replay_projection_after(app, "微信读书连接");
+    Ok(status)
 }
 
 #[tauri::command(async)]
-pub async fn weread_sync(
+pub async fn weread_sync<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     date: String,
 ) -> Result<crate::dto::WereadStatusDto, IpcError> {
-    weread_sync_inner(&state, &date)
+    let status = weread_sync_inner(&state, &date)?;
+    // 已关联书的划线/想法变化会入队 sync_weread(_weread.md);后台重放
+    replay_projection_after(app, "微信读书同步");
+    Ok(status)
 }
 
 #[tauri::command(async)]
@@ -1863,4 +1876,52 @@ pub async fn weread_reading_days(
 #[tauri::command(async)]
 pub async fn weread_open_key_page(state: State<'_, AppState>) -> Result<(), IpcError> {
     weread_open_key_page_inner(&state)
+}
+
+// ---- 微信读书划线 / 想法(BL-030 第二批)----
+
+pub fn weread_notes_inner(
+    state: &AppState,
+    local_book_id: i64,
+) -> Result<crate::dto::WereadNotesDto, IpcError> {
+    run_command(state, "weread_notes", || {
+        application::weread_notes(state, local_book_id)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn weread_locate_inner(
+    state: &AppState,
+    kind: &str,
+    id: &str,
+    status: &str,
+    local_book_id: i64,
+    mark: Option<NewReaderMarkDto>,
+    attach_to: Option<i64>,
+) -> Result<Option<ReaderMarkDto>, IpcError> {
+    run_command(state, "weread_locate", || {
+        application::weread_locate(state, kind, id, status, local_book_id, mark, attach_to)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn weread_notes(
+    state: State<'_, AppState>,
+    local_book_id: i64,
+) -> Result<crate::dto::WereadNotesDto, IpcError> {
+    weread_notes_inner(&state, local_book_id)
+}
+
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+pub async fn weread_locate(
+    state: State<'_, AppState>,
+    kind: String,
+    id: String,
+    status: String,
+    local_book_id: i64,
+    mark: Option<NewReaderMarkDto>,
+    attach_to: Option<i64>,
+) -> Result<Option<ReaderMarkDto>, IpcError> {
+    weread_locate_inner(&state, &kind, &id, &status, local_book_id, mark, attach_to)
 }

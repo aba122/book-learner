@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadReadingDays, WereadStatus } from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -120,6 +120,8 @@ export class MockBackend implements Backend {
   private wereadAccount: { connectedAt: string; autoSync: boolean; lastSyncAt: string | null; lastSyncOk: boolean | null; lastError: string | null; upgradeMessage: string | null; totalSeconds: number; totalReadDays: number } | null = null
   private wereadBookRows: WereadBook[] = []
   private wereadDayRows = new Map<string, number>()
+  private wereadMarkRows: WereadMark[] = []
+  private wereadThoughtRows: WereadThought[] = []
   private blocks: KnowledgeBlock[] = []
   private tasks: DailyTask[] = []
   private plans: StudyPlan[] = []
@@ -713,9 +715,16 @@ export class MockBackend implements Backend {
       if (existing) return { ...existing }
     }
     const now = new Date().toISOString()
+    const source = mark.source ?? 'local'
+    const externalId = mark.externalId ?? null
+    if (externalId) {
+      const existing = this.marks.find(m => m.bookId === bookId && m.source === source && m.externalId === externalId)
+      if (existing) return { ...existing }
+    }
     const created: ReaderMark = {
       id: this.nextMarkId++, bookId, kind: mark.kind, spineHref: mark.spineHref, cfiStart: mark.cfiStart, cfiEnd: mark.cfiEnd ?? null,
       text: mark.text ?? '', color: mark.kind === 'highlight' ? (mark.color || 'yellow') : (mark.color ?? ''), note: mark.note ?? '', createdAt: now, updatedAt: now,
+      source, externalId,
     }
     this.marks.push(created)
     return { ...created }
@@ -739,7 +748,7 @@ export class MockBackend implements Backend {
     const now = new Date().toISOString()
     let m = this.marks.find(x => x.bookId === bookId && x.kind === 'position')
     if (m) { m.spineHref = spineHref; m.cfiStart = cfi; m.updatedAt = now } else {
-      m = { id: this.nextMarkId++, bookId, kind: 'position', spineHref, cfiStart: cfi, cfiEnd: null, text: '', color: '', note: '', createdAt: now, updatedAt: now }
+      m = { id: this.nextMarkId++, bookId, kind: 'position', spineHref, cfiStart: cfi, cfiEnd: null, text: '', color: '', note: '', createdAt: now, updatedAt: now, source: 'local', externalId: null }
       this.marks.push(m)
     }
     return { ...m }
@@ -1295,5 +1304,54 @@ export class MockBackend implements Backend {
   }
   async wereadOpenKeyPage(): Promise<void> {
     // 浏览器 mock:不真的打开;真实壳层用 open 打开官方页面
+  }
+  /** 第二批:已关联本地书的微信读书书造几条演示划线/想法(第一条能在 fixtures/sample.epub 里定位到) */
+  private wereadSeedNotes(wereadId: string) {
+    if (this.wereadMarkRows.some(m => m.wereadId === wereadId)) return
+    const mk = (bookmarkId: string, chapterIdx: number, chapterTitle: string, range: string, markText: string, colorStyle: number): WereadMark => ({
+      bookmarkId, wereadId, chapterUid: chapterIdx, chapterIdx, chapterTitle, range, markText, colorStyle, createdAt: 1_789_000_000 + chapterIdx, localMarkId: null, locateStatus: 'pending',
+    })
+    // 三条演示划线:全文命中(located)/ 只有前缀命中(partial)/ 找不到(missing)——对应 fixtures/sample.epub 第一章
+    this.wereadMarkRows.push(
+      mk(`${wereadId}-bm1`, 1, '第一章', '10-24', '价格上升,需求量下降。这条向右下方倾斜的曲线', 0),
+      mk(`${wereadId}-bm2`, 1, '第一章', '60-90', '均衡不是静止,而是无数次微小调整的结果——价格是市场的语言。但本地版本没有后面这半句话,只有微信读书的版本才有', 2),
+      mk(`${wereadId}-bm3`, 2, '第二章', '40-58', '这句原文在本地 EPUB 里找不到', 1),
+    )
+    this.wereadThoughtRows.push(
+      { reviewId: `${wereadId}-rv1`, wereadId, content: '价格上升,需求量减少', abstractText: '价格上升,需求量下降。这条向右下方倾斜的曲线', range: '10-24', chapterUid: 1, chapterTitle: '第一章', createdAt: 1_789_000_050, star: -1, localMarkId: null, locateStatus: 'pending' },
+      { reviewId: `${wereadId}-rv2`, wereadId, content: '整本读完,受益', abstractText: '', range: '', chapterUid: 0, chapterTitle: '', createdAt: 1_789_000_900, star: 5, localMarkId: null, locateStatus: 'pending' },
+    )
+  }
+  async wereadNotes(localBookId: number): Promise<WereadNotes> {
+    const linked = this.wereadBookRows.filter(b => b.localBookId === localBookId && !b.removed).sort((a, z) => z.readUpdateTime - a.readUpdateTime)[0]
+    if (!linked) return { wereadId: null, marks: [], thoughts: [], markCount: 0, locatedCount: 0, pendingCount: 0, thoughtCount: 0 }
+    if (this.wereadAccount) this.wereadSeedNotes(linked.wereadId)
+    const marks = this.wereadMarkRows.filter(m => m.wereadId === linked.wereadId).map(m => ({ ...m }))
+    const thoughts = this.wereadThoughtRows.filter(t => t.wereadId === linked.wereadId).map(t => ({ ...t }))
+    return {
+      wereadId: linked.wereadId, marks, thoughts, markCount: marks.length,
+      locatedCount: marks.filter(m => m.locateStatus === 'located' || m.locateStatus === 'partial').length,
+      pendingCount: marks.filter(m => m.locateStatus === 'pending').length, thoughtCount: thoughts.length,
+    }
+  }
+  async wereadLocate(kind: 'mark' | 'thought', id: string, status: WereadLocateStatus, localBookId: number, mark: NewReaderMark | null, attachTo: number | null): Promise<ReaderMark | null> {
+    const row: { localMarkId: number | null; locateStatus: WereadLocateStatus } | undefined = kind === 'mark'
+      ? this.wereadMarkRows.find(m => m.bookmarkId === id)
+      : this.wereadThoughtRows.find(t => t.reviewId === id)
+    if (!row) throw notFound()
+    let created: ReaderMark | null = null
+    let markId = attachTo
+    if (mark) {
+      created = await this.readerMarkAdd(localBookId, { ...mark, source: 'weread', externalId: id })
+      markId = created.id
+    } else if (kind === 'thought' && attachTo !== null) {
+      const target = this.marks.find(m => m.id === attachTo)
+      if (!target || target.bookId !== localBookId) throw invalidRequest()
+      const content = (this.wereadThoughtRows.find(t => t.reviewId === id)?.content ?? '').trim()
+      if (content && !target.note.includes(content)) await this.readerMarkUpdate(attachTo, target.note.trim() ? `${target.note.trimEnd()}\n${content}` : content, null)
+    }
+    row.locateStatus = status
+    if (markId !== null) row.localMarkId = markId
+    return created
   }
 }

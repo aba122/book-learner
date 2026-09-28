@@ -15,6 +15,7 @@ vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 // EPUB 抽取在 jsdom 里不可行(epub.js 需真实 DOM/zip),导入向导测试 mock 掉抽取模块;真实抽取由 Playwright 覆盖
 vi.mock('../../epub/extract', () => ({
   openEpub: vi.fn(async () => ({ destroy: vi.fn() })),
+  spineSections: vi.fn(() => []),
   extractSpine: vi.fn(async () => CHAPTERS),
   EXTRACT_YIELD_EVERY: 6,
   yieldToMain: vi.fn(async () => {}),
@@ -512,5 +513,36 @@ describe('书架 · 封面(BL-031)', () => {
     // 图加载失败 → 退回签名
     fireEvent.error(img)
     expect(within(withCover).queryByTestId('book-cover')).toBeNull()
+  })
+})
+
+describe('书架 · 微信读书划线导入(BL-030 第二批)', () => {
+  const renderPage = () =>
+    render(
+      <MemoryRouter initialEntries={['/library']}>
+        <Routes>
+          <Route path="/library" element={<LibraryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('已关联书卡显示划线/想法计数与「导入划线」;点击后逐条定位落库(无章节 → 全部 missing),按钮变「已处理」', async () => {
+    const user = userEvent.setup()
+    const mock = backendModule.backend as MockBackend
+    await mock.wereadConnect('wrk-demo')
+    const locate = vi.spyOn(mock, 'wereadLocate')
+    renderPage()
+    const shelf = await screen.findByTestId('weread-shelf')
+    const card = within(shelf).getByRole('article', { name: '微信读书《微观经济学》' })
+    const line = await within(card).findByTestId('weread-notes')
+    expect(line).toHaveTextContent('划线 3 · 想法 2')
+    // 未关联的书没有这一行
+    expect(within(within(shelf).getByRole('article', { name: '微信读书《认知觉醒》' })).queryByTestId('weread-notes')).toBeNull()
+    await user.click(within(card).getByRole('button', { name: '导入划线' }))
+    await waitFor(() => expect(locate).toHaveBeenCalledTimes(5))
+    expect(locate.mock.calls.map(c => [c[0], c[2]])).toEqual([['mark', 'missing'], ['mark', 'missing'], ['mark', 'missing'], ['thought', 'missing'], ['thought', 'missing']])
+    await waitFor(() => expect(within(card).getByTestId('weread-notes')).toHaveTextContent('已处理'))
+    expect(within(card).queryByRole('button', { name: '导入划线' })).toBeNull()
+    expect(await screen.findByText('这次没有定位到划线')).toBeInTheDocument()
   })
 })

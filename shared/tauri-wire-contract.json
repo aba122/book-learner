@@ -625,6 +625,25 @@
       "method": "wereadOpenKeyPage",
       "command": "weread_open_key_page",
       "payloadKeys": []
+    },
+    {
+      "method": "wereadNotes",
+      "command": "weread_notes",
+      "payloadKeys": [
+        "localBookId"
+      ]
+    },
+    {
+      "method": "wereadLocate",
+      "command": "weread_locate",
+      "payloadKeys": [
+        "kind",
+        "id",
+        "status",
+        "localBookId",
+        "mark",
+        "attachTo"
+      ]
     }
   ],
   "unsupportedCapabilities": [

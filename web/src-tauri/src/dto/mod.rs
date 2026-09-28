@@ -13,7 +13,8 @@ use book_learner_core::settings::AppSettings;
 use book_learner_core::stats::Stats;
 use book_learner_core::verdict::{EvaluationView, VerdictOutcome};
 use book_learner_core::weread::{
-    ReadingDay as WereadReadingDay, Status as WereadStatus, WereadBook,
+    ReadingDay as WereadReadingDay, Status as WereadStatus, WereadBook, WereadMark, WereadNotes,
+    WereadThought,
 };
 use serde::{Deserialize, Serialize};
 
@@ -942,6 +943,9 @@ pub struct ReaderMarkDto {
     pub note: String,
     pub created_at: String,
     pub updated_at: String,
+    /// local | weread(BL-030 第二批)
+    pub source: String,
+    pub external_id: Option<String>,
 }
 
 impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
@@ -958,6 +962,8 @@ impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
             note: m.note,
             created_at: m.created_at,
             updated_at: m.updated_at,
+            source: m.source,
+            external_id: m.external_id,
         }
     }
 }
@@ -976,6 +982,11 @@ pub struct NewReaderMarkDto {
     pub color: String,
     #[serde(default)]
     pub note: String,
+    /// local | weread(BL-030 第二批);省略 = local
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
 }
 
 impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
@@ -988,6 +999,8 @@ impl From<NewReaderMarkDto> for book_learner_core::reader_marks::NewMark {
             text: m.text,
             color: m.color,
             note: m.note,
+            source: m.source,
+            external_id: m.external_id,
         }
     }
 }
@@ -1274,6 +1287,100 @@ impl From<Vec<WereadReadingDay>> for WereadReadingDaysDto {
                     seconds: d.seconds,
                 })
                 .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadMarkDto {
+    pub bookmark_id: String,
+    pub weread_id: String,
+    pub chapter_uid: i64,
+    pub chapter_idx: i64,
+    pub chapter_title: String,
+    pub range: String,
+    pub mark_text: String,
+    pub color_style: i64,
+    pub created_at: i64,
+    pub local_mark_id: Option<i64>,
+    pub locate_status: String,
+}
+
+impl From<WereadMark> for WereadMarkDto {
+    fn from(m: WereadMark) -> Self {
+        Self {
+            bookmark_id: m.bookmark_id,
+            weread_id: m.weread_id,
+            chapter_uid: m.chapter_uid,
+            chapter_idx: m.chapter_idx,
+            chapter_title: m.chapter_title,
+            range: m.range,
+            mark_text: m.mark_text,
+            color_style: m.color_style,
+            created_at: m.created_at,
+            local_mark_id: m.local_mark_id,
+            locate_status: m.locate_status,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadThoughtDto {
+    pub review_id: String,
+    pub weread_id: String,
+    pub content: String,
+    pub abstract_text: String,
+    pub range: String,
+    pub chapter_uid: i64,
+    pub chapter_title: String,
+    pub created_at: i64,
+    pub star: i64,
+    pub local_mark_id: Option<i64>,
+    pub locate_status: String,
+}
+
+impl From<WereadThought> for WereadThoughtDto {
+    fn from(t: WereadThought) -> Self {
+        Self {
+            review_id: t.review_id,
+            weread_id: t.weread_id,
+            content: t.content,
+            abstract_text: t.abstract_text,
+            range: t.range,
+            chapter_uid: t.chapter_uid,
+            chapter_title: t.chapter_title,
+            created_at: t.created_at,
+            star: t.star,
+            local_mark_id: t.local_mark_id,
+            locate_status: t.locate_status,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadNotesDto {
+    pub weread_id: Option<String>,
+    pub marks: Vec<WereadMarkDto>,
+    pub thoughts: Vec<WereadThoughtDto>,
+    pub mark_count: i64,
+    pub located_count: i64,
+    pub pending_count: i64,
+    pub thought_count: i64,
+}
+
+impl From<WereadNotes> for WereadNotesDto {
+    fn from(n: WereadNotes) -> Self {
+        Self {
+            weread_id: n.weread_id,
+            marks: n.marks.into_iter().map(Into::into).collect(),
+            thoughts: n.thoughts.into_iter().map(Into::into).collect(),
+            mark_count: n.mark_count,
+            located_count: n.located_count,
+            pending_count: n.pending_count,
+            thought_count: n.thought_count,
         }
     }
 }

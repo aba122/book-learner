@@ -227,6 +227,60 @@ pub struct ReadingDay {
     pub seconds: i64,
 }
 
+// ---- 划线 / 想法(第二批,只对已关联本地书的书拉)----
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WereadMark {
+    pub bookmark_id: String,
+    pub weread_id: String,
+    pub chapter_uid: i64,
+    pub chapter_idx: i64,
+    pub chapter_title: String,
+    /// 微信读书章节文本内的字符偏移 "start-end"(不是 CFI)
+    pub range: String,
+    pub mark_text: String,
+    pub color_style: i64,
+    pub created_at: i64,
+    pub local_mark_id: Option<i64>,
+    /// pending | located | partial | missing
+    pub locate_status: String,
+    pub removed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WereadThought {
+    pub review_id: String,
+    pub weread_id: String,
+    pub content: String,
+    /// 想法对应的划线原文(整本/章节点评为空)
+    pub abstract_text: String,
+    pub range: String,
+    pub chapter_uid: i64,
+    pub chapter_title: String,
+    pub created_at: i64,
+    pub star: i64,
+    pub local_mark_id: Option<i64>,
+    pub locate_status: String,
+    pub removed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WereadNotes {
+    pub weread_id: Option<String>,
+    pub marks: Vec<WereadMark>,
+    pub thoughts: Vec<WereadThought>,
+    /// 在架划线数 / 已定位(located+partial)/ 待定位
+    pub mark_count: i64,
+    pub located_count: i64,
+    pub pending_count: i64,
+    pub thought_count: i64,
+}
+
+pub const LOCATE_STATUSES: [&str; 4] = ["pending", "located", "partial", "missing"];
+/// 想法分页每页条数 / 最多页数(防死循环)
+const THOUGHT_PAGE: i64 = 100;
+const THOUGHT_MAX_PAGES: usize = 20;
+
 // ---- 账号 ----
 
 pub fn api_key(conn: &Connection) -> Result<Option<String>> {
@@ -449,6 +503,8 @@ pub fn reading_days(conn: &Connection, from: &str, to: &str) -> Result<Vec<Readi
 pub struct SyncPlan {
     /// 上次拉进度时每本书的 read_update_time(变了才重拉)
     pub progress_fetched_for: HashMap<String, i64>,
+    /// 已关联本地书、仍在架的 weread_id(拉划线/想法)
+    pub linked: Vec<String>,
     /// 本次要拉的月份(`baseTime` 参数;0 = 本月)
     pub month_base_times: Vec<i64>,
     /// 两次网络调用之间的间隔(测试置 0)
@@ -466,6 +522,10 @@ pub struct SyncFetched {
     pub overall: Option<Value>,
     /// monthly 回包
     pub months: Vec<Value>,
+    /// (weread_id, bookmarklist 回包)
+    pub marks: Vec<(String, Value)>,
+    /// (weread_id, 合并后的 reviews[] 数组)
+    pub thoughts: Vec<(String, Vec<Value>)>,
     /// 非致命错误(中文)
     pub errors: Vec<String>,
     pub upgrade_message: Option<String>,
@@ -479,6 +539,13 @@ pub fn plan(conn: &Connection, today: &str) -> Result<SyncPlan> {
     for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
         let (id, fetched) = row?;
         progress_fetched_for.insert(id, fetched);
+    }
+    let mut linked = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT weread_id FROM weread_book WHERE removed = 0 AND local_book_id IS NOT NULL ORDER BY read_update_time DESC",
+    )?;
+    for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
+        linked.push(row?);
     }
     let synced_before: i64 = conn.query_row(
         "SELECT count(*) FROM weread_account WHERE id = 1 AND last_sync_ok IS NOT NULL",
@@ -498,6 +565,7 @@ pub fn plan(conn: &Connection, today: &str) -> Result<SyncPlan> {
     }
     Ok(SyncPlan {
         progress_fetched_for,
+        linked,
         month_base_times,
         pause_ms: 100,
         max_progress: MAX_PROGRESS_PER_SYNC,
@@ -680,6 +748,52 @@ pub fn fetch(gateway: &dyn Gateway, plan: &SyncPlan) -> SyncFetched {
                 .push(format!("月度阅读时长:{}", error.message())),
         }
     }
+    // 划线 / 想法:只对已关联本地书的书(每本 1 + 分页次调用)
+    for id in &plan.linked {
+        pause();
+        match gateway.call("/book/bookmarklist", json!({ "bookId": id })) {
+            Ok(value) => {
+                note_upgrade(&mut fetched, &value);
+                fetched.marks.push((id.clone(), value));
+            }
+            Err(error) => fetched
+                .errors
+                .push(format!("《{id}》划线:{}", error.message())),
+        }
+        let mut reviews = Vec::new();
+        let mut synckey = 0i64;
+        let mut ok = true;
+        for _ in 0..THOUGHT_MAX_PAGES {
+            pause();
+            match gateway.call(
+                "/review/list/mine",
+                json!({ "bookid": id, "synckey": synckey, "count": THOUGHT_PAGE }),
+            ) {
+                Ok(value) => {
+                    note_upgrade(&mut fetched, &value);
+                    if let Some(items) = value.get("reviews").and_then(Value::as_array) {
+                        reviews.extend(items.iter().cloned());
+                    }
+                    let has_more = i64_at(&value, "hasMore") == 1;
+                    let next = i64_at(&value, "synckey");
+                    if !has_more || next == 0 || next == synckey {
+                        break;
+                    }
+                    synckey = next;
+                }
+                Err(error) => {
+                    fetched
+                        .errors
+                        .push(format!("《{id}》想法:{}", error.message()));
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            fetched.thoughts.push((id.clone(), reviews));
+        }
+    }
     fetched
 }
 
@@ -795,8 +909,26 @@ pub fn apply(conn: &Connection, fetched: SyncFetched) -> Result<Status> {
         }
     }
 
+    // 划线 / 想法(第二批):按书 upsert,本次没出现的标 removed;已定位的保留 local_mark_id
+    for (weread_id, value) in &fetched.marks {
+        apply_marks(&tx, weread_id, value, &now)?;
+    }
+    for (weread_id, reviews) in &fetched.thoughts {
+        apply_thoughts(&tx, weread_id, reviews, &now)?;
+    }
+
     // 自动匹配本地书(唯一候选才关联;manual 永不覆盖)
     auto_link(&tx)?;
+
+    // 记忆库镜像 `_weread.md`(op_id 带内容哈希:同内容不重投)
+    for weread_id in fetched
+        .marks
+        .iter()
+        .map(|(id, _)| id)
+        .chain(fetched.thoughts.iter().map(|(id, _)| id))
+    {
+        enqueue_notes_projection(&tx, weread_id)?;
+    }
 
     let last_error = if fetched.errors.is_empty() {
         None
@@ -825,6 +957,454 @@ pub fn apply(conn: &Connection, fetched: SyncFetched) -> Result<Status> {
     )?;
     tx.commit()?;
     status(conn)
+}
+
+fn chapter_titles(value: &Value) -> HashMap<i64, (i64, String)> {
+    let mut out = HashMap::new();
+    if let Some(chapters) = value.get("chapters").and_then(Value::as_array) {
+        for c in chapters {
+            out.insert(
+                i64_at(c, "chapterUid"),
+                (i64_at(c, "chapterIdx"), str_at(c, "title")),
+            );
+        }
+    }
+    out
+}
+
+fn apply_marks(conn: &Connection, weread_id: &str, value: &Value, now: &str) -> Result<()> {
+    let titles = chapter_titles(value);
+    conn.execute(
+        "UPDATE weread_mark SET removed = 1 WHERE weread_id = ?1",
+        params![weread_id],
+    )?;
+    let Some(items) = value.get("updated").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for item in items {
+        // 官方已过滤书签(type=0),这里再兜一次
+        if item.get("type").is_some() && i64_at(item, "type") == 0 {
+            continue;
+        }
+        let bookmark_id = str_at(item, "bookmarkId");
+        let mark_text = str_at(item, "markText");
+        if bookmark_id.is_empty() || mark_text.trim().is_empty() {
+            continue;
+        }
+        let uid = i64_at(item, "chapterUid");
+        let (idx, title) = titles
+            .get(&uid)
+            .cloned()
+            .unwrap_or((i64_at(item, "chapterIdx"), String::new()));
+        conn.execute(
+            "INSERT INTO weread_mark(bookmark_id, weread_id, chapter_uid, chapter_idx, chapter_title, range, mark_text,
+               color_style, created_at, removed, fetched_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)
+             ON CONFLICT(bookmark_id) DO UPDATE SET chapter_uid = excluded.chapter_uid, chapter_idx = excluded.chapter_idx,
+               chapter_title = excluded.chapter_title, range = excluded.range, mark_text = excluded.mark_text,
+               color_style = excluded.color_style, created_at = excluded.created_at, removed = 0,
+               fetched_at = excluded.fetched_at",
+            params![
+                bookmark_id,
+                weread_id,
+                uid,
+                idx,
+                title,
+                str_at(item, "range"),
+                mark_text,
+                i64_at(item, "colorStyle"),
+                i64_at(item, "createTime"),
+                now
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_thoughts(conn: &Connection, weread_id: &str, reviews: &[Value], now: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE weread_thought SET removed = 1 WHERE weread_id = ?1",
+        params![weread_id],
+    )?;
+    for item in reviews {
+        let review = item.get("review").unwrap_or(item);
+        let review_id = {
+            let inner = str_at(review, "reviewId");
+            if inner.is_empty() {
+                str_at(item, "reviewId")
+            } else {
+                inner
+            }
+        };
+        let content = str_at(review, "content");
+        if review_id.is_empty() || content.trim().is_empty() {
+            continue;
+        }
+        let mut chapter_title = str_at(review, "chapterName");
+        if chapter_title.is_empty() {
+            chapter_title = str_at(review, "chapterTitle");
+        }
+        let star = match review.get("star") {
+            Some(Value::Number(n)) => n.as_i64().unwrap_or(-1),
+            _ => -1,
+        };
+        conn.execute(
+            "INSERT INTO weread_thought(review_id, weread_id, content, abstract, range, chapter_uid, chapter_title,
+               created_at, star, removed, fetched_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)
+             ON CONFLICT(review_id) DO UPDATE SET content = excluded.content, abstract = excluded.abstract,
+               range = excluded.range, chapter_uid = excluded.chapter_uid, chapter_title = excluded.chapter_title,
+               created_at = excluded.created_at, star = excluded.star, removed = 0, fetched_at = excluded.fetched_at",
+            params![
+                review_id,
+                weread_id,
+                content,
+                str_at(review, "abstract"),
+                str_at(review, "range"),
+                i64_at(review, "chapterUid"),
+                chapter_title,
+                i64_at(review, "createTime"),
+                star,
+                now
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn fnv(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// 已关联本地书的划线/想法有变化 → 入队 `sync_weread`(op_id 带内容哈希,同内容 INSERT OR IGNORE)。
+fn enqueue_notes_projection(conn: &Connection, weread_id: &str) -> Result<()> {
+    let local: Option<i64> = conn
+        .query_row(
+            "SELECT local_book_id FROM weread_book WHERE weread_id = ?1",
+            params![weread_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(local_book_id) = local else {
+        return Ok(());
+    };
+    let notes = notes_for_weread(conn, weread_id)?;
+    if notes.marks.is_empty() && notes.thoughts.is_empty() {
+        return Ok(());
+    }
+    let title: String = conn
+        .query_row(
+            "SELECT title FROM book WHERE id = ?1",
+            params![local_book_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or_default();
+    let content = render_markdown(&title, &notes);
+    crate::projection::enqueue(
+        conn,
+        &format!("weread:{local_book_id}:h{:x}:sync_weread", fnv(&content)),
+        "sync_weread",
+        &json!({ "book_id": local_book_id }),
+    )
+}
+
+fn mark_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<WereadMark> {
+    Ok(WereadMark {
+        bookmark_id: r.get(0)?,
+        weread_id: r.get(1)?,
+        chapter_uid: r.get(2)?,
+        chapter_idx: r.get(3)?,
+        chapter_title: r.get(4)?,
+        range: r.get(5)?,
+        mark_text: r.get(6)?,
+        color_style: r.get(7)?,
+        created_at: r.get(8)?,
+        local_mark_id: r.get(9)?,
+        locate_status: r.get(10)?,
+        removed: r.get::<_, i64>(11)? != 0,
+    })
+}
+
+fn thought_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<WereadThought> {
+    Ok(WereadThought {
+        review_id: r.get(0)?,
+        weread_id: r.get(1)?,
+        content: r.get(2)?,
+        abstract_text: r.get(3)?,
+        range: r.get(4)?,
+        chapter_uid: r.get(5)?,
+        chapter_title: r.get(6)?,
+        created_at: r.get(7)?,
+        star: r.get(8)?,
+        local_mark_id: r.get(9)?,
+        locate_status: r.get(10)?,
+        removed: r.get::<_, i64>(11)? != 0,
+    })
+}
+
+const MARK_COLUMNS: &str =
+    "bookmark_id, weread_id, chapter_uid, chapter_idx, chapter_title, range, mark_text,
+    color_style, created_at, local_mark_id, locate_status, removed";
+const THOUGHT_COLUMNS: &str =
+    "review_id, weread_id, content, abstract, range, chapter_uid, chapter_title,
+    created_at, star, local_mark_id, locate_status, removed";
+
+/// 某本微信读书书的在架划线与想法(按章节序、创建时间)。
+pub fn notes_for_weread(conn: &Connection, weread_id: &str) -> Result<WereadNotes> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MARK_COLUMNS} FROM weread_mark WHERE weread_id = ?1 AND removed = 0
+         ORDER BY chapter_idx, chapter_uid, created_at, bookmark_id"
+    ))?;
+    let marks = stmt
+        .query_map(params![weread_id], mark_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {THOUGHT_COLUMNS} FROM weread_thought WHERE weread_id = ?1 AND removed = 0
+         ORDER BY chapter_uid, created_at, review_id"
+    ))?;
+    let thoughts = stmt
+        .query_map(params![weread_id], thought_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let located = marks
+        .iter()
+        .filter(|m| m.locate_status == "located" || m.locate_status == "partial")
+        .count() as i64;
+    let pending = marks
+        .iter()
+        .filter(|m| m.locate_status == "pending")
+        .count() as i64;
+    Ok(WereadNotes {
+        weread_id: Some(weread_id.to_string()),
+        mark_count: marks.len() as i64,
+        located_count: located,
+        pending_count: pending,
+        thought_count: thoughts.len() as i64,
+        marks,
+        thoughts,
+    })
+}
+
+/// 某本本地书关联的微信读书划线与想法(没关联 → 空)。
+pub fn notes_for_local(conn: &Connection, local_book_id: i64) -> Result<WereadNotes> {
+    let weread_id: Option<String> = conn
+        .query_row(
+            "SELECT weread_id FROM weread_book WHERE local_book_id = ?1 AND removed = 0
+             ORDER BY read_update_time DESC LIMIT 1",
+            params![local_book_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match weread_id {
+        Some(id) => notes_for_weread(conn, &id),
+        None => Ok(WereadNotes {
+            weread_id: None,
+            marks: vec![],
+            thoughts: vec![],
+            mark_count: 0,
+            located_count: 0,
+            pending_count: 0,
+            thought_count: 0,
+        }),
+    }
+}
+
+/// 定位结果落库(一个事务):`mark` 给了就先建本地高亮(source=weread,external_id=id,幂等),
+/// 否则可挂到既有高亮 `attach_to`(想法当作该高亮的批注);`status` 记到划线/想法行。
+pub fn locate(
+    conn: &Connection,
+    kind: &str,
+    id: &str,
+    status: &str,
+    local_book_id: i64,
+    mark: Option<&crate::reader_marks::NewMark>,
+    attach_to: Option<i64>,
+) -> Result<Option<crate::reader_marks::ReaderMark>> {
+    if !LOCATE_STATUSES.contains(&status) {
+        return Err(CoreError::InvalidInput(format!(
+            "bad locate status {status:?}"
+        )));
+    }
+    let table = match kind {
+        "mark" => "weread_mark",
+        "thought" => "weread_thought",
+        _ => return Err(CoreError::InvalidInput(format!("bad locate kind {kind:?}"))),
+    };
+    let key = if kind == "mark" {
+        "bookmark_id"
+    } else {
+        "review_id"
+    };
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+    let exists: Option<i64> = tx
+        .query_row(
+            &format!("SELECT 1 FROM {table} WHERE {key} = ?1"),
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exists.is_none() {
+        return Err(CoreError::NotFound(format!("weread {kind} {id}")));
+    }
+    let mut created = None;
+    let mut mark_id = attach_to;
+    if let Some(new_mark) = mark {
+        let mut new_mark = new_mark.clone();
+        new_mark.source = "weread".into();
+        new_mark.external_id = Some(id.to_string());
+        let saved = crate::reader_marks::add(&tx, local_book_id, &new_mark)?;
+        mark_id = Some(saved.id);
+        created = Some(saved);
+    } else if kind == "thought" {
+        if let Some(target) = attach_to {
+            // 想法挂到既有高亮:补进批注(已有批注则换行追加,不重复)
+            let content: String = tx.query_row(
+                "SELECT content FROM weread_thought WHERE review_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )?;
+            let existing = crate::reader_marks::get(&tx, target)?;
+            if existing.book_id != local_book_id {
+                return Err(CoreError::InvalidInput(
+                    "mark belongs to another book".into(),
+                ));
+            }
+            if !existing.note.contains(content.trim()) {
+                let note = if existing.note.trim().is_empty() {
+                    content.trim().to_string()
+                } else {
+                    format!("{}\n{}", existing.note.trim_end(), content.trim())
+                };
+                crate::reader_marks::update(&tx, target, Some(&note), None)?;
+            }
+        }
+    }
+    tx.execute(
+        &format!(
+            "UPDATE {table} SET locate_status = ?2, local_mark_id = COALESCE(?3, local_mark_id) WHERE {key} = ?1"
+        ),
+        params![id, status, mark_id],
+    )?;
+    tx.commit()?;
+    Ok(created)
+}
+
+/// `_weread.md` / Obsidian 导出正文:按章节分组的划线(引用)+ 挂在其下的想法;无原文的点评单列。
+pub fn render_markdown(book_title: &str, notes: &WereadNotes) -> String {
+    let mut out = format!(
+        "# 《{book_title}》微信读书划线与想法\n\n划线 {} 条 · 想法 {} 条(来自微信读书,单向同步)\n",
+        notes.marks.len(),
+        notes.thoughts.len()
+    );
+    let mut used = HashSet::new();
+    let mut chapter: Option<(i64, String)> = None;
+    for m in &notes.marks {
+        let key = (m.chapter_uid, m.chapter_title.clone());
+        if chapter.as_ref() != Some(&key) {
+            let title = if m.chapter_title.trim().is_empty() {
+                format!("第 {} 节", m.chapter_idx.max(1))
+            } else {
+                m.chapter_title.trim().to_string()
+            };
+            out.push_str(&format!("\n## {title}\n\n"));
+            chapter = Some(key);
+        }
+        out.push_str(&format!("> {}\n", m.mark_text.trim().replace('\n', " ")));
+        for t in notes
+            .thoughts
+            .iter()
+            .filter(|t| !t.range.is_empty() && t.range == m.range && t.chapter_uid == m.chapter_uid)
+        {
+            used.insert(t.review_id.clone());
+            out.push_str(&format!(
+                "> \n> 💬 {}\n",
+                t.content.trim().replace('\n', " ")
+            ));
+        }
+        out.push('\n');
+    }
+    let rest: Vec<&WereadThought> = notes
+        .thoughts
+        .iter()
+        .filter(|t| !used.contains(&t.review_id))
+        .collect();
+    if !rest.is_empty() {
+        out.push_str("\n## 想法与点评\n\n");
+        for t in rest {
+            let place = if !t.chapter_title.trim().is_empty() {
+                format!("[{}] ", t.chapter_title.trim())
+            } else {
+                String::new()
+            };
+            if !t.abstract_text.trim().is_empty() {
+                out.push_str(&format!(
+                    "- {place}「{}」—— {}\n",
+                    t.abstract_text.trim(),
+                    t.content.trim().replace('\n', " ")
+                ));
+            } else {
+                let star = if t.star >= 0 {
+                    format!("(评分 {})", t.star)
+                } else {
+                    String::new()
+                };
+                out.push_str(&format!(
+                    "- {place}{}{star}\n",
+                    t.content.trim().replace('\n', " ")
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// 反哺费曼/评估:该块所在章节里已定位的微信读书划线(带批注),最多 max 行。
+pub fn notes_for_block(
+    conn: &Connection,
+    book_id: i64,
+    block_id: i64,
+    max: usize,
+) -> Result<Vec<String>> {
+    let hrefs: Vec<String> = crate::map::list_anchors(conn, block_id)?
+        .into_iter()
+        .map(|a| a.spine_href)
+        .collect();
+    if hrefs.is_empty() || max == 0 {
+        return Ok(vec![]);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT text, note FROM reader_mark WHERE book_id = ?1 AND source = 'weread' AND kind = 'highlight'
+           AND spine_href = ?2 ORDER BY created_at, id",
+    )?;
+    let mut lines = Vec::new();
+    for href in hrefs {
+        let rows = stmt.query_map(params![book_id, href], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (text, note) = row?;
+            let text: String = text.chars().take(120).collect();
+            if note.trim().is_empty() {
+                lines.push(format!("- 微信读书划线:「{}」", text.trim()));
+            } else {
+                lines.push(format!(
+                    "- 微信读书划线:「{}」(想法:{})",
+                    text.trim(),
+                    note.trim().replace('\n', " ")
+                ));
+            }
+            if lines.len() >= max {
+                return Ok(lines);
+            }
+        }
+    }
+    Ok(lines)
 }
 
 /// 标题/作者归一:去空白与标点、小写(中文标点在 `is_alphanumeric` 之外,一并去掉)。
@@ -1363,6 +1943,202 @@ mod tests {
         assert_eq!(bucket_date(ts).unwrap(), "2025-12-15");
         let ts = month_base_time(today, 13);
         assert_eq!(bucket_date(ts).unwrap(), "2024-12-15");
+    }
+
+    fn notes_gateway() -> FakeGateway {
+        FakeGateway::new(|api, params| {
+            Ok(match api {
+                "/shelf/sync" => shelf(&[("w1", "活着", "余华", 100), ("w2", "别的", "某", 5)]),
+                "/book/getprogress" => json!({"book": {"progress": 10, "readingTime": 60}}),
+                "/readdata/detail" => json!({"readTimes": {}, "totalReadTime": 0, "readDays": 0}),
+                "/book/bookmarklist" => {
+                    assert_eq!(params["bookId"], "w1", "只拉已关联的书");
+                    json!({
+                        "chapters": [{"chapterUid": 3, "chapterIdx": 1, "title": "第一章"}, {"chapterUid": 5, "chapterIdx": 2, "title": "第二章"}],
+                        "updated": [
+                            {"bookmarkId": "bm-a", "chapterUid": 3, "range": "10-20", "markText": "活着本身", "colorStyle": 2, "type": 1, "createTime": 100},
+                            {"bookmarkId": "bm-b", "chapterUid": 5, "range": "30-40", "markText": "第二章的话", "colorStyle": 0, "type": 1, "createTime": 200},
+                            {"bookmarkId": "bk-x", "chapterUid": 5, "range": "50-50", "markText": "", "type": 0}
+                        ]
+                    })
+                }
+                "/review/list/mine" => {
+                    assert_eq!(params["bookid"], "w1");
+                    if params["synckey"] == 0 {
+                        json!({"reviews": [{"reviewId": "r-1", "review": {"reviewId": "r-1", "content": "这就是命", "abstract": "活着本身", "range": "10-20", "chapterUid": 3, "createTime": 150, "star": -1}}], "hasMore": 1, "synckey": 77})
+                    } else {
+                        json!({"reviews": [{"review": {"reviewId": "r-2", "content": "整本书评", "chapterUid": 0, "createTime": 300, "star": 5}}], "hasMore": 0, "synckey": 78})
+                    }
+                }
+                _ => json!({}),
+            })
+        })
+    }
+
+    #[test]
+    fn linked_books_get_marks_and_thoughts_and_projection_enqueued() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let huozhe = seed(&conn, "活着", "余华", "huozhe");
+        let gateway = notes_gateway();
+        let status = connect(&conn, &gateway, "wrk-x", "2026-09-28", 0).unwrap();
+        assert_eq!(status.last_error, None, "书签 type=0 的空文本行不算错误");
+        // 首次同步时 w1 还没关联 → 第一次不拉划线;auto_link 后第二次同步才拉
+        assert_eq!(gateway.count("/book/bookmarklist"), 0);
+        sync(&conn, &gateway, "2026-09-28", 0).unwrap();
+        assert_eq!(gateway.count("/book/bookmarklist"), 1);
+        assert_eq!(
+            gateway.count("/review/list/mine"),
+            2,
+            "想法分页到 hasMore=0"
+        );
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.weread_id.as_deref(), Some("w1"));
+        assert_eq!(notes.mark_count, 2, "type=0 与空文本被过滤");
+        assert_eq!(notes.pending_count, 2);
+        assert_eq!(notes.thought_count, 2);
+        assert_eq!(notes.marks[0].chapter_title, "第一章");
+        assert_eq!(notes.marks[1].chapter_idx, 2);
+        let r1 = notes
+            .thoughts
+            .iter()
+            .find(|t| t.review_id == "r-1")
+            .unwrap();
+        assert_eq!(r1.abstract_text, "活着本身");
+        assert_eq!(
+            notes
+                .thoughts
+                .iter()
+                .find(|t| t.review_id == "r-2")
+                .unwrap()
+                .star,
+            5
+        );
+        // 投影入队(同内容只一条)
+        let pending: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind = 'sync_weread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 1);
+        sync(&conn, &gateway, "2026-09-28", 0).unwrap();
+        let again: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind = 'sync_weread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(again, 1, "内容没变 → op_id 相同 → 不重复入队");
+        // 未关联的书没有划线
+        assert_eq!(notes_for_weread(&conn, "w2").unwrap().mark_count, 0);
+        assert!(notes_for_local(&conn, 9_999).unwrap().weread_id.is_none());
+
+        // 渲染
+        let md = render_markdown("活着", &notes);
+        assert!(md.contains("# 《活着》微信读书划线与想法"), "{md}");
+        assert!(
+            md.contains("## 第一章\n\n> 活着本身\n> \n> 💬 这就是命"),
+            "{md}"
+        );
+        assert!(md.contains("## 第二章\n\n> 第二章的话"), "{md}");
+        assert!(md.contains("## 想法与点评\n\n- 整本书评(评分 5)"), "{md}");
+
+        // 定位:bm-a → 新高亮;r-1 挂到它成批注;bm-b missing
+        let mark = crate::reader_marks::NewMark {
+            kind: "highlight".into(),
+            spine_href: "chap1.xhtml".into(),
+            cfi_start: "epubcfi(/6/2!/4/2/1:0)".into(),
+            cfi_end: Some("epubcfi(/6/2!/4/2/1:4)".into()),
+            text: "活着本身".into(),
+            color: "blue".into(),
+            note: String::new(),
+            source: String::new(),
+            external_id: None,
+        };
+        let created = locate(&conn, "mark", "bm-a", "located", huozhe, Some(&mark), None)
+            .unwrap()
+            .expect("created");
+        assert_eq!(created.source, "weread");
+        assert_eq!(created.external_id.as_deref(), Some("bm-a"));
+        // 幂等:再定位一次不重复建高亮
+        let again = locate(&conn, "mark", "bm-a", "located", huozhe, Some(&mark), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.id, created.id);
+        locate(
+            &conn,
+            "thought",
+            "r-1",
+            "located",
+            huozhe,
+            None,
+            Some(created.id),
+        )
+        .unwrap();
+        locate(
+            &conn,
+            "thought",
+            "r-1",
+            "located",
+            huozhe,
+            None,
+            Some(created.id),
+        )
+        .unwrap();
+        let hl = crate::reader_marks::get(&conn, created.id).unwrap();
+        assert_eq!(hl.note, "这就是命", "想法挂成批注,不重复追加");
+        locate(&conn, "mark", "bm-b", "missing", huozhe, None, None).unwrap();
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.located_count, 1);
+        assert_eq!(notes.pending_count, 0);
+        assert_eq!(notes.marks[0].local_mark_id, Some(created.id));
+        assert_eq!(notes.marks[1].locate_status, "missing");
+        assert_eq!(
+            notes
+                .thoughts
+                .iter()
+                .find(|t| t.review_id == "r-1")
+                .unwrap()
+                .local_mark_id,
+            Some(created.id)
+        );
+        assert!(matches!(
+            locate(&conn, "mark", "nope", "located", huozhe, None, None),
+            Err(CoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            locate(&conn, "mark", "bm-b", "weird", huozhe, None, None),
+            Err(CoreError::InvalidInput(_))
+        ));
+        // 再同步:已定位的划线保留 local_mark_id;本次消失的划线标 removed
+        let gateway2 = FakeGateway::new(|api, _| {
+            Ok(match api {
+                "/shelf/sync" => shelf(&[("w1", "活着", "余华", 100)]),
+                "/book/bookmarklist" => {
+                    json!({"chapters": [], "updated": [{"bookmarkId": "bm-a", "chapterUid": 3, "range": "10-20", "markText": "活着本身", "type": 1}]})
+                }
+                "/review/list/mine" => json!({"reviews": [], "hasMore": 0}),
+                _ => json!({"readTimes": {}, "totalReadTime": 0, "readDays": 0}),
+            })
+        });
+        sync(&conn, &gateway2, "2026-09-28", 0).unwrap();
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.mark_count, 1);
+        assert_eq!(notes.marks[0].local_mark_id, Some(created.id));
+        assert_eq!(notes.thought_count, 0);
+        // 费曼上下文:块锚点章节里的微信读书划线
+        let block =
+            crate::models::insert_block(&conn, huozhe, "模块", 1, "块", "blk", &[]).unwrap();
+        conn.execute(
+            "INSERT INTO block_anchor(block_id, seq, spine_href, cfi_start, cfi_end, precision, hint) VALUES(?1, 0, 'chap1.xhtml', 'epubcfi(/6/2!/4/2)', 'epubcfi(/6/2!/4/8)', 'exact', '')",
+            [block],
+        )
+        .unwrap();
+        let lines = notes_for_block(&conn, huozhe, block, 5).unwrap();
+        assert_eq!(lines, vec!["- 微信读书划线:「活着本身」(想法:这就是命)"]);
+        assert!(notes_for_block(&conn, huozhe, block, 0).unwrap().is_empty());
     }
 
     /// 本地假网关:验证真实 HTTP 请求的头与体,以及 401 / errcode 的归类。
