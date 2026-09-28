@@ -12,6 +12,9 @@ use book_learner_core::session::{SessionView, TurnResult, TurnView};
 use book_learner_core::settings::AppSettings;
 use book_learner_core::stats::Stats;
 use book_learner_core::verdict::{EvaluationView, VerdictOutcome};
+use book_learner_core::weread::{
+    ReadingDay as WereadReadingDay, Status as WereadStatus, WereadBook,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::error::IpcError;
@@ -1158,6 +1161,114 @@ impl From<ReadingTimeSummary> for ReadingTimeSummaryDto {
                     title: b.title,
                     seconds: b.seconds,
                     last_read: b.last_read,
+                })
+                .collect(),
+        }
+    }
+}
+
+// ---- 微信读书(BL-030)----
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadStatusDto {
+    pub connected: bool,
+    pub auto_sync: bool,
+    pub connected_at: Option<String>,
+    pub last_sync_at: Option<String>,
+    pub last_sync_ok: Option<bool>,
+    pub last_error: Option<String>,
+    pub upgrade_message: Option<String>,
+    pub book_count: i64,
+    pub linked_count: i64,
+    pub album_count: i64,
+    pub mp_count: i64,
+    pub total_seconds: i64,
+    pub total_read_days: i64,
+    /// 壳层进程内的同步标志(不落库)
+    pub syncing: bool,
+}
+
+impl WereadStatusDto {
+    pub fn from_core(s: WereadStatus, syncing: bool) -> Self {
+        Self {
+            connected: s.connected,
+            auto_sync: s.auto_sync,
+            connected_at: s.connected_at,
+            last_sync_at: s.last_sync_at,
+            last_sync_ok: s.last_sync_ok,
+            last_error: s.last_error,
+            upgrade_message: s.upgrade_message,
+            book_count: s.book_count,
+            linked_count: s.linked_count,
+            album_count: s.album_count,
+            mp_count: s.mp_count,
+            total_seconds: s.total_seconds,
+            total_read_days: s.total_read_days,
+            syncing,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadBookDto {
+    pub weread_id: String,
+    pub title: String,
+    pub author: String,
+    pub category: String,
+    pub cover_url: String,
+    pub finish_reading: bool,
+    pub read_update_time: i64,
+    pub progress: i64,
+    pub reading_seconds: i64,
+    pub local_book_id: Option<i64>,
+    pub local_title: Option<String>,
+    pub link_source: String,
+    pub removed: bool,
+}
+
+impl From<WereadBook> for WereadBookDto {
+    fn from(b: WereadBook) -> Self {
+        Self {
+            weread_id: b.weread_id,
+            title: b.title,
+            author: b.author,
+            category: b.category,
+            cover_url: b.cover_url,
+            finish_reading: b.finish_reading,
+            read_update_time: b.read_update_time,
+            progress: b.progress,
+            reading_seconds: b.reading_seconds,
+            local_book_id: b.local_book_id,
+            local_title: b.local_title,
+            link_source: b.link_source,
+            removed: b.removed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadReadingDayDto {
+    pub date: String,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WereadReadingDaysDto {
+    pub days: Vec<WereadReadingDayDto>,
+}
+
+impl From<Vec<WereadReadingDay>> for WereadReadingDaysDto {
+    fn from(days: Vec<WereadReadingDay>) -> Self {
+        Self {
+            days: days
+                .into_iter()
+                .map(|d| WereadReadingDayDto {
+                    date: d.date,
+                    seconds: d.seconds,
                 })
                 .collect(),
         }

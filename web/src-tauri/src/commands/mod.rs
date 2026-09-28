@@ -150,6 +150,16 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     // BL-025:阅读时长(记一笔 / 汇总;date 由前端本地日历日提供)
     ("reading_time_add", &["bookId", "date", "seconds"]),
     ("reading_time_summary", &["date"]),
+    // BL-030:微信读书同步(官方 Agent API);date 由前端本地日历日提供
+    ("weread_status", &[]),
+    ("weread_connect", &["apiKey", "date"]),
+    ("weread_sync", &["date"]),
+    ("weread_disconnect", &["purge"]),
+    ("weread_set_auto_sync", &["enabled"]),
+    ("weread_books", &[]),
+    ("weread_link", &["wereadId", "localBookId"]),
+    ("weread_reading_days", &["from", "to"]),
+    ("weread_open_key_page", &[]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1716,4 +1726,141 @@ pub async fn reading_time_summary(
     date: String,
 ) -> Result<crate::dto::ReadingTimeSummaryDto, IpcError> {
     reading_time_summary_inner(&state, &date)
+}
+
+// ---- 微信读书(BL-030)----
+
+pub fn weread_status_inner(state: &AppState) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    run_command(state, "weread_status", || application::weread_status(state))
+}
+
+pub fn weread_connect_inner(
+    state: &AppState,
+    api_key: &str,
+    date: &str,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    run_command(state, "weread_connect", || {
+        application::weread_connect(state, api_key, date)
+    })
+}
+
+pub fn weread_sync_inner(
+    state: &AppState,
+    date: &str,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    run_command(state, "weread_sync", || {
+        application::weread_sync(state, date)
+    })
+}
+
+pub fn weread_disconnect_inner(state: &AppState, purge: bool) -> Result<(), IpcError> {
+    run_command(state, "weread_disconnect", || {
+        application::weread_disconnect(state, purge)
+    })
+}
+
+pub fn weread_set_auto_sync_inner(
+    state: &AppState,
+    enabled: bool,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    run_command(state, "weread_set_auto_sync", || {
+        application::weread_set_auto_sync(state, enabled)
+    })
+}
+
+pub fn weread_books_inner(state: &AppState) -> Result<Vec<crate::dto::WereadBookDto>, IpcError> {
+    run_command(state, "weread_books", || application::weread_books(state))
+}
+
+pub fn weread_link_inner(
+    state: &AppState,
+    weread_id: &str,
+    local_book_id: Option<i64>,
+) -> Result<crate::dto::WereadBookDto, IpcError> {
+    run_command(state, "weread_link", || {
+        application::weread_link(state, weread_id, local_book_id)
+    })
+}
+
+pub fn weread_reading_days_inner(
+    state: &AppState,
+    from: &str,
+    to: &str,
+) -> Result<crate::dto::WereadReadingDaysDto, IpcError> {
+    run_command(state, "weread_reading_days", || {
+        application::weread_reading_days(state, from, to)
+    })
+}
+
+pub fn weread_open_key_page_inner(state: &AppState) -> Result<(), IpcError> {
+    run_command(state, "weread_open_key_page", || {
+        application::weread_open_key_page(state)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn weread_status(
+    state: State<'_, AppState>,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    weread_status_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn weread_connect(
+    state: State<'_, AppState>,
+    api_key: String,
+    date: String,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    weread_connect_inner(&state, &api_key, &date)
+}
+
+#[tauri::command(async)]
+pub async fn weread_sync(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    weread_sync_inner(&state, &date)
+}
+
+#[tauri::command(async)]
+pub async fn weread_disconnect(state: State<'_, AppState>, purge: bool) -> Result<(), IpcError> {
+    weread_disconnect_inner(&state, purge)
+}
+
+#[tauri::command(async)]
+pub async fn weread_set_auto_sync(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    weread_set_auto_sync_inner(&state, enabled)
+}
+
+#[tauri::command(async)]
+pub async fn weread_books(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::dto::WereadBookDto>, IpcError> {
+    weread_books_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn weread_link(
+    state: State<'_, AppState>,
+    weread_id: String,
+    local_book_id: Option<i64>,
+) -> Result<crate::dto::WereadBookDto, IpcError> {
+    weread_link_inner(&state, &weread_id, local_book_id)
+}
+
+#[tauri::command(async)]
+pub async fn weread_reading_days(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<crate::dto::WereadReadingDaysDto, IpcError> {
+    weread_reading_days_inner(&state, &from, &to)
+}
+
+#[tauri::command(async)]
+pub async fn weread_open_key_page(state: State<'_, AppState>) -> Result<(), IpcError> {
+    weread_open_key_page_inner(&state)
 }

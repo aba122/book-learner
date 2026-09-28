@@ -1142,3 +1142,126 @@ pub fn reading_time_summary(
         .with_connection(|c| book_learner_core::reading_time::summary(c, date))
         .map(Into::into)
 }
+
+// ---- 微信读书(BL-030):官方 Agent API 网关;拉取阶段不持数据库锁 ----
+
+use book_learner_core::weread::{self, Gateway as WereadGateway, HttpGateway};
+use std::sync::Arc;
+
+fn weread_gateway(state: &AppState, key: &str) -> Arc<dyn WereadGateway + Send + Sync> {
+    state
+        .weread_gateway_override()
+        .unwrap_or_else(|| Arc::new(HttpGateway::new(key)))
+}
+
+fn weread_status_dto(state: &AppState, status: weread::Status) -> crate::dto::WereadStatusDto {
+    crate::dto::WereadStatusDto::from_core(status, state.weread_syncing())
+}
+
+pub fn weread_status(state: &AppState) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    state
+        .with_connection(weread::status)
+        .map(|s| weread_status_dto(state, s))
+}
+
+/// 连接:先用 Key 验一次书架(失败不落库,原因放 lastError),再存 Key、跑首次同步。
+pub fn weread_connect(
+    state: &AppState,
+    api_key: &str,
+    date: &str,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    let key = api_key.trim().to_string();
+    if key.is_empty() {
+        return Ok(weread_status_dto(
+            state,
+            weread::Status::disconnected(Some("请先填入 API Key".into())),
+        ));
+    }
+    let gateway = weread_gateway(state, &key);
+    if let Err(error) = weread::validate_key(gateway.as_ref()) {
+        return Ok(weread_status_dto(
+            state,
+            weread::Status::disconnected(Some(error.message())),
+        ));
+    }
+    state.with_connection(|c| weread::save_account(c, &key))?;
+    weread_sync(state, date)
+}
+
+/// 同步:计划(持锁)→ 拉取(不持锁)→ 落库(持锁)。已在同步则直接返回当前状态(syncing=true)。
+pub fn weread_sync(state: &AppState, date: &str) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    if state.weread_begin_sync() {
+        return weread_status(state);
+    }
+    let result = (|| {
+        let key = state
+            .with_connection(weread::api_key)?
+            .ok_or_else(|| IpcError::from(CoreError::NotFound("weread account".into())))?;
+        let gateway = weread_gateway(state, &key);
+        let plan = state.with_connection(|c| weread::plan(c, date))?;
+        let fetched = weread::fetch(gateway.as_ref(), &plan);
+        state.with_connection(|c| weread::apply(c, fetched))
+    })();
+    state.weread_end_sync();
+    result.map(|s| weread_status_dto(state, s))
+}
+
+pub fn weread_disconnect(state: &AppState, purge: bool) -> Result<(), IpcError> {
+    state.with_connection(|c| weread::disconnect(c, purge))
+}
+
+pub fn weread_set_auto_sync(
+    state: &AppState,
+    enabled: bool,
+) -> Result<crate::dto::WereadStatusDto, IpcError> {
+    state
+        .with_connection(|c| weread::set_auto_sync(c, enabled))
+        .map(|s| weread_status_dto(state, s))
+}
+
+pub fn weread_books(state: &AppState) -> Result<Vec<crate::dto::WereadBookDto>, IpcError> {
+    state
+        .with_connection(weread::books)
+        .map(|books| books.into_iter().map(Into::into).collect())
+}
+
+pub fn weread_link(
+    state: &AppState,
+    weread_id: &str,
+    local_book_id: Option<i64>,
+) -> Result<crate::dto::WereadBookDto, IpcError> {
+    state
+        .with_connection(|c| weread::link(c, weread_id, local_book_id))
+        .map(Into::into)
+}
+
+pub fn weread_reading_days(
+    state: &AppState,
+    from: &str,
+    to: &str,
+) -> Result<crate::dto::WereadReadingDaysDto, IpcError> {
+    state
+        .with_connection(|c| weread::reading_days(c, from, to))
+        .map(Into::into)
+}
+
+/// 在默认浏览器打开官方 Key 获取页(固定 URL)。注入了假网关(测试)时不真的打开。
+pub fn weread_open_key_page(state: &AppState) -> Result<(), IpcError> {
+    if state.weread_gateway_override().is_some() {
+        return Ok(());
+    }
+    if !cfg!(target_os = "macos") {
+        return Err(IpcError::invalid_request(
+            "此平台不支持打开浏览器",
+            "open only on macos",
+        ));
+    }
+    let status = std::process::Command::new("open")
+        .arg(weread::KEY_PAGE_URL)
+        .status()
+        .map_err(|error| IpcError::internal(format!("open failed: {error}")))?;
+    if !status.success() {
+        return Err(IpcError::internal(format!("open exited with {status}")));
+    }
+    Ok(())
+}

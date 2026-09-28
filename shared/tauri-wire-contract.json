@@ -565,6 +565,66 @@
       "payloadKeys": [
         "date"
       ]
+    },
+    {
+      "method": "wereadStatus",
+      "command": "weread_status",
+      "payloadKeys": []
+    },
+    {
+      "method": "wereadConnect",
+      "command": "weread_connect",
+      "payloadKeys": [
+        "apiKey",
+        "date"
+      ]
+    },
+    {
+      "method": "wereadSync",
+      "command": "weread_sync",
+      "payloadKeys": [
+        "date"
+      ]
+    },
+    {
+      "method": "wereadDisconnect",
+      "command": "weread_disconnect",
+      "payloadKeys": [
+        "purge"
+      ]
+    },
+    {
+      "method": "wereadSetAutoSync",
+      "command": "weread_set_auto_sync",
+      "payloadKeys": [
+        "enabled"
+      ]
+    },
+    {
+      "method": "wereadBooks",
+      "command": "weread_books",
+      "payloadKeys": []
+    },
+    {
+      "method": "wereadLink",
+      "command": "weread_link",
+      "payloadKeys": [
+        "wereadId",
+        "localBookId"
+      ]
+    },
+    {
+      "method": "wereadReadingDays",
+      "command": "weread_reading_days",
+      "payloadKeys": [
+        "from",
+        "to"
+      ]
+    },
+    {
+      "method": "wereadOpenKeyPage",
+      "command": "weread_open_key_page",
+      "payloadKeys": []
     }
   ],
   "unsupportedCapabilities": [

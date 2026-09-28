@@ -106,6 +106,15 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::lineage_node_source,
         commands::reading_time_add,
         commands::reading_time_summary,
+        commands::weread_status,
+        commands::weread_connect,
+        commands::weread_sync,
+        commands::weread_disconnect,
+        commands::weread_set_auto_sync,
+        commands::weread_books,
+        commands::weread_link,
+        commands::weread_reading_days,
+        commands::weread_open_key_page,
         commands::automation_report,
     ])
 }

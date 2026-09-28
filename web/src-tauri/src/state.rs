@@ -155,6 +155,10 @@ pub struct AppState {
     reading_busy: Arc<Mutex<HashSet<i64>>>,
     /// 脉络图:正在生成/保存的 book_id,按书串行
     lineage_busy: Arc<Mutex<HashSet<i64>>>,
+    /// 微信读书(BL-030):测试注入的假网关;生产为 None(按 Key 建 HttpGateway)
+    weread_gateway_override: Option<Arc<dyn book_learner_core::weread::Gateway + Send + Sync>>,
+    /// 微信读书:同步进行中(进程内互斥,拉取阶段不持数据库锁)
+    weread_syncing: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -183,6 +187,8 @@ impl AppState {
             lineage_busy: Arc::new(Mutex::new(HashSet::new())),
             pomodoro: Mutex::new(Machine::new()),
             provider_override: None,
+            weread_gateway_override: None,
+            weread_syncing: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -190,6 +196,37 @@ impl AppState {
     pub fn with_provider(mut self, provider: SharedProvider) -> Self {
         self.provider_override = Some(provider);
         self
+    }
+
+    /// 测试注入微信读书假网关(同时让「打开获取页面」不真的开浏览器)。
+    pub fn with_weread_gateway(
+        mut self,
+        gateway: Arc<dyn book_learner_core::weread::Gateway + Send + Sync>,
+    ) -> Self {
+        self.weread_gateway_override = Some(gateway);
+        self
+    }
+
+    pub fn weread_gateway_override(
+        &self,
+    ) -> Option<Arc<dyn book_learner_core::weread::Gateway + Send + Sync>> {
+        self.weread_gateway_override.clone()
+    }
+
+    /// 置同步标志;返回之前是否已在同步。
+    pub fn weread_begin_sync(&self) -> bool {
+        self.weread_syncing
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn weread_end_sync(&self) {
+        self.weread_syncing
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn weread_syncing(&self) -> bool {
+        self.weread_syncing
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 快操作共享连接:持有互斥守卫期间不得做 AI 调用或文件/git I/O。

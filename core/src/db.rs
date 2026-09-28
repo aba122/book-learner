@@ -34,7 +34,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 当前 schema 版本(快照恢复只接受 ≤ 此版本的库)。
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -84,6 +84,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 11 {
         tx.execute_batch(SCHEMA_V11)?;
         tx.pragma_update(None, "user_version", 11)?;
+    }
+    if v < 12 {
+        tx.execute_batch(SCHEMA_V12)?;
+        tx.pragma_update(None, "user_version", 12)?;
     }
     tx.commit()
 }
@@ -370,6 +374,47 @@ CREATE INDEX reading_time_date ON reading_time(date);
 CREATE INDEX reading_time_book_date ON reading_time(book_id, date);
 "#;
 
+/// v12(BL-030,2026-09-28):微信读书同步——账号(单行)、书架书(可关联本地书)、每日阅读时长(独立于 reading_time)。
+const SCHEMA_V12: &str = r#"
+CREATE TABLE weread_account(
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  api_key TEXT NOT NULL,
+  connected_at TEXT NOT NULL,
+  auto_sync INTEGER NOT NULL DEFAULT 1,
+  last_sync_at TEXT,
+  last_sync_ok INTEGER,
+  last_error TEXT,
+  upgrade_message TEXT,
+  album_count INTEGER NOT NULL DEFAULT 0,
+  mp_count INTEGER NOT NULL DEFAULT 0,
+  total_seconds INTEGER NOT NULL DEFAULT 0,
+  total_read_days INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE weread_book(
+  weread_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  cover_url TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  finish_reading INTEGER NOT NULL DEFAULT 0,
+  read_update_time INTEGER NOT NULL DEFAULT 0,
+  update_time INTEGER NOT NULL DEFAULT 0,
+  is_top INTEGER NOT NULL DEFAULT 0,
+  secret INTEGER NOT NULL DEFAULT 0,
+  progress INTEGER NOT NULL DEFAULT 0,
+  reading_seconds INTEGER NOT NULL DEFAULT 0,
+  progress_fetched_for INTEGER NOT NULL DEFAULT -1,
+  local_book_id INTEGER REFERENCES book(id) ON DELETE SET NULL,
+  link_source TEXT NOT NULL DEFAULT 'none' CHECK(link_source IN ('none','auto','manual')),
+  removed INTEGER NOT NULL DEFAULT 0,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL);
+CREATE INDEX weread_book_local ON weread_book(local_book_id);
+CREATE TABLE weread_reading_day(
+  date TEXT PRIMARY KEY,
+  seconds INTEGER NOT NULL CHECK(seconds >= 0),
+  fetched_at TEXT NOT NULL);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -416,7 +461,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 11);
+        assert_eq!(v, 12);
         for t in [
             "book",
             "knowledge_block",
@@ -691,7 +736,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -825,7 +870,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -875,7 +920,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         for t in [
             "spine_item",
             "block_anchor",
@@ -930,7 +975,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1106,7 +1151,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v6_and_v5_rows_survive() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         assert!(has_column(&conn, "feynman_session", "book_id"));
         let idx: i64 = conn
             .query_row(
@@ -1137,7 +1182,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
         let book_id: Option<i64> = conn
             .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
@@ -1156,13 +1201,13 @@ mod tests {
         conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
         drop(conn);
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 11);
+        assert_eq!(user_version(&again), 12);
     }
 
     #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1236,7 +1281,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1261,7 +1306,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 11);
+        assert_eq!(user_version(&again), 12);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 
@@ -1271,7 +1316,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 11);
+        assert_eq!(v, 12);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1310,9 +1355,63 @@ mod tests {
     }
 
     #[test]
+    fn v12_creates_weread_tables_with_set_null_and_checks() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 12);
+        conn.execute(
+            "INSERT INTO weread_account(id, api_key, connected_at) VALUES(1, 'wrk-x', 't')",
+            [],
+        )
+        .unwrap();
+        assert!(conn
+            .execute(
+                "INSERT INTO weread_account(id, api_key, connected_at) VALUES(2, 'wrk-y', 't')",
+                []
+            )
+            .is_err());
+        let book = crate::models::insert_book(
+            &conn,
+            "活着",
+            "余华",
+            crate::models::BookType::Humanities,
+            "huozhe",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO weread_book(weread_id, local_book_id, link_source, first_seen_at, last_seen_at)
+             VALUES('w1', ?1, 'auto', 't', 't')",
+            [book],
+        )
+        .unwrap();
+        assert!(conn
+            .execute(
+                "INSERT INTO weread_book(weread_id, link_source, first_seen_at, last_seen_at)
+                 VALUES('w2', 'bogus', 't', 't')",
+                []
+            )
+            .is_err());
+        conn.execute("DELETE FROM book WHERE id = ?1", [book])
+            .unwrap();
+        let linked: Option<i64> = conn
+            .query_row(
+                "SELECT local_book_id FROM weread_book WHERE weread_id = 'w1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked, None);
+        assert!(conn
+            .execute(
+                "INSERT INTO weread_reading_day(date, seconds, fetched_at) VALUES('2026-09-28', -1, 't')",
+                []
+            )
+            .is_err());
+    }
+
+    #[test]
     fn v11_creates_reading_time_with_check_and_cascade() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1344,7 +1443,7 @@ mod tests {
     #[test]
     fn v10_creates_lineage_graph_with_cascade() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 11);
+        assert_eq!(user_version(&conn), 12);
         let book = crate::models::insert_book(
             &conn,
             "书",

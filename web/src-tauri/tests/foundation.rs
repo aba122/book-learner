@@ -928,6 +928,95 @@ fn reading_time_add_and_summary_round_trip_with_camel_case() {
 }
 
 #[test]
+fn weread_connect_sync_books_link_days_round_trip_with_camel_case() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("weread.db"))
+        .unwrap()
+        .with_weread_gateway(Arc::new(FakeWeread));
+    let (first, second, _block) = seed_books(&state);
+    let before = serde_json::to_value(commands::weread_status_inner(&state).unwrap()).unwrap();
+    assert_eq!(before["connected"], json!(false));
+    assert_eq!(before["syncing"], json!(false));
+
+    let blank = commands::weread_connect_inner(&state, "  ", DAY).unwrap();
+    assert!(!blank.connected);
+    assert_eq!(blank.last_error.as_deref(), Some("请先填入 API Key"));
+
+    let status = commands::weread_connect_inner(&state, "wrk-test", DAY).unwrap();
+    let value = serde_json::to_value(&status).unwrap();
+    assert_eq!(value["connected"], json!(true));
+    assert_eq!(value["autoSync"], json!(true));
+    assert_eq!(value["lastSyncOk"], json!(true));
+    assert_eq!(value["lastError"], Value::Null);
+    assert_eq!(value["bookCount"], json!(2));
+    assert_eq!(value["linkedCount"], json!(1));
+    assert_eq!(value["totalSeconds"], json!(7200));
+    assert_eq!(value["totalReadDays"], json!(3));
+    assert_eq!(value["syncing"], json!(false));
+    assert!(value["lastSyncAt"].is_string());
+
+    let books = serde_json::to_value(commands::weread_books_inner(&state).unwrap()).unwrap();
+    assert_eq!(books.as_array().unwrap().len(), 2);
+    assert_eq!(books[0]["wereadId"], json!("w1"));
+    assert_eq!(books[0]["localBookId"], json!(first));
+    assert_eq!(books[0]["localTitle"], json!("第一本"));
+    assert_eq!(books[0]["linkSource"], json!("auto"));
+    assert_eq!(books[0]["progress"], json!(42));
+    assert_eq!(books[0]["readingSeconds"], json!(3600));
+    assert_eq!(books[1]["finishReading"], json!(true));
+    assert_eq!(books[1]["localBookId"], Value::Null);
+
+    let linked = commands::weread_link_inner(&state, "w2", Some(second)).unwrap();
+    assert_eq!(linked.local_book_id, Some(second));
+    assert_eq!(linked.link_source, "manual");
+    let unlinked = commands::weread_link_inner(&state, "w2", None).unwrap();
+    assert_eq!(unlinked.local_book_id, None);
+    assert_eq!(unlinked.link_source, "manual");
+    assert_eq!(
+        commands::weread_link_inner(&state, "zz", None)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        commands::weread_link_inner(&state, "w1", Some(9_999))
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+
+    let days = serde_json::to_value(
+        commands::weread_reading_days_inner(&state, DAY, "2026-09-30").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(days, json!({"days": [{"date": DAY, "seconds": 1200}]}));
+    assert_eq!(
+        commands::weread_reading_days_inner(&state, "2026-09-30", DAY)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+
+    assert!(
+        !commands::weread_set_auto_sync_inner(&state, false)
+            .unwrap()
+            .auto_sync
+    );
+    let again = commands::weread_sync_inner(&state, DAY).unwrap();
+    assert_eq!(again.last_sync_ok, Some(true));
+    assert!(!again.auto_sync);
+    commands::weread_open_key_page_inner(&state).unwrap();
+
+    commands::weread_disconnect_inner(&state, true).unwrap();
+    assert!(!commands::weread_status_inner(&state).unwrap().connected);
+    assert!(commands::weread_books_inner(&state).unwrap().is_empty());
+    assert_eq!(
+        commands::weread_sync_inner(&state, DAY).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
 fn reader_marks_round_trip_through_commands() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::open(&directory.path().join("marks.db")).unwrap();
@@ -1415,6 +1504,41 @@ impl AiProvider for EngineMock {
     }
 }
 
+/// 微信读书假网关(BL-030):固定书架两本(w1 与 first 同名同作者 → 自动关联)、进度、总计与本月一天时长。
+struct FakeWeread;
+
+/// 2026-09-01 00:00 北京时间
+const WEREAD_DAY_TS: i64 = 1788192000;
+
+impl book_learner_core::weread::Gateway for FakeWeread {
+    fn call(
+        &self,
+        api_name: &str,
+        params: Value,
+    ) -> Result<Value, book_learner_core::weread::GatewayError> {
+        Ok(match api_name {
+            "/shelf/sync" => json!({
+                "books": [
+                    {"bookId": "w1", "title": "第一本", "author": "甲", "cover": "", "category": "教材",
+                     "readUpdateTime": 100, "finishReading": 0, "updateTime": 1, "isTop": 0, "secret": 0},
+                    {"bookId": "w2", "title": "陌生的书", "author": "某", "cover": "", "category": "",
+                     "readUpdateTime": 50, "finishReading": 1, "updateTime": 1, "isTop": 0, "secret": 0}
+                ],
+                "albums": [], "mp": null, "bookCount": 2
+            }),
+            "/book/getprogress" => json!({
+                "bookId": params["bookId"],
+                "book": {"progress": 42, "recordReadingTime": 3600, "updateTime": 100}
+            }),
+            "/readdata/detail" if params["mode"] == "overall" => {
+                json!({"totalReadTime": 7200, "readDays": 3})
+            }
+            "/readdata/detail" => json!({"readTimes": {WEREAD_DAY_TS.to_string(): 1200}}),
+            _ => json!({}),
+        })
+    }
+}
+
 fn state_with_mock(path: &Path) -> (AppState, Arc<EngineMock>) {
     let mock = Arc::new(EngineMock {
         calls: Mutex::new(0),
@@ -1424,7 +1548,8 @@ fn state_with_mock(path: &Path) -> (AppState, Arc<EngineMock>) {
     });
     let state = AppState::open(path)
         .unwrap()
-        .with_provider(Arc::clone(&mock) as Arc<dyn AiProvider + Send + Sync>);
+        .with_provider(Arc::clone(&mock) as Arc<dyn AiProvider + Send + Sync>)
+        .with_weread_gateway(Arc::new(FakeWeread));
     *mock.jobs.lock().unwrap() = Some(Arc::clone(state.jobs()));
     (state, mock)
 }
@@ -2532,6 +2657,20 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "lineage_node_source" => json!({"bookId": first, "nodeId": "a"}),
             "reading_time_add" => json!({"bookId": first, "date": DAY, "seconds": 90}),
             "reading_time_summary" => json!({"date": DAY}),
+            "weread_status" | "weread_books" | "weread_open_key_page" => json!({}),
+            "weread_connect" => json!({"apiKey": "wrk-test", "date": DAY}),
+            "weread_disconnect" => json!({"purge": false}),
+            "weread_reading_days" => json!({"from": DAY, "to": "2026-09-30"}),
+            // 断开之后的命令要先重连(假网关,幂等)
+            "weread_sync" | "weread_set_auto_sync" | "weread_link" => {
+                let state = app.state::<AppState>();
+                commands::weread_connect_inner(&state, "wrk-test", DAY).unwrap();
+                match command {
+                    "weread_sync" => json!({"date": DAY}),
+                    "weread_set_auto_sync" => json!({"enabled": false}),
+                    _ => json!({"wereadId": "w1", "localBookId": null}),
+                }
+            }
             "reading_messages" | "reading_topic_end" | "reading_distill" => {
                 let state = app.state::<AppState>();
                 let sent = commands::reading_send_inner(
