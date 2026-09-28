@@ -38,13 +38,14 @@ fn dto_json_matches_the_camel_case_frontend_contract() {
         status: BookStatus::Paused,
         import_state: "ready".into(),
         map_revision: 3,
+        cover_path: String::new(),
     });
     assert_eq!(
         serde_json::to_value(book).unwrap(),
         json!({
             "id": 7, "title": "系统思考", "author": "作者",
             "type": "methodology", "slug": "systems", "status": "paused", "mapRevision": 3,
-            "importState": "ready"
+            "importState": "ready", "coverPath": null
         })
     );
 

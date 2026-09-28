@@ -444,6 +444,12 @@ pub fn run() {
                             books_dir.display()
                         )));
                     }
+                    // 封面(BL-031):给还没检查过封面的老书补抽一次(每本只读一次 zip)
+                    match state.with_connection(|c| Ok(state.import_store().backfill_covers(c))) {
+                        Ok(count) if count > 0 => tracing::info!(count, "已补抽封面"),
+                        Ok(_) => {}
+                        Err(error) => tracing::warn!(?error, "补抽封面失败"),
+                    }
                     {
                         let removed = diagnostics::prune_logs(
                             &diagnostics::log_dir(state.data_root()),

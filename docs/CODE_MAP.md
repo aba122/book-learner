@@ -48,6 +48,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 阅读器 ←/→ 不翻页 | 焦点在输入框/浮层(`[role=dialog]`)/菜单里,或有模态开着(`data-modal-open`);脉络图画布抢方向键选节点 | `ReaderPage.tsx` `onKey` |
 | 设置页找不到某项 / 左列不跟着滚 | 六个分区全部在页里(通用 / AI 与导出 / 语音 / 画像 / 数据 / 诊断),左列只在内容区 ≥ 768px 时显示;滚动跟随靠 IntersectionObserver | `web/src/features/settings/SettingsPage.tsx`(`SectionNav`) |
 | 地图编辑态看不到 上移/跳过/删除 | 行内图标钮悬停或 Tab 聚焦到该行时显现(始终在 DOM);删除只对未学且未进今日计划的块可用 | `web/src/features/map/MapPage.tsx` |
+| 书架没显示封面 / 封面是首字 | 封面文件 `books/<id>.cover.<ext>`,`book.cover_path` 记文件名(`-` = 检查过没封面,不再补抽;清空为 `''` 可让启动补抽重来);OPF 三种找法都失败才用签名;外链封面(微信读书)加载失败也退回签名 | `web/src-tauri/src/import.rs` `epub_cover/backfill_covers`;`web/src/features/library/CoverTile.tsx` |
 | 费曼页原文参考栏不见了 | 工具栏最左「原文参考」钮(aria-pressed)开关,状态存 `bookLearner.feynmanSource` | `web/src/features/feynman/FeynmanPage.tsx` |
 | 提示框贴右缘时文字竖排 | `Tooltip` 量尺寸那一帧必须放在 `left = margin`(fixed 框落在右缘会被 shrink-to-fit 压窄,量到的宽就是错的) | `web/src/components/Tooltip.tsx` |
 | 费曼页脉络图栏不见了 / 显示「还没有脉络图」 | 工具栏最右「脉络图」钮(aria-pressed)开关,状态存 `bookLearner.feynmanLineage`;栏里只读 `lineageGet(block.bookId)`,这本书要先在阅读器右栏生成过;图与阅读器里的是同一张(`lineage_graph` 每书一张) | `web/src/features/feynman/LineageAside.tsx`;`FeynmanPage.tsx` |
@@ -137,7 +138,7 @@ select * from setting;
 | 路由 | 页面 | 读 | 写 |
 |---|---|---|---|
 | `/` | `features/today/TodayPage` | `listBooks` → `checkBehind`(先)→ `todayQueue` → 每书 `listBlocks`;`stats`;`pomodoroState` | `completeTask`(Tauri 下有意 unsupported)、`pomodoroStart` |
-| `/library` | `features/library/LibraryPage` | `listBooks`;`wereadStatus` → 已连接再 `wereadBooks`(`WereadShelf` 分区 + 本地卡一行进度,BL-030) | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
+| `/library` | `features/library/LibraryPage` | `listBooks`(含 `coverUrl`,BL-031;`CoverTile` 铺图/退回签名);`wereadStatus` → 已连接再 `wereadBooks`(`WereadShelf` 分区 + 本地卡一行进度,BL-030) | `setActiveBook`、`finishBook`、「阅读」(`listBlocks`→`/reader/{firstBlock}` 无任务,BL-016);`ImportWizard`(`importEpub/storeSpine/runMapJob`)、`ExportDialog` |
 | `/map/:bookId` | `features/map/MapPage` | `listBlocks`、`listBooks`(取 `mapRevision`) | `confirmMap`、`setPlan` + `setActiveBook` |
 | `/reader/:blockId?task=&back=` | `features/reader/ReaderPage` | `getBlock` → `blockSource/epubUrl/readerMarkList/listAnchors`;右栏「问书」`ReadingChatPanel`:`readingTopics` → `readingMessages` | `readerMarkAdd/Remove`、`readerPositionSet`(800 ms 防抖,失败静默);`readingSend`(幂等 clientMsgId;AI 失败也是成功载荷)、`readingTopicEnd`、`readingDistill`(卸载时) |
 | ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,按真实卡高布局,`layout.ts`)| 点节点开底部浮层:改名·摘要·详情·删节点 → 800 ms 防抖 `lineageSave`,卸载补写;「看原文」`lineageNodeSource` → `epubRef.display`;「问一问」→ quoteDraft 切问书;读到更后面 →「更新到最新进度」`lineageUpdate`;「让 AI 按我的理解修正」`lineageRevise`;缩放/方向键选节点;hidden 不卸载 |

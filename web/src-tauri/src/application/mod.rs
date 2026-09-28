@@ -18,9 +18,23 @@ use crate::error::IpcError;
 use crate::state::AppState;
 
 pub fn list_books(state: &AppState) -> Result<Vec<BookDto>, IpcError> {
+    let store = state.import_store();
     state
         .with_connection(book_learner_core::models::list_books)
-        .map(|books| books.into_iter().map(Into::into).collect())
+        .map(|books| {
+            books
+                .into_iter()
+                .map(|book| {
+                    let mut dto = BookDto::from(book);
+                    // 封面(BL-031):文件名 → 绝对路径(前端转 asset URL);"-" = 已检查过没封面
+                    dto.cover_path = dto
+                        .cover_path
+                        .filter(|name| name != "-")
+                        .map(|name| store.cover_abs_path(&name).to_string_lossy().into_owned());
+                    dto
+                })
+                .collect()
+        })
 }
 
 pub fn set_active_book(state: &AppState, book_id: i64) -> Result<(), IpcError> {
@@ -827,6 +841,7 @@ pub fn delete_book(state: &AppState, book_id: i64, date: &str) -> Result<(), Ipc
             tracing::warn!(book_id, path = %epub.display(), %error, "删除 EPUB 文件失败(数据已删)")
         }
     }
+    state.import_store().remove_cover_files(book_id);
     tracing::info!(
         book_id,
         slug = deleted.slug,

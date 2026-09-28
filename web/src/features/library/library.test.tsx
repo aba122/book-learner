@@ -482,3 +482,35 @@ describe('书架 · 微信读书分区(BL-030)', () => {
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
   })
 })
+
+describe('书架 · 封面(BL-031)', () => {
+  const renderPage = () =>
+    render(
+      <MemoryRouter initialEntries={['/library']}>
+        <Routes>
+          <Route path="/library" element={<LibraryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('有封面的书铺封面图;没封面的书退回首字签名;微信读书卡片同理', async () => {
+    const mock = backendModule.backend as MockBackend
+    await mock.importEpub(new File(['x'], '无封面的书.epub'), 'humanities')
+    await mock.wereadConnect('wrk-demo')
+    renderPage()
+    const withCover = await screen.findByRole('article', { name: '微观经济学' })
+    const img = within(withCover).getByTestId('book-cover')
+    expect(img.tagName).toBe('IMG')
+    expect(img).toHaveAttribute('src', expect.stringContaining('data:image/svg+xml'))
+    expect(img).toHaveAttribute('alt', '')
+    const plain = screen.getByRole('article', { name: '无封面的书' })
+    expect(within(plain).queryByTestId('book-cover')).toBeNull()
+    expect(plain).toHaveTextContent('无')
+    const shelf = await screen.findByTestId('weread-shelf')
+    expect(within(within(shelf).getByRole('article', { name: '微信读书《置身事内》' })).getByTestId('book-cover')).toBeInTheDocument()
+    expect(within(within(shelf).getByRole('article', { name: '微信读书《认知觉醒》' })).queryByTestId('book-cover')).toBeNull()
+    // 图加载失败 → 退回签名
+    fireEvent.error(img)
+    expect(within(withCover).queryByTestId('book-cover')).toBeNull()
+  })
+})

@@ -1,12 +1,9 @@
 import Button from '../../components/Button'
 import Select from '../../components/Select'
 import Tag from '../../components/Tag'
+import CoverTile from './CoverTile'
 import { formatDuration } from '../../lib/duration'
 import type { Book, WereadBook, WereadStatus } from '../../types'
-
-/* 封面签名与本地书卡同一取法(首字 + 书脊色条) */
-const SPINE = ['bg-new', 'bg-review', 'bg-weak']
-const spineOf = (title: string) => SPINE[(title.codePointAt(0) ?? 0) % SPINE.length]
 
 const fmtDay = (iso: string) => iso.slice(0, 10)
 
@@ -45,10 +42,7 @@ export default function WereadShelf({ status, books, localBooks, syncing, onSync
         <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8">
           {books.map(b => (
             <article key={b.wereadId} aria-label={`微信读书《${b.title}》`} className={`flex flex-col ${b.removed ? 'opacity-60' : ''}`} data-testid="weread-book">
-              <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-m border border-sep bg-card shadow-card">
-                <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${spineOf(b.title)}`} />
-                <span aria-hidden className="font-serif text-[44px] font-semibold text-label-2">{[...b.title][0]}</span>
-              </div>
+              <CoverTile title={b.title} coverUrl={b.coverUrl || null} />
               <div className="mt-2.5 flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate font-serif text-headline text-label-1">{b.title}</div>

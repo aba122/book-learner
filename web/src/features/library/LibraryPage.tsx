@@ -22,6 +22,7 @@ import type { Book, BookStatus, WereadBook, WereadStatus } from '../../types'
 import ExportDialog from './ExportDialog'
 import ImportWizard from './ImportWizard'
 import WereadShelf from './WereadShelf'
+import CoverTile from './CoverTile'
 import { formatDuration } from '../../lib/duration'
 
 const STATUS_LABEL: Record<BookStatus, string> = {
@@ -34,9 +35,6 @@ const STATUS_NOTE: Partial<Record<BookStatus, string>> = {
   paused: '计划冻结 · 复习照常',
   finished: '复习照常 · 不再主攻',
 }
-
-/* 封面签名:首字 + 书脊色条(按书名首字符稳定取三任务色之一;数据色在这里只作装饰) */
-const SPINE = ['bg-new', 'bg-review', 'bg-weak']
 
 /**
  * 书架(视觉改版第二批):工具栏带放「导入书籍」;栅格按容器自适应;卡片操作收进「更多操作」菜单
@@ -217,16 +215,14 @@ export default function LibraryPage() {
                     onClick={() => open(book)}
                     className="w-full cursor-pointer rounded-m text-left"
                   >
-                    <div
-                      className={`relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-m border border-sep bg-card shadow-card transition-shadow duration-[var(--dur-base)] group-hover:shadow-popover ${
+                    {/* 封面(BL-031):本地抽出的封面;没有就借用已关联微信读书的封面;都没有 → 首字签名 */}
+                    <CoverTile
+                      title={book.title}
+                      coverUrl={book.coverUrl ?? wereadByLocal.get(book.id)?.coverUrl ?? null}
+                      className={`transition-shadow duration-[var(--dur-base)] group-hover:shadow-popover ${
                         book.status === 'active' ? 'ring-2 ring-accent ring-offset-2 ring-offset-content' : ''
                       }`}
-                    >
-                      <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${SPINE[(book.title.codePointAt(0) ?? 0) % SPINE.length]}`} />
-                      <span aria-hidden className="font-serif text-[44px] font-semibold text-label-2">
-                        {[...book.title][0]}
-                      </span>
-                    </div>
+                    />
                     <div className="mt-2.5 flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate font-serif text-headline text-label-1">{book.title}</div>
