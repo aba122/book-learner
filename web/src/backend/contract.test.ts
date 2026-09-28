@@ -162,6 +162,9 @@ describe('Tauri wire contract fixture', () => {
       { method: 'wereadLink', command: 'weread_link', payloadKeys: ['wereadId', 'localBookId'] },
       { method: 'wereadReadingDays', command: 'weread_reading_days', payloadKeys: ['from', 'to'] },
       { method: 'wereadOpenKeyPage', command: 'weread_open_key_page', payloadKeys: [] },
+      // BL-030 第二批:划线/想法与定位
+      { method: 'wereadNotes', command: 'weread_notes', payloadKeys: ['localBookId'] },
+      { method: 'wereadLocate', command: 'weread_locate', payloadKeys: ['kind', 'id', 'status', 'localBookId', 'mark', 'attachTo'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])

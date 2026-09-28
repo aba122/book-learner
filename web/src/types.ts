@@ -121,12 +121,18 @@ export interface PushResult { pushed: boolean; error: string | null }
 /** 阅读器标记(M3 T4):高亮(区间 CFI)/ 书签(点 CFI)/ 阅读位置(每书一行) */
 export type ReaderMarkKind = 'highlight' | 'bookmark' | 'position'
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
+export type ReaderMarkSource = 'local' | 'weread'
 export interface ReaderMark {
   id: number; bookId: number; kind: ReaderMarkKind; spineHref: string; cfiStart: string; cfiEnd: string | null
   text: string; color: string; note: string; createdAt: string; updatedAt: string
+  /** 来源(BL-030 第二批):weread = 从微信读书划线定位而来 */
+  source: ReaderMarkSource
+  /** 外部 id(微信读书 bookmarkId / reviewId);同书同来源同 id 幂等 */
+  externalId: string | null
 }
 export interface NewReaderMark {
   kind: ReaderMarkKind; spineHref: string; cfiStart: string; cfiEnd?: string | null; text?: string; color?: string; note?: string
+  source?: ReaderMarkSource; externalId?: string | null
 }
 
 /** 语音(M3 T3):whisper 模型清单项(壳层 <data_root>/models);转写结果 */
@@ -231,3 +237,23 @@ export interface WereadBook {
   removed: boolean
 }
 export interface WereadReadingDays { days: ReadingDay[] }
+/** 微信读书划线(第二批):range 是微信读书章节文本内的字符偏移,不是 CFI;定位后 localMarkId 指向本地高亮 */
+export type WereadLocateStatus = 'pending' | 'located' | 'partial' | 'missing'
+export interface WereadMark {
+  bookmarkId: string; wereadId: string; chapterUid: number; chapterIdx: number; chapterTitle: string
+  range: string; markText: string; colorStyle: number; createdAt: number
+  localMarkId: number | null; locateStatus: WereadLocateStatus
+}
+export interface WereadThought {
+  reviewId: string; wereadId: string; content: string
+  /** 想法对应的划线原文(整本/章节点评为空) */
+  abstractText: string
+  range: string; chapterUid: number; chapterTitle: string; createdAt: number; star: number
+  localMarkId: number | null; locateStatus: WereadLocateStatus
+}
+export interface WereadNotes {
+  /** 本地书关联的微信读书 id;null = 没关联 */
+  wereadId: string | null
+  marks: WereadMark[]; thoughts: WereadThought[]
+  markCount: number; locatedCount: number; pendingCount: number; thoughtCount: number
+}

@@ -403,7 +403,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary', 'wereadStatus', 'wereadConnect', 'wereadSync', 'wereadDisconnect', 'wereadSetAutoSync', 'wereadBooks', 'wereadLink', 'wereadReadingDays', 'wereadOpenKeyPage']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary', 'wereadStatus', 'wereadConnect', 'wereadSync', 'wereadDisconnect', 'wereadSetAutoSync', 'wereadBooks', 'wereadLink', 'wereadReadingDays', 'wereadOpenKeyPage', 'wereadNotes', 'wereadLocate']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -548,7 +548,7 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
   })
 
   it('reader marks: list/add/update/remove/position decode and send payloads (M3 T4)', async () => {
-    const mark = { id: 3, bookId: 1, kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/4!/4/2/1:0)', cfiEnd: 'epubcfi(/6/4!/4/2/1:8)', text: '弹性', color: 'yellow', note: '', createdAt: 'x', updatedAt: 'x' }
+    const mark = { id: 3, bookId: 1, kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/4!/4/2/1:0)', cfiEnd: 'epubcfi(/6/4!/4/2/1:8)', text: '弹性', color: 'yellow', note: '', createdAt: 'x', updatedAt: 'x', source: 'local', externalId: null }
     const { calls, invoke } = recorder({ reader_mark_list: [mark], reader_mark_add: mark, reader_mark_update: { ...mark, note: 'n' }, reader_mark_remove: null, reader_position_set: { ...mark, kind: 'position', cfiEnd: null } })
     const backend = new TauriBackend(invoke)
     expect(await backend.readerMarkList(1)).toEqual([mark])
@@ -1032,5 +1032,54 @@ describe('TauriBackend 微信读书同步(BL-030)', () => {
     await expect(badStatus.wereadStatus()).rejects.toMatchObject({ code: 'invalid_response' })
     const badBook = new TauriBackend(async <T>() => [{ ...book, linkSource: 'magic' }] as T)
     await expect(badBook.wereadBooks()).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+})
+
+describe('TauriBackend 微信读书划线/想法(BL-030 第二批)', () => {
+  it('wereadNotes 解码;wereadLocate 传六键、mark 只带认识的键、回包 null/高亮都能解;标记解码带来源', async () => {
+    const calls: { command: string; payload: unknown }[] = []
+    const mark = {
+      bookmarkId: 'bm-1', wereadId: 'w1', chapterUid: 3, chapterIdx: 1, chapterTitle: '第一章', range: '10-20', markText: '活着本身',
+      colorStyle: 2, createdAt: 100, localMarkId: null, locateStatus: 'pending',
+    }
+    const thought = {
+      reviewId: 'r-1', wereadId: 'w1', content: '这就是命', abstractText: '活着本身', range: '10-20', chapterUid: 3, chapterTitle: '', createdAt: 150, star: -1,
+      localMarkId: null, locateStatus: 'pending',
+    }
+    const notes = { wereadId: 'w1', marks: [mark], thoughts: [thought], markCount: 1, locatedCount: 0, pendingCount: 1, thoughtCount: 1 }
+    const hl = {
+      id: 9, bookId: 1, kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/2!/4/2/1:0)', cfiEnd: 'epubcfi(/6/2!/4/2/1:4)', text: '活着本身',
+      color: 'blue', note: '', createdAt: 't', updatedAt: 't', source: 'weread', externalId: 'bm-1',
+    }
+    let locateReply: unknown = hl
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'weread_notes') return notes as T
+      if (command === 'weread_locate') return locateReply as T
+      return null as T
+    }
+    const backend = new TauriBackend(invoke)
+    expect(await backend.wereadNotes(1)).toEqual(notes)
+    expect(calls[0]).toEqual({ command: 'weread_notes', payload: { localBookId: 1 } })
+    const created = await backend.wereadLocate('mark', 'bm-1', 'located', 1, { kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/2!/4/2/1:0)', cfiEnd: 'epubcfi(/6/2!/4/2/1:4)', text: '活着本身', color: 'blue' }, null)
+    expect(created).toEqual(hl)
+    expect(calls[1]).toEqual({
+      command: 'weread_locate',
+      payload: {
+        kind: 'mark', id: 'bm-1', status: 'located', localBookId: 1, attachTo: null,
+        mark: { kind: 'highlight', spineHref: 'chap1.xhtml', cfiStart: 'epubcfi(/6/2!/4/2/1:0)', cfiEnd: 'epubcfi(/6/2!/4/2/1:4)', text: '活着本身', color: 'blue', note: '' },
+      },
+    })
+    locateReply = null
+    expect(await backend.wereadLocate('thought', 'r-1', 'located', 1, null, 9)).toBeNull()
+    expect(calls[2].payload).toEqual({ kind: 'thought', id: 'r-1', status: 'located', localBookId: 1, mark: null, attachTo: 9 })
+    // 旧壳层没有 source/externalId 键 → local / null
+    const { source: _s, externalId: _e, ...legacyWire } = hl
+    const legacy = new TauriBackend(async <T>() => legacyWire as T)
+    const decoded = await legacy.wereadLocate('mark', 'bm-1', 'located', 1, null, null)
+    expect(decoded?.source).toBe('local')
+    expect(decoded?.externalId).toBeNull()
+    const bad = new TauriBackend(async <T>() => ({ ...notes, marks: [{ ...mark, locateStatus: 'lost' }] }) as T)
+    await expect(bad.wereadNotes(1)).rejects.toMatchObject({ code: 'invalid_response' })
   })
 })
