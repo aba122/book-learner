@@ -1945,6 +1945,202 @@ mod tests {
         assert_eq!(bucket_date(ts).unwrap(), "2024-12-15");
     }
 
+    fn notes_gateway() -> FakeGateway {
+        FakeGateway::new(|api, params| {
+            Ok(match api {
+                "/shelf/sync" => shelf(&[("w1", "活着", "余华", 100), ("w2", "别的", "某", 5)]),
+                "/book/getprogress" => json!({"book": {"progress": 10, "readingTime": 60}}),
+                "/readdata/detail" => json!({"readTimes": {}, "totalReadTime": 0, "readDays": 0}),
+                "/book/bookmarklist" => {
+                    assert_eq!(params["bookId"], "w1", "只拉已关联的书");
+                    json!({
+                        "chapters": [{"chapterUid": 3, "chapterIdx": 1, "title": "第一章"}, {"chapterUid": 5, "chapterIdx": 2, "title": "第二章"}],
+                        "updated": [
+                            {"bookmarkId": "bm-a", "chapterUid": 3, "range": "10-20", "markText": "活着本身", "colorStyle": 2, "type": 1, "createTime": 100},
+                            {"bookmarkId": "bm-b", "chapterUid": 5, "range": "30-40", "markText": "第二章的话", "colorStyle": 0, "type": 1, "createTime": 200},
+                            {"bookmarkId": "bk-x", "chapterUid": 5, "range": "50-50", "markText": "", "type": 0}
+                        ]
+                    })
+                }
+                "/review/list/mine" => {
+                    assert_eq!(params["bookid"], "w1");
+                    if params["synckey"] == 0 {
+                        json!({"reviews": [{"reviewId": "r-1", "review": {"reviewId": "r-1", "content": "这就是命", "abstract": "活着本身", "range": "10-20", "chapterUid": 3, "createTime": 150, "star": -1}}], "hasMore": 1, "synckey": 77})
+                    } else {
+                        json!({"reviews": [{"review": {"reviewId": "r-2", "content": "整本书评", "chapterUid": 0, "createTime": 300, "star": 5}}], "hasMore": 0, "synckey": 78})
+                    }
+                }
+                _ => json!({}),
+            })
+        })
+    }
+
+    #[test]
+    fn linked_books_get_marks_and_thoughts_and_projection_enqueued() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let huozhe = seed(&conn, "活着", "余华", "huozhe");
+        let gateway = notes_gateway();
+        let status = connect(&conn, &gateway, "wrk-x", "2026-09-28", 0).unwrap();
+        assert_eq!(status.last_error, None, "书签 type=0 的空文本行不算错误");
+        // 首次同步时 w1 还没关联 → 第一次不拉划线;auto_link 后第二次同步才拉
+        assert_eq!(gateway.count("/book/bookmarklist"), 0);
+        sync(&conn, &gateway, "2026-09-28", 0).unwrap();
+        assert_eq!(gateway.count("/book/bookmarklist"), 1);
+        assert_eq!(
+            gateway.count("/review/list/mine"),
+            2,
+            "想法分页到 hasMore=0"
+        );
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.weread_id.as_deref(), Some("w1"));
+        assert_eq!(notes.mark_count, 2, "type=0 与空文本被过滤");
+        assert_eq!(notes.pending_count, 2);
+        assert_eq!(notes.thought_count, 2);
+        assert_eq!(notes.marks[0].chapter_title, "第一章");
+        assert_eq!(notes.marks[1].chapter_idx, 2);
+        let r1 = notes
+            .thoughts
+            .iter()
+            .find(|t| t.review_id == "r-1")
+            .unwrap();
+        assert_eq!(r1.abstract_text, "活着本身");
+        assert_eq!(
+            notes
+                .thoughts
+                .iter()
+                .find(|t| t.review_id == "r-2")
+                .unwrap()
+                .star,
+            5
+        );
+        // 投影入队(同内容只一条)
+        let pending: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind = 'sync_weread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 1);
+        sync(&conn, &gateway, "2026-09-28", 0).unwrap();
+        let again: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM projection_outbox WHERE kind = 'sync_weread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(again, 1, "内容没变 → op_id 相同 → 不重复入队");
+        // 未关联的书没有划线
+        assert_eq!(notes_for_weread(&conn, "w2").unwrap().mark_count, 0);
+        assert!(notes_for_local(&conn, 9_999).unwrap().weread_id.is_none());
+
+        // 渲染
+        let md = render_markdown("活着", &notes);
+        assert!(md.contains("# 《活着》微信读书划线与想法"), "{md}");
+        assert!(
+            md.contains("## 第一章\n\n> 活着本身\n> \n> 💬 这就是命"),
+            "{md}"
+        );
+        assert!(md.contains("## 第二章\n\n> 第二章的话"), "{md}");
+        assert!(md.contains("## 想法与点评\n\n- 整本书评(评分 5)"), "{md}");
+
+        // 定位:bm-a → 新高亮;r-1 挂到它成批注;bm-b missing
+        let mark = crate::reader_marks::NewMark {
+            kind: "highlight".into(),
+            spine_href: "chap1.xhtml".into(),
+            cfi_start: "epubcfi(/6/2!/4/2/1:0)".into(),
+            cfi_end: Some("epubcfi(/6/2!/4/2/1:4)".into()),
+            text: "活着本身".into(),
+            color: "blue".into(),
+            note: String::new(),
+            source: String::new(),
+            external_id: None,
+        };
+        let created = locate(&conn, "mark", "bm-a", "located", huozhe, Some(&mark), None)
+            .unwrap()
+            .expect("created");
+        assert_eq!(created.source, "weread");
+        assert_eq!(created.external_id.as_deref(), Some("bm-a"));
+        // 幂等:再定位一次不重复建高亮
+        let again = locate(&conn, "mark", "bm-a", "located", huozhe, Some(&mark), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.id, created.id);
+        locate(
+            &conn,
+            "thought",
+            "r-1",
+            "located",
+            huozhe,
+            None,
+            Some(created.id),
+        )
+        .unwrap();
+        locate(
+            &conn,
+            "thought",
+            "r-1",
+            "located",
+            huozhe,
+            None,
+            Some(created.id),
+        )
+        .unwrap();
+        let hl = crate::reader_marks::get(&conn, created.id).unwrap();
+        assert_eq!(hl.note, "这就是命", "想法挂成批注,不重复追加");
+        locate(&conn, "mark", "bm-b", "missing", huozhe, None, None).unwrap();
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.located_count, 1);
+        assert_eq!(notes.pending_count, 0);
+        assert_eq!(notes.marks[0].local_mark_id, Some(created.id));
+        assert_eq!(notes.marks[1].locate_status, "missing");
+        assert_eq!(
+            notes
+                .thoughts
+                .iter()
+                .find(|t| t.review_id == "r-1")
+                .unwrap()
+                .local_mark_id,
+            Some(created.id)
+        );
+        assert!(matches!(
+            locate(&conn, "mark", "nope", "located", huozhe, None, None),
+            Err(CoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            locate(&conn, "mark", "bm-b", "weird", huozhe, None, None),
+            Err(CoreError::InvalidInput(_))
+        ));
+        // 再同步:已定位的划线保留 local_mark_id;本次消失的划线标 removed
+        let gateway2 = FakeGateway::new(|api, _| {
+            Ok(match api {
+                "/shelf/sync" => shelf(&[("w1", "活着", "余华", 100)]),
+                "/book/bookmarklist" => {
+                    json!({"chapters": [], "updated": [{"bookmarkId": "bm-a", "chapterUid": 3, "range": "10-20", "markText": "活着本身", "type": 1}]})
+                }
+                "/review/list/mine" => json!({"reviews": [], "hasMore": 0}),
+                _ => json!({"readTimes": {}, "totalReadTime": 0, "readDays": 0}),
+            })
+        });
+        sync(&conn, &gateway2, "2026-09-28", 0).unwrap();
+        let notes = notes_for_local(&conn, huozhe).unwrap();
+        assert_eq!(notes.mark_count, 1);
+        assert_eq!(notes.marks[0].local_mark_id, Some(created.id));
+        assert_eq!(notes.thought_count, 0);
+        // 费曼上下文:块锚点章节里的微信读书划线
+        let block =
+            crate::models::insert_block(&conn, huozhe, "模块", 1, "块", "blk", &[]).unwrap();
+        conn.execute(
+            "INSERT INTO block_anchor(block_id, seq, spine_href, cfi_start, cfi_end, precision, hint) VALUES(?1, 0, 'chap1.xhtml', 'epubcfi(/6/2!/4/2)', 'epubcfi(/6/2!/4/8)', 'exact', '')",
+            [block],
+        )
+        .unwrap();
+        let lines = notes_for_block(&conn, huozhe, block, 5).unwrap();
+        assert_eq!(lines, vec!["- 微信读书划线:「活着本身」(想法:这就是命)"]);
+        assert!(notes_for_block(&conn, huozhe, block, 0).unwrap().is_empty());
+    }
+
     /// 本地假网关:验证真实 HTTP 请求的头与体,以及 401 / errcode 的归类。
     fn serve_once(
         status_line: &'static str,
