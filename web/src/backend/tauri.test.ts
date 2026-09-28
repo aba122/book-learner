@@ -12,6 +12,7 @@ const book = {
   status: 'active',
   mapRevision: 1,
   importState: 'mapped',
+  coverUrl: null,
 }
 
 const block = {
@@ -748,6 +749,12 @@ describe('TauriBackend native import and reader (Mac M6)', () => {
     })
     const backend = new TauriBackend(invoke, { convertFileSrc: path => `asset://localhost${path}` })
     expect(await backend.epubUrl(1)).toBe('asset://localhost/data/book-learner/books/1.epub')
+    // 封面(BL-031):coverPath 绝对路径 → asset URL;null / 缺键 → null
+    const withCover = new TauriBackend(
+      async <T>() => [{ ...book, coverPath: '/data/book-learner/books/1.cover.jpg' }, { ...book, id: 2, coverPath: null }, { ...book, id: 3 }] as T,
+      { convertFileSrc: path => `asset://localhost${path}` },
+    )
+    expect((await withCover.listBooks()).map(b => b.coverUrl)).toEqual(['asset://localhost/data/book-learner/books/1.cover.jpg', null, null])
     expect(await backend.blockSource(2)).toEqual({ href: 'ch0.xhtml', text: '原文' })
     expect(calls.map(c => [c.command, c.payload])).toEqual([
       ['library_epub_url', { bookId: 1 }],

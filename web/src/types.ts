@@ -11,6 +11,8 @@ export interface Book {
   /** 地图乐观并发修订号(core book.map_revision;草图落库置 1,每次 confirmMap +1) */
   mapRevision: number
   importState: ImportState
+  /** 封面图 URL(壳层受管 books 目录里抽出的封面转 asset URL;null = 没有,用首字签名。BL-031) */
+  coverUrl: string | null
 }
 export interface Scores { accuracy: number; completeness: number; clarity: number }
 export interface KnowledgeBlock {

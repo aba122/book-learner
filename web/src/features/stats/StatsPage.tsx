@@ -225,9 +225,8 @@ function QualitySection({ detail }: { detail: StatsDetail }) {
 }
 
 type ReadingRange = 'day' | 'week' | 'month'
-/** 书脊色:与书架封面同一取法(按书名首字符稳定取三任务色之一,只作装饰) */
-const SPINE = ['bg-new', 'bg-review', 'bg-weak']
-const spineColor = (title: string) => SPINE[(title.codePointAt(0) ?? 0) % SPINE.length]
+/** 书脊色:与书架封面签名同一取法(features/library/CoverTile) */
+import { spineColor } from '../library/coverSignature'
 
 function ReadingStat({ label, seconds, testId }: { label: string; seconds: number; testId: string }) {
   return (

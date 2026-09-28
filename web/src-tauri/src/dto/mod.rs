@@ -32,6 +32,8 @@ pub struct BookDto {
     pub map_revision: i64,
     /// ready | staged | extracted | mapped(导入未完成 = staged/extracted)
     pub import_state: String,
+    /// 封面文件的绝对路径(前端转 asset URL);None = 没有封面。`From<Book>` 只放文件名,`application::list_books` 补成绝对路径
+    pub cover_path: Option<String>,
 }
 
 impl From<Book> for BookDto {
@@ -50,6 +52,7 @@ impl From<Book> for BookDto {
             status: status.into(),
             map_revision: book.map_revision,
             import_state: book.import_state,
+            cover_path: (!book.cover_path.is_empty()).then_some(book.cover_path),
         }
     }
 }

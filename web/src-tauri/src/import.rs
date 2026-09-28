@@ -37,6 +37,9 @@ fn db_error(error: rusqlite::Error) -> IpcError {
     IpcError::from(CoreError::from(error))
 }
 
+/// 封面文件上限(超过视为异常,不抽)
+const MAX_COVER_BYTES: u64 = 8 * 1024 * 1024;
+
 fn invalid(message: &str, cause: impl Into<String>) -> IpcError {
     IpcError::invalid_request(message, cause)
 }
@@ -267,6 +270,218 @@ impl ImportStore {
         )
     }
 
+    /// 从 OPF 找封面图(BL-031):EPUB3 `properties="cover-image"` → EPUB2 `<meta name="cover" content="id">`
+    /// → 兜底:id/href 含 cover 的图片项。返回 (字节, 扩展名);任一步失败返回 None,不影响导入。
+    pub fn epub_cover(path: &Path) -> Option<(Vec<u8>, &'static str)> {
+        fn read_text(archive: &mut zip::ZipArchive<File>, name: &str) -> Option<String> {
+            let entry = archive.by_name(name).ok()?;
+            let mut text = String::new();
+            entry.take(2 * 1024 * 1024).read_to_string(&mut text).ok()?;
+            Some(text)
+        }
+        fn read_bytes(archive: &mut zip::ZipArchive<File>, name: &str) -> Option<Vec<u8>> {
+            let entry = archive.by_name(name).ok()?;
+            let mut bytes = Vec::new();
+            entry
+                .take(MAX_COVER_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .ok()?;
+            (!bytes.is_empty() && bytes.len() as u64 <= MAX_COVER_BYTES).then_some(bytes)
+        }
+        /// 单个标签文本里的 `name="…"` / `name='…'`(属性名前必须是空白,避免 `id` 撞上 `xml:id`)
+        fn attr(tag: &str, name: &str) -> Option<String> {
+            let mut search = 0;
+            while let Some(rel) = tag[search..].find(name) {
+                let start = search + rel;
+                let before_ok = start == 0 || tag[..start].ends_with(|c: char| c.is_whitespace());
+                if before_ok {
+                    let after = tag[start + name.len()..].trim_start();
+                    if let Some(rest) = after.strip_prefix('=') {
+                        let rest = rest.trim_start();
+                        let quote = rest.chars().next()?;
+                        if quote == '"' || quote == '\'' {
+                            let body = &rest[1..];
+                            let end = body.find(quote)?;
+                            return Some(body[..end].to_string());
+                        }
+                    }
+                }
+                search = start + name.len();
+            }
+            None
+        }
+        /// 每个 `<item …>` 标签文本(不含 `<item` 与结尾 `>`;跳过 `<itemref`)
+        fn items(opf: &str) -> Vec<&str> {
+            let mut out = Vec::new();
+            let mut rest = opf;
+            while let Some(pos) = rest.find("<item") {
+                let after = &rest[pos + 5..];
+                if after.starts_with("ref") {
+                    rest = after;
+                    continue;
+                }
+                let Some(end) = after.find('>') else { break };
+                out.push(&after[..end]);
+                rest = &after[end + 1..];
+            }
+            out
+        }
+        fn ext_for(media_type: &str, href: &str) -> Option<&'static str> {
+            let mt = media_type.to_ascii_lowercase();
+            let lower = href.to_ascii_lowercase();
+            if mt.contains("jpeg")
+                || mt.contains("jpg")
+                || lower.ends_with(".jpg")
+                || lower.ends_with(".jpeg")
+            {
+                Some("jpg")
+            } else if mt.contains("png") || lower.ends_with(".png") {
+                Some("png")
+            } else if mt.contains("gif") || lower.ends_with(".gif") {
+                Some("gif")
+            } else if mt.contains("webp") || lower.ends_with(".webp") {
+                Some("webp")
+            } else if mt.contains("svg") || lower.ends_with(".svg") {
+                Some("svg")
+            } else {
+                None
+            }
+        }
+        fn unescape(href: &str) -> String {
+            let text = href.replace("&amp;", "&");
+            let bytes = text.as_bytes();
+            let mut out = Vec::with_capacity(bytes.len());
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'%' {
+                    if let Some(hex) = text.get(i + 1..i + 3) {
+                        if let Ok(v) = u8::from_str_radix(hex, 16) {
+                            out.push(v);
+                            i += 3;
+                            continue;
+                        }
+                    }
+                }
+                out.push(bytes[i]);
+                i += 1;
+            }
+            String::from_utf8(out).unwrap_or(text)
+        }
+        fn normalize(path: &str) -> String {
+            let mut parts: Vec<&str> = Vec::new();
+            for seg in path.split('/') {
+                match seg {
+                    "" | "." => {}
+                    ".." => {
+                        parts.pop();
+                    }
+                    other => parts.push(other),
+                }
+            }
+            parts.join("/")
+        }
+
+        let file = File::open(path).ok()?;
+        let mut archive = zip::ZipArchive::new(file).ok()?;
+        let container = read_text(&mut archive, "META-INF/container.xml")?;
+        let rootfile = attr(&container, "full-path")?;
+        let opf = read_text(&mut archive, &rootfile)?;
+        let opf_dir = rootfile
+            .rsplit_once('/')
+            .map(|(dir, _)| format!("{dir}/"))
+            .unwrap_or_default();
+        let items = items(&opf);
+        let has_cover_property = |tag: &str| {
+            attr(tag, "properties")
+                .map(|p| p.split_whitespace().any(|w| w == "cover-image"))
+                .unwrap_or(false)
+        };
+        let mut chosen = items.iter().copied().find(|tag| has_cover_property(tag));
+        if chosen.is_none() {
+            // EPUB2:<meta name="cover" content="<item id 或 href>"/>
+            let meta_ref = opf.split("<meta").skip(1).find_map(|m| {
+                let tag = &m[..m.find('>')?];
+                let name = attr(tag, "name")?;
+                name.eq_ignore_ascii_case("cover")
+                    .then(|| attr(tag, "content"))
+                    .flatten()
+            });
+            if let Some(reference) = meta_ref {
+                chosen = items.iter().copied().find(|tag| {
+                    attr(tag, "id").as_deref() == Some(reference.as_str())
+                        || attr(tag, "href").as_deref() == Some(reference.as_str())
+                });
+            }
+        }
+        if chosen.is_none() {
+            chosen = items.iter().copied().find(|tag| {
+                let media_type = attr(tag, "media-type").unwrap_or_default();
+                let id = attr(tag, "id").unwrap_or_default().to_ascii_lowercase();
+                let href = attr(tag, "href").unwrap_or_default().to_ascii_lowercase();
+                media_type.starts_with("image/") && (id.contains("cover") || href.contains("cover"))
+            });
+        }
+        let tag = chosen?;
+        let href = attr(tag, "href")?;
+        let ext = ext_for(&attr(tag, "media-type").unwrap_or_default(), &href)?;
+        let name = normalize(&format!("{opf_dir}{}", unescape(&href)));
+        let bytes = read_bytes(&mut archive, &name)?;
+        Some((bytes, ext))
+    }
+
+    pub fn cover_abs_path(&self, name: &str) -> PathBuf {
+        self.books_dir.join(name)
+    }
+
+    /// 删掉 `<id>.cover.*`(删书 / 重抽前)。
+    pub fn remove_cover_files(&self, book_id: i64) {
+        let prefix = format!("{book_id}.cover.");
+        if let Ok(entries) = fs::read_dir(&self.books_dir) {
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    /// 从受管 EPUB 抽封面写成 `<id>.cover.<ext>`,返回文件名;没有封面或写失败 → None(只记日志)。
+    pub fn save_cover(&self, book_id: i64) -> Option<String> {
+        let (bytes, ext) = Self::epub_cover(&self.book_path(book_id))?;
+        self.remove_cover_files(book_id);
+        let name = format!("{book_id}.cover.{ext}");
+        match fs::write(self.books_dir.join(&name), bytes) {
+            Ok(()) => Some(name),
+            Err(error) => {
+                tracing::warn!(book_id, %error, "写封面文件失败");
+                None
+            }
+        }
+    }
+
+    /// 抽封面并记到书行(BL-031);抽不到记 "-"(已检查过,启动补抽不再重复读 zip)。
+    fn record_cover(&self, conn: &Connection, book_id: i64) -> bool {
+        let name = self.save_cover(book_id);
+        let value = name.as_deref().unwrap_or("-");
+        if let Err(error) = models::set_cover_path(conn, book_id, value) {
+            tracing::warn!(book_id, %error, "记封面失败");
+            return false;
+        }
+        name.is_some()
+    }
+
+    /// 给还没检查过封面的老书补抽(启动时跑一次);返回补上的数量。
+    pub fn backfill_covers(&self, conn: &Connection) -> usize {
+        let Ok(books) = models::list_books(conn) else {
+            return 0;
+        };
+        books
+            .into_iter()
+            .filter(|book| book.cover_path.is_empty() && self.book_path(book.id).is_file())
+            .filter(|book| self.record_cover(conn, book.id))
+            .count()
+    }
+
     /// 完成导入:同 op_id 重复调用返回同一 book_id;校验失败 → 无书行且暂存清理;
     /// 落盘失败 → 回滚书行。书行 `import_state='staged'`(已落盘、待抽取)。
     pub fn finalize(
@@ -337,6 +552,8 @@ impl ImportStore {
             return Err(io_error(error));
         }
         let _ = fs::remove_dir_all(&dir);
+        // 封面(BL-031):失败不影响导入
+        self.record_cover(conn, book_id);
         Ok(book_id)
     }
 
@@ -480,6 +697,101 @@ mod tests {
     fn store(dir: &Path) -> (ImportStore, Connection) {
         let conn = book_learner_core::db::open(&dir.join("app.db")).unwrap();
         (ImportStore::new(dir), conn)
+    }
+
+    /// 带封面的 EPUB:`kind` = epub3(properties)| epub2(meta cover)| fallback(id 含 cover)| none
+    fn epub_with_cover(kind: &str) -> Vec<u8> {
+        let (manifest, meta) = match kind {
+            "epub3" => (
+                "<item id=\"img1\" href=\"images/front%20cover.jpg\" media-type=\"image/jpeg\" properties=\"cover-image\"/><item id=\"c\" href=\"ch0.xhtml\" media-type=\"application/xhtml+xml\"/>",
+                "",
+            ),
+            "epub2" => (
+                "<item id=\"cover-image\" href=\"images/front cover.png\" media-type=\"image/png\"/>",
+                "<meta name=\"cover\" content=\"cover-image\"/>",
+            ),
+            "fallback" => (
+                "<item id=\"x\" href=\"../Images/Cover.jpeg\" media-type=\"image/jpeg\"/><item id=\"y\" href=\"images/other.jpg\" media-type=\"image/jpeg\"/>",
+                "",
+            ),
+            _ => ("<item id=\"y\" href=\"images/other.jpg\" media-type=\"image/jpeg\"/>", ""),
+        };
+        let opf = format!(
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\">\
+             <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>封面书</dc:title>{meta}</metadata>\
+             <manifest>{manifest}</manifest><spine><itemref idref=\"c\"/></spine></package>"
+        );
+        zip_bytes_with(
+            &[
+                ("mimetype", EPUB_MIMETYPE.as_bytes()),
+                (
+                    "META-INF/container.xml",
+                    b"<?xml version=\"1.0\"?><container version=\"1.0\"><rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>",
+                ),
+                ("OEBPS/content.opf", opf.as_bytes()),
+                ("OEBPS/ch0.xhtml", b"<html>ch0</html>"),
+                ("OEBPS/images/front cover.jpg", b"JPEGDATA"),
+                ("OEBPS/images/front cover.png", b"PNGDATA"),
+                ("Images/Cover.jpeg", b"FALLBACKDATA"),
+                ("OEBPS/images/other.jpg", b"OTHER"),
+            ],
+            CompressionMethod::Deflated,
+        )
+    }
+
+    #[test]
+    fn epub_cover_finds_epub3_property_epub2_meta_and_name_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        for (kind, expected) in [
+            ("epub3", Some((b"JPEGDATA".to_vec(), "jpg"))),
+            ("epub2", Some((b"PNGDATA".to_vec(), "png"))),
+            ("fallback", Some((b"FALLBACKDATA".to_vec(), "jpg"))),
+            ("none", None),
+        ] {
+            let path = dir.path().join(format!("{kind}.epub"));
+            fs::write(&path, epub_with_cover(kind)).unwrap();
+            assert_eq!(ImportStore::epub_cover(&path), expected, "{kind}");
+        }
+        assert_eq!(
+            ImportStore::epub_cover(&dir.path().join("missing.epub")),
+            None
+        );
+    }
+
+    #[test]
+    fn finalize_saves_cover_and_backfill_fills_unchecked_books() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, conn) = store(dir.path());
+        let epub = epub_with_cover("epub3");
+        store.stage_chunk("op-c", 0, &epub).unwrap();
+        let book_id = store
+            .finalize(&conn, "op-c", BookType::Humanities, "x")
+            .unwrap();
+        let name = format!("{book_id}.cover.jpg");
+        assert_eq!(fs::read(store.cover_abs_path(&name)).unwrap(), b"JPEGDATA");
+        let books = models::list_books(&conn).unwrap();
+        assert_eq!(books[0].cover_path, name);
+        // 没封面的书记 "-",启动补抽不再碰它
+        store
+            .stage_chunk("op-n", 0, &epub_with_cover("none"))
+            .unwrap();
+        let plain = store
+            .finalize(&conn, "op-n", BookType::Humanities, "y")
+            .unwrap();
+        assert_eq!(models::list_books(&conn).unwrap()[1].cover_path, "-");
+        // 老书:清掉记录与文件 → 补抽只补 book_id 这本
+        models::set_cover_path(&conn, book_id, "").unwrap();
+        models::set_cover_path(&conn, plain, "").unwrap();
+        store.remove_cover_files(book_id);
+        assert!(!store.cover_abs_path(&name).exists());
+        assert_eq!(store.backfill_covers(&conn), 1);
+        assert!(store.cover_abs_path(&name).is_file());
+        let books = models::list_books(&conn).unwrap();
+        assert_eq!(books[0].cover_path, name);
+        assert_eq!(books[1].cover_path, "-");
+        assert_eq!(store.backfill_covers(&conn), 0);
+        store.remove_cover_files(book_id);
+        assert!(!store.cover_abs_path(&name).exists());
     }
 
     #[test]

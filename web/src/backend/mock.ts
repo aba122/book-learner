@@ -99,6 +99,9 @@ const ANCHOR_PRECISIONS = ['exact', 'chapter_fallback'] as const
 
 // 错误码与 tauri.ts IPC_ERRORS 一致(文案相同),页面对两种后端的失败态无差别
 const conflict = () => new BackendError({ code: 'conflict', message: '数据已被更新,请刷新后重试', retryable: false })
+/** 演示封面(BL-031):内联 SVG,浏览器 mock 与 headless 截图能看到"有封面"的样子 */
+export const mockCover = (fill: string, label: string) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="${fill}"/><rect x="18" y="18" width="264" height="364" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/><text x="150" y="215" font-size="30" font-family="serif" fill="#fff" text-anchor="middle">${label}</text></svg>`)}`
 const notFound = () => new BackendError({ code: 'not_found', message: '未找到请求的数据', retryable: false })
 const invalidRequest = () => new BackendError({ code: 'invalid_request', message: '请求内容无效', retryable: false })
 
@@ -163,7 +166,7 @@ export class MockBackend implements Backend {
 
   private seed() {
     this.books = [
-      { id: 1, title: '微观经济学', author: '哈尔·范里安', type: 'textbook', slug: 'microeconomics', status: 'active', mapRevision: 1, importState: 'mapped' },
+      { id: 1, title: '微观经济学', author: '哈尔·范里安', type: 'textbook', slug: 'microeconomics', status: 'active', mapRevision: 1, importState: 'mapped', coverUrl: mockCover('#3b5aa6', '微观经济学') },
     ]
     const mk = (
       id: number, moduleName: string, seq: number, title: string, slug: string,
@@ -201,7 +204,7 @@ export class MockBackend implements Backend {
   async importEpub(file: File, type: BookType): Promise<{ bookId: number }> {
     const id = this.nextBookId++
     const title = file.name.replace(/\.epub$/i, '') || '未命名书籍'
-    this.books.push({ id, title, author: '待识别', type, slug: `book-${id}`, status: 'paused', mapRevision: 0, importState: 'staged' })
+    this.books.push({ id, title, author: '待识别', type, slug: `book-${id}`, status: 'paused', mapRevision: 0, importState: 'staged', coverUrl: null })
     return { bookId: id }
   }
 
@@ -1202,8 +1205,8 @@ export class MockBackend implements Backend {
     this.wereadBookRows = [
       mk('wr-1', first?.title ?? '微观经济学', first?.author ?? '', 64, 312, 0),
       mk('wr-2', `${second?.title ?? '半途'}（全译本）`, second?.author ?? '', 21, 95, 1),
-      mk('wr-3', '置身事内', '兰小欢', 100, 540, 3, true),
-      mk('wr-4', '被讨厌的勇气', '岸见一郎', 37, 125, 5),
+      { ...mk('wr-3', '置身事内', '兰小欢', 100, 540, 3, true), coverUrl: mockCover('#7a4b2a', '置身事内') },
+      { ...mk('wr-4', '被讨厌的勇气', '岸见一郎', 37, 125, 5), coverUrl: mockCover('#2f6b4f', '被讨厌的勇气') },
       mk('wr-5', '认知觉醒', '周岭', 12, 48, 9),
       mk('wr-6', '思考,快与慢', '丹尼尔·卡尼曼', 5, 20, 20),
     ]

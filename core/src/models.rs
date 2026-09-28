@@ -60,6 +60,8 @@ pub struct Book {
     pub map_revision: i64,
     /// 导入进度:ready(旧数据/草图后)| staged(已落盘未抽取)| extracted(已存 spine)| mapped(地图完成)
     pub import_state: String,
+    /// 封面文件名(受管 books 目录下,如 `7.cover.jpg`;空 = 没有封面,BL-031)
+    pub cover_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +82,7 @@ pub struct KnowledgeBlock {
 
 pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
     let mut statement = conn.prepare(
-        "SELECT id,title,author,type,slug,status,map_revision,import_state FROM book ORDER BY id",
+        "SELECT id,title,author,type,slug,status,map_revision,import_state,COALESCE(cover_path,'') FROM book ORDER BY id",
     )?;
     let rows = statement.query_map([], |row| {
         Ok((
@@ -92,11 +94,13 @@ pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
             row.get::<_, String>(5)?,
             row.get::<_, i64>(6)?,
             row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
         ))
     })?;
 
     rows.map(|row| {
-        let (id, title, author, book_type, slug, status, map_revision, import_state) = row?;
+        let (id, title, author, book_type, slug, status, map_revision, import_state, cover_path) =
+            row?;
         let status = BookStatus::from_db_str(&status)?;
         Ok(Book {
             id,
@@ -107,9 +111,22 @@ pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
             status,
             map_revision,
             import_state,
+            cover_path,
         })
     })
     .collect()
+}
+
+/// 记下封面文件名(BL-031;空串 = 清除)。
+pub fn set_cover_path(conn: &Connection, book_id: i64, cover_path: &str) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE book SET cover_path=?2 WHERE id=?1",
+        rusqlite::params![book_id, cover_path],
+    )?;
+    if changed == 0 {
+        return Err(crate::CoreError::NotFound(format!("book {book_id}")));
+    }
+    Ok(())
 }
 
 pub fn insert_book(

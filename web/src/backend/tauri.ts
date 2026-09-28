@@ -177,9 +177,11 @@ const TASK_KINDS = ['new', 'weak_retest', 'review'] as const satisfies readonly 
 const TASK_STATUSES = ['pending', 'done', 'skipped'] as const
 
 const IMPORT_STATES = ['ready', 'staged', 'extracted', 'mapped'] as const satisfies readonly ImportState[]
-function decodeBook(value: unknown, path: string): Book {
+function decodeBook(value: unknown, path: string, toAssetUrl: (filePath: string) => string): Book {
   const wire = objectAt(value, path)
   return {
+    // 封面(BL-031):壳层给绝对文件路径,这里转 asset URL;旧壳层没有这个键 → null
+    coverUrl: Object.hasOwn(wire, 'coverPath') ? nullableAt(wire.coverPath, `${path}.coverPath`, (v, p) => toAssetUrl(stringAt(v, p))) : null,
     id: safeIntegerAt(wire.id, `${path}.id`),
     title: stringAt(wire.title, `${path}.title`),
     author: stringAt(wire.author, `${path}.author`),
@@ -977,7 +979,7 @@ export class TauriBackend implements Backend {
   }
 
   async listBooks(): Promise<Book[]> {
-    return this.decode('library_list_books', {}, value => arrayAt(value, 'books', decodeBook))
+    return this.decode('library_list_books', {}, value => arrayAt(value, 'books', (item, path) => decodeBook(item, path, this.toAssetUrl)))
   }
 
   async setActiveBook(bookId: number): Promise<void> {
