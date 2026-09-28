@@ -763,3 +763,10 @@
 - 教训:柱状图每桶外包一层 flex 容器后,里面用百分比高度的柱子全部消失(百分比高度需要定高的父级)——容器要 `h-full`;单测量不到,靠 headless 截图发现。
 - **真网关实测(同日,用户 Key,Mac 直连)**:五个接口全部 200、0.2–0.6 s。与文档出入并已校正:累计阅读秒数在 `book.readingTime`(`recordReadingTime` 为 0)→ core 改为先取 `readingTime`;书名/作者带 HTML 实体(`&#183;`)→ 新增 `decode_entities`(数字/命名实体,畸形原样保留);成功回包没有 `errcode`、`category`/`isTop` 可为 null、没有 `bookCount`——解析本来就容错。`monthly.readTimes` 的键与 `baseTime` 同基(北京零点),证实按 UTC+8 转日期正确。Key 只放 Mac `~/.weread-key`(600)与 app 数据库,不进仓库/日志。
 - 范围外留到第二批:划线/想法 → 本地高亮(文本定位)、记忆库 `_weread.md`、Obsidian 导出;第三批:有声书、封面外链、Keychain。
+
+## 2026-09-28 · BL-031:书架显示真实封面
+- 用户:书架里的书要显示对应的书皮。`book.cover_path` 列从 schema v1 就在,但一直没人写。
+- **壳层抽封面**(`import.rs::epub_cover`,与已有的 `epub_metadata` 同一套“不引 XML 依赖的字符串解析”):container.xml → OPF;先找 `<item properties="cover-image">`(EPUB3),再找 `<meta name="cover" content=…>` 指向的 item(EPUB2,content 可为 id 或 href),兜底取 id/href 含 cover 的图片项;href 相对 OPF 目录、百分号解码、`..` 归一;≤ 8 MB。写成 `books/<id>.cover.<ext>`,`cover_path` 记文件名;抽不到记 `-`(启动补抽据此跳过,不每次重读 zip)。导入 `finalize` 末尾抽一次(失败不影响导入);`lib.rs` 启动时 `backfill_covers` 给 `cover_path=''` 的老书补一次;删书顺带删封面文件。
+- **契约**:`BookDto` 加 `coverPath: string | null`(`application::list_books` 把文件名补成绝对路径),前端 `decodeBook` 转 asset URL(books 目录本来就在 asset 协议放行范围);旧壳层没这个键 → null。foundation 的 DTO 键集断言同步。
+- **前端**:`CoverTile`(书架本地卡 + 微信读书卡共用):有图铺满 3:4、`object-cover`、`loading=lazy`,`onError` 退回首字签名;本地书没封面时借用已关联微信读书的封面;`spineColor` 挪到 `coverSignature.ts`(统计页也用)。Mock 给主书与两本微信读书演示书内联 SVG 封面。
+- 测试:import.rs +2(三种 OPF 写法与无封面;finalize 记封面 / 补抽只补未检查的书 / 删文件)、foundation dto、tauri.test +1(coverPath → asset URL / null / 缺键)、library.test +1(有图 / 无图 / 微信读书卡 / 加载失败退回)。门禁:core 219;web 454/2、tsc、oxlint 0、build;壳层 Mac cargo test 待跑。
