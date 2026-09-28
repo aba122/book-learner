@@ -212,7 +212,7 @@ pub struct WereadBook {
     pub read_update_time: i64,
     /// 0–100
     pub progress: i64,
-    /// 累计阅读秒数(getprogress.recordReadingTime)
+    /// 累计阅读秒数(getprogress.readingTime,退回 recordReadingTime)
     pub reading_seconds: i64,
     pub local_book_id: Option<i64>,
     pub local_title: Option<String>,
@@ -532,11 +532,56 @@ fn i64_at(value: &Value, key: &str) -> i64 {
 }
 
 fn str_at(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
+    decode_entities(value.get(key).and_then(Value::as_str).unwrap_or(""))
+}
+
+/// 网关的书名/作者带 HTML 实体(真网关实测 2026-09-28:`阿兰&#183;德波顿`);解码数字实体与常见命名实体。
+pub fn decode_entities(text: &str) -> String {
+    if !text.contains('&') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('&') {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let Some(end) = tail.find(';').filter(|&e| e <= 10) else {
+            out.push('&');
+            rest = &tail[1..];
+            continue;
+        };
+        let entity = &tail[1..end];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            "nbsp" => Some(' '),
+            _ => entity
+                .strip_prefix('#')
+                .and_then(|num| {
+                    if let Some(hex) = num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+                        u32::from_str_radix(hex, 16).ok()
+                    } else {
+                        num.parse::<u32>().ok()
+                    }
+                })
+                .and_then(char::from_u32),
+        };
+        match decoded {
+            Some(c) => {
+                out.push(c);
+                rest = &tail[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn note_upgrade(fetched: &mut SyncFetched, value: &Value) {
@@ -710,10 +755,11 @@ pub fn apply(conn: &Connection, fetched: SyncFetched) -> Result<Status> {
 
     // 进度
     for (id, value) in &fetched.progress {
+        // 真网关实测:累计阅读秒数在 `readingTime`(文档写的 `recordReadingTime` 是朗读/记录类,常为 0)
         let book = value.get("book").unwrap_or(value);
-        let mut seconds = i64_at(book, "recordReadingTime");
+        let mut seconds = i64_at(book, "readingTime");
         if seconds == 0 {
-            seconds = i64_at(book, "readingTime");
+            seconds = i64_at(book, "recordReadingTime");
         }
         let progress = i64_at(book, "progress").clamp(0, 100);
         tx.execute(
@@ -982,12 +1028,12 @@ mod tests {
             Ok(match api {
                 "/shelf/sync" => shelf(&[
                     ("w1", "活着", "余华", read_update),
-                    ("w2", "百年孤独（全译本）", "加西亚·马尔克斯", 10),
+                    ("w2", "百年孤独（全译本）", "加西亚&#183;马尔克斯", 10),
                     ("w3", "未知的书", "无名", 5),
                 ]),
                 "/book/getprogress" => json!({
                     "bookId": params["bookId"],
-                    "book": {"progress": if params["bookId"] == "w1" { 65 } else { 3 }, "recordReadingTime": 11_520, "updateTime": 1}
+                    "book": {"progress": if params["bookId"] == "w1" { 65 } else { 3 }, "readingTime": 11_520, "recordReadingTime": 0, "updateTime": 1}
                 }),
                 "/readdata/detail" if params["mode"] == "overall" => {
                     json!({"totalReadTime": 360_000, "readDays": 88})
@@ -1005,6 +1051,21 @@ mod tests {
         assert_eq!(bucket_date(SEP_20_BJ).unwrap(), "2026-09-20");
         // 北京 00:00 前一秒还是 19 日
         assert_eq!(bucket_date(SEP_20_BJ - 1).unwrap(), "2026-09-19");
+    }
+
+    #[test]
+    fn decode_entities_handles_numeric_named_and_malformed() {
+        assert_eq!(decode_entities("阿兰&#183;德波顿"), "阿兰·德波顿");
+        assert_eq!(
+            decode_entities("A &amp; B &lt;c&gt; &#x4e2d;"),
+            "A & B <c> 中"
+        );
+        assert_eq!(decode_entities("no entities"), "no entities");
+        assert_eq!(
+            decode_entities("&bogus; & &#zz; tail"),
+            "&bogus; & &#zz; tail"
+        );
+        assert_eq!(decode_entities("&#183"), "&#183");
     }
 
     #[test]
@@ -1079,6 +1140,7 @@ mod tests {
         assert_eq!(w1.local_title.as_deref(), Some("活着"));
         assert_eq!(w1.link_source, "auto");
         let w2 = books.iter().find(|b| b.weread_id == "w2").unwrap();
+        assert_eq!(w2.author, "加西亚·马尔克斯", "HTML 实体已解码");
         assert_eq!(w2.link_source, "auto", "包含关系 + 作者包含 → 匹配");
         let w3 = books.iter().find(|b| b.weread_id == "w3").unwrap();
         assert_eq!(w3.link_source, "none");

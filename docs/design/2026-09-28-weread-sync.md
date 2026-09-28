@@ -26,6 +26,7 @@
 - **网关**:`POST https://i.weread.qq.com/api/agent/gateway`,`Authorization: Bearer <key>`,`Content-Type: application/json`。
 - **请求**:JSON,`api_name` 指定接口,业务参数**平铺在顶层**(不能包在 `params` 里),**每次必须带 `skill_version`**。
 - **响应**:JSON,字段裁剪;`errcode` 非 0 表示错误(`errmsg` 中文提示);出现 `upgrade_info` 表示 skill 需升级,应提示用户、不得忽略;`{"api_name":"/_list"}` 列出所有接口。HTTP 非 2xx 视为失败(401/403 视为 Key 失效)。
+- **真网关实测(2026-09-28,用户 Key,从 Mac 直连,每个接口 0.2–0.6 s)**:成功回包**没有** `errcode` 字段;`/shelf/sync` 没有 `bookCount`,`category`/`isTop` 可为 null,书名/作者带 HTML 实体(`阿兰&#183;德波顿`,已在 core 解码),导入书 `bookId` 形如 `CB_…`;`/book/getprogress` 累计秒数在 `book.readingTime`(`recordReadingTime` 为 0);`monthly` 的 `readTimes` 键为北京时间零点的时间戳(与 `baseTime` 同基),没读的日子不出现;`overall` 的 `readTimes` 按年分桶(忽略);`/book/bookmarklist` 有 `updated[]`(`range`/`markText`/`chapterUid`/`colorStyle`/`type=1`)与 `chapters[]`,第二批可用。
 - **未写明**:限频、Key 有效期、第三方桌面 app 的使用条款。策略:调用保守(串行、间隔 ≥ 100 ms、单次同步进度查询 ≤ 60 本)、错误直显、`upgrade_info` 直显。
 
 第一批用到的接口:
@@ -33,7 +34,7 @@
 | 接口 | 参数 | 用到的字段 | 坑 |
 |---|---|---|---|
 | `/shelf/sync` | 无 | `books[]{bookId,title,author,cover,category,readUpdateTime,finishReading,updateTime,isTop,secret}`、`albums[]`(只计数)、`mp`(只计数)、`archive[]`(书单,不用) | 书架总数 = books + albums + (mp?1:0);`books[]` 含导入书/公众号书 |
-| `/book/getprogress` | `bookId` | `book.progress`(0–100 整数,1 = 1%)、`book.recordReadingTime`(累计**秒**)、`book.updateTime`、`book.finishTime`(仅读完)、`book.chapterUid/chapterOffset` | 导入书/下架书可能报错(社区工具见 499),要按本跳过、不中断 |
+| `/book/getprogress` | `bookId` | `book.progress`(0–100 整数,1 = 1%)、`book.readingTime`(累计**秒**;文档写的 `recordReadingTime` 实测为 0,是朗读/记录类)、`book.updateTime`、`book.finishTime`(仅读完)、`book.chapterUid/chapterOffset` | 导入书/下架书可能报错(社区工具见 499),要按本跳过、不中断 |
 | `/readdata/detail` | `mode`=weekly/monthly/annually/overall、`baseTime`(0 = 当前周期;历史周期传该周期内任一时间戳,服务端归一到周一/月初/年初) | `totalReadTime`(秒)、`readDays`、`readTimes{分桶起始时间戳: 秒}`(weekly/monthly 按天、annually 按月、overall 按年)、`dailyReadTimes`(annually 可能返回的逐日)、`readLongest[]{book,readTime}` | 所有时长都是**秒**;`readTimes` 只作明细,总量用 `totalReadTime` |
 | `/book/bookmarklist` | `bookId` | `updated[]{bookmarkId,chapterUid,markText,range,colorStyle,type,createTime}`、`chapters[]{chapterUid,chapterIdx,title}` | 第二批;`range` 是微信读书章节文本的字符偏移,不是 CFI |
 | `/review/list/mine` | `bookid`(小写)、`synckey`、`count` | `reviews[].review{reviewId,content,abstract,range,chapterUid,chapterIdx,createTime,star,chapterName}`、`hasMore`、`synckey` | 第二批;`abstract`/`range` 只有划线想法才有 |

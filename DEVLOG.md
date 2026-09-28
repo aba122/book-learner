@@ -761,5 +761,5 @@
 - **web**:`TauriBackend` 解码/出站校验、`MockBackend`(6 本演示书,两本能和本地书自动匹配;30 天时长;`wrk-` 前缀模拟鉴权)。设置「微信读书」分区(未连接:说明 + 打开获取页面 + 密码框 + 连接并同步,失败原因 `role=alert` 直显;已连接:状态 / 上次同步 / 立即同步 / 自动同步开关 / 断开(保留数据)/ 断开并清除数据(确认框));书架「微信读书」分区(`WereadShelf`:签名封面卡、进度%/读完、时长、关联本地书下拉、自动标记、已移出压暗;本地卡一行「微信读书 · x% · 时长」);统计阅读时长每桶并列两根柱 + 图例 + 微信读书总计,读屏表多一列,本机无记录但微信读书有也不显示空态;`App` 里 `WereadAutoSync` 启动后 20 h 未同步则静默同步。
 - 测试:core +13(weread)+1(db v12),foundation +1(+wire 9 条),contract +1、tauri +1、settings +1(分区导航断言改七项)、library +1、stats +2、App +1。门禁:core 218 / clippy 0;web 455/2、tsc、oxlint 0、build;壳层 Mac cargo test 全过。
 - 教训:柱状图每桶外包一层 flex 容器后,里面用百分比高度的柱子全部消失(百分比高度需要定高的父级)——容器要 `h-full`;单测量不到,靠 headless 截图发现。
-- **未验证**:真网关(需用户自己的 Key)。第一批装机前要在设置页贴真 Key 连一次,看真实回包;若字段缺省或错误码不同,按 `docs/design` §2 校正。
+- **真网关实测(同日,用户 Key,Mac 直连)**:五个接口全部 200、0.2–0.6 s。与文档出入并已校正:累计阅读秒数在 `book.readingTime`(`recordReadingTime` 为 0)→ core 改为先取 `readingTime`;书名/作者带 HTML 实体(`&#183;`)→ 新增 `decode_entities`(数字/命名实体,畸形原样保留);成功回包没有 `errcode`、`category`/`isTop` 可为 null、没有 `bookCount`——解析本来就容错。`monthly.readTimes` 的键与 `baseTime` 同基(北京零点),证实按 UTC+8 转日期正确。Key 只放 Mac `~/.weread-key`(600)与 app 数据库,不进仓库/日志。
 - 范围外留到第二批:划线/想法 → 本地高亮(文本定位)、记忆库 `_weread.md`、Obsidian 导出;第三批:有声书、封面外链、Keychain。
