@@ -1280,3 +1280,32 @@ pub fn weread_open_key_page(state: &AppState) -> Result<(), IpcError> {
     }
     Ok(())
 }
+
+// ---- 微信读书划线 / 想法(BL-030 第二批)----
+
+pub fn weread_notes(
+    state: &AppState,
+    local_book_id: i64,
+) -> Result<crate::dto::WereadNotesDto, IpcError> {
+    state
+        .with_connection(|c| weread::notes_for_local(c, local_book_id))
+        .map(Into::into)
+}
+
+/// 前端定位完一条划线/想法后落库:可顺带建本地高亮(source=weread,幂等)或挂到既有高亮。
+pub fn weread_locate(
+    state: &AppState,
+    kind: &str,
+    id: &str,
+    status: &str,
+    local_book_id: i64,
+    mark: Option<crate::dto::NewReaderMarkDto>,
+    attach_to: Option<i64>,
+) -> Result<Option<crate::dto::ReaderMarkDto>, IpcError> {
+    let mark: Option<book_learner_core::reader_marks::NewMark> = mark.map(Into::into);
+    state
+        .with_connection(|c| {
+            weread::locate(c, kind, id, status, local_book_id, mark.as_ref(), attach_to)
+        })
+        .map(|created| created.map(Into::into))
+}

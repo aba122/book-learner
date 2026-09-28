@@ -1535,6 +1535,14 @@ impl book_learner_core::weread::Gateway for FakeWeread {
                 json!({"totalReadTime": 7200, "readDays": 3})
             }
             "/readdata/detail" => json!({"readTimes": {WEREAD_DAY_TS.to_string(): 1200}}),
+            "/book/bookmarklist" => json!({
+                "chapters": [{"chapterUid": 1, "chapterIdx": 1, "title": "第一章"}],
+                "updated": [{"bookmarkId": "bm-1", "chapterUid": 1, "range": "0-4", "markText": "知识块", "colorStyle": 1, "type": 1, "createTime": 10}]
+            }),
+            "/review/list/mine" => json!({
+                "reviews": [{"review": {"reviewId": "rv-1", "content": "重点", "abstract": "知识块", "range": "0-4", "chapterUid": 1, "createTime": 11, "star": -1}}],
+                "hasMore": 0, "synckey": 1
+            }),
             _ => json!({}),
         })
     }

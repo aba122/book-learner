@@ -115,6 +115,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         commands::weread_link,
         commands::weread_reading_days,
         commands::weread_open_key_page,
+        commands::weread_notes,
+        commands::weread_locate,
         commands::automation_report,
     ])
 }
