@@ -152,7 +152,7 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 |---|---|---|
 | 壳层 | `web/src-tauri/src/mobile.rs` | 配置文件读写(0600)、令牌(/dev/urandom)、`http_service`(axum 路由:ping / pair / api / files / events / 静态)、`MobileServer`(apply/stop,监听失败记 `last_error`)、三条设置命令的实现、Tailscale 地址探测;单测 4 条 |
 | 壳层 | `lib.rs` / `commands/mod.rs` | `register_commands` 托管 `MobileServer`;setup 按配置拉起;三条命令 + `WIRE_COMMANDS` |
-| 壳层 | `Cargo.toml` / `Cargo.lock` | `axum 0.8`、`tower`(util)、`tower-http`(fs)、`futures-util`、`tokio`(sync/net/macros/rt/time);锁文件以 Mac 解析为准(顺带补上 BL-030 起缺的 `ureq` 一系) |
+| 壳层 | `Cargo.toml` / `Cargo.lock` | `axum 0.8`、`tower`(util)、`tower-http`(fs)、`futures-util`、`tokio`(sync/net/macros/rt/time);锁文件以 main 为起点在 Mac 上只补新增依赖(顺带补上 BL-030 起缺的 `ureq` 一系;tauri 保持 2.11.5 与 npm 包一致) |
 | 契约 | `shared/tauri-wire-contract.json`、`tests/foundation.rs`、`contract.test.ts`、`tauri.test.ts` | 三条命令;foundation 新增 HTTP 层集成用例(认证/配对 cookie/JSON 与原始体/契约命令全部可达/业务错误体/文件 Range 与路径限制/SSE 转发与停机/退役 503/真实端口启停与换令牌) |
 | web | `types.ts`、`backend/types.ts`、`tauri.ts`、`mock.ts` | `MobileServerStatus` / `MobileToken`;三个方法与解码、出站校验;Mock 只记配置 |
 
