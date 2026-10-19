@@ -157,3 +157,16 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 | web | `types.ts`、`backend/types.ts`、`tauri.ts`、`mock.ts` | `MobileServerStatus` / `MobileToken`;三个方法与解码、出站校验;Mock 只记配置 |
 
 M1 没有界面:手机访问分区、`HttpBackend`、配对页在 M2。
+
+**M2(2026-10-19)**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| web | `backend/http.ts`(+test) | `HttpBackend extends TauriBackend`(注入 `createHttpInvoke` / `fileUrl` / `createSseListen`);401 → `bl:unpaired`,503 重试一次,网络失败 `offline`(可重试);`isHttpRuntime`(meta 标记)、`pingServer`、`pairWithToken`、`pairTokenFromHash`;`wereadOpenKeyPage` 手机本地开、`voiceImportModel(null)` 提示去 Mac |
+| web | `backend/index.ts`、`types.ts`、`tauri.ts`、`mock.ts` | 运行时三选一;`Backend.runtime`;`normalizeInvokeError` 透传 `BackendError`;状态 DTO 加 `token`/`pairUrl` |
+| web | `features/mobile/MobileGate.tsx`(+test)、`main.tsx` | 配对门:探活、`#pair=` 扫码配对并清片段、粘贴令牌、离线重试、运行中 401 回配对页 |
+| web | `features/settings/MobileSection.tsx`、`components/QrCode.tsx` | 设置 › 手机访问(Mac 上可操作、手机上只读);二维码用 uqr 编码、自绘 SVG path |
+| web | `index.html`、`public/manifest.webmanifest`、`public/icons/*` | PWA:standalone、iOS 图标(取自 Tauri iOS AppIcon)、theme-color、`viewport-fit=cover`;不做 Service Worker |
+| 壳层 | `mobile.rs` | HTTP 分发的 index.html 注入 `bl-runtime` 标记;`.webmanifest` MIME;状态带 `token` / `pair_url`(局域网模式用局域网地址,否则优先 Tailscale) |
+
+**与设计的出入**:①令牌不再"只显示一次"——iOS 主屏幕 web app 与 Safari 不共享 cookie,主屏幕上的攻书必须粘贴令牌配对,所以 Mac 设置页随时可显示二维码与复制令牌(已配对的手机本就持有令牌,不构成额外泄露),「换新令牌」单独确认。②运行时判断不用异步探活,改为壳层给 HTTP 分发的 index.html 注入 meta 标记,模块初始化时同步选后端。
