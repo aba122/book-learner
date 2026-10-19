@@ -170,3 +170,17 @@ M1 没有界面:手机访问分区、`HttpBackend`、配对页在 M2。
 | 壳层 | `mobile.rs` | HTTP 分发的 index.html 注入 `bl-runtime` 标记;`.webmanifest` MIME;状态带 `token` / `pair_url`(局域网模式用局域网地址,否则优先 Tailscale) |
 
 **与设计的出入**:①令牌不再"只显示一次"——iOS 主屏幕 web app 与 Safari 不共享 cookie,主屏幕上的攻书必须粘贴令牌配对,所以 Mac 设置页随时可显示二维码与复制令牌(已配对的手机本就持有令牌,不构成额外泄露),「换新令牌」单独确认。②运行时判断不用异步探活,改为壳层给 HTTP 分发的 index.html 注入 meta 标记,模块初始化时同步选后端。
+
+**M3(2026-10-19)**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| web | `lib/useMedia.ts`(+test)、`test/media.ts` | `useIsPhone`(≤ 767 px)、`NO_HOVER_QUERY`;用例用 `stubMatchMedia` 模拟 |
+| web | `App.tsx`、`components/Toolbar.tsx` | 手机上侧栏换底部 `TabBar`(54 px + 安全区)、顶部让出状态栏安全区;工具栏 44 px、无「显示侧栏」 |
+| web | `components/{Button,IconButton,Segmented,Toggle,Field,Dialog,Menu,Tooltip,PageHeader}.tsx`、`lib/formClasses.ts` | 只加 `max-md:` 类:触控尺寸、Field 上下排、Dialog 贴底 sheet、Menu 贴底动作单 + 取消、触摸屏不出 Tooltip |
+| web | `index.css` | 100dvh、去点按高亮、`touch-action: manipulation`、手机输入 16 px |
+| web | `features/{today,library,settings}/*` | 16 px 边距;书架两列;设置分区改顶部吸顶药丸、`scroll-mt`;定宽输入手机上占满 |
+| 脚本 | `docs/smoke/scripts/mobile-e2e.mjs` | 新增手机布局段(标签栏、`scrollWidth`、动作单) |
+
+**与设计的出入**:①书架两列(设计写三列):本地书卡有「阅读」「更多操作」与状态标签,390 宽三列每列约 110 px 放不下。②「长按 = 右键」不做:iOS Safari 不发 `contextmenu`,所有右键菜单本就有「更多操作」按钮入口。③导入向导沿用通用贴底 sheet(≤ 88dvh),不单做全屏。④番茄钟胶囊不另做 sheet:手机工具栏里一行放得下(约 234 px)。
+
