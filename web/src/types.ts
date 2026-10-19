@@ -257,3 +257,22 @@ export interface WereadNotes {
   marks: WereadMark[]; thoughts: WereadThought[]
   markCount: number; locatedCount: number; pendingCount: number; thoughtCount: number
 }
+
+// ---- 手机访问(BL-032 第一阶段,壳层 mobile.rs;docs/design/2026-10-02-mobile-phase1.md)----
+/** loopback = 只在本机(经 Tailscale serve 对外 HTTPS,默认);lan = 局域网直连(http,Safari 不给麦克风) */
+export type MobileBind = 'loopback' | 'lan'
+export interface MobileServerStatus {
+  enabled: boolean; port: number; bind: MobileBind
+  /** 服务此刻在监听 */
+  running: boolean
+  /** 监听失败等原因(中文);null = 无 */
+  error: string | null
+  tokenSet: boolean
+  /** 本机 / 局域网地址(http) */
+  localUrl: string
+  /** 检测到 Tailscale 时的 HTTPS 地址(需先执行 serveCommand 一次) */
+  tailscaleUrl: string | null
+  serveCommand: string
+}
+/** 新令牌只在这次返回里出现;pairUrl = <地址>/#pair=<令牌>(二维码内容) */
+export interface MobileToken { token: string; pairUrl: string }

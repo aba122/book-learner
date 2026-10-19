@@ -166,6 +166,10 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
         "weread_locate",
         &["kind", "id", "status", "localBookId", "mark", "attachTo"],
     ),
+    // BL-032 M1:手机访问(Mac 端 HTTP 服务)开关 / 端口 / 绑定 / 令牌
+    ("mobile_server_status", &[]),
+    ("mobile_server_set", &["enabled", "port", "bind"]),
+    ("mobile_server_rotate_token", &[]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -1924,4 +1928,40 @@ pub async fn weread_locate(
     attach_to: Option<i64>,
 ) -> Result<Option<ReaderMarkDto>, IpcError> {
     weread_locate_inner(&state, &kind, &id, &status, local_book_id, mark, attach_to)
+}
+
+// ---- 手机访问(BL-032 M1)----
+
+#[tauri::command(async)]
+pub async fn mobile_server_status(
+    state: State<'_, AppState>,
+    server: State<'_, crate::mobile::MobileServer>,
+) -> Result<crate::mobile::MobileStatusDto, IpcError> {
+    run_command(&state, "mobile_server_status", || {
+        Ok(crate::mobile::status(&server, state.data_root()))
+    })
+}
+
+#[tauri::command(async)]
+pub async fn mobile_server_set<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    server: State<'_, crate::mobile::MobileServer>,
+    enabled: bool,
+    port: u16,
+    bind: String,
+) -> Result<crate::mobile::MobileStatusDto, IpcError> {
+    run_command(&state, "mobile_server_set", || {
+        crate::mobile::set(&app, &server, &state, enabled, port, &bind)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn mobile_server_rotate_token<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<crate::mobile::MobileTokenDto, IpcError> {
+    run_command(&state, "mobile_server_rotate_token", || {
+        crate::mobile::rotate_token(&app, &state)
+    })
 }

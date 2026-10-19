@@ -1,5 +1,5 @@
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus,
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
 } from '../types'
 
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
@@ -99,6 +99,11 @@ export interface Backend {
   /** 第二批:本地书关联的微信读书划线/想法(没关联 → 空);定位结果落库(可顺带建 source=weread 的高亮,或把想法挂到既有高亮当批注) */
   wereadNotes(localBookId: number): Promise<WereadNotes>
   wereadLocate(kind: 'mark' | 'thought', id: string, status: WereadLocateStatus, localBookId: number, mark: NewReaderMark | null, attachTo: number | null): Promise<ReaderMark | null>
+  /** 手机访问(BL-032):Mac 端 HTTP 服务的开关/端口/绑定与令牌;监听失败原因在 status.error(数据,不抛) */
+  mobileServerStatus(): Promise<MobileServerStatus>
+  mobileServerSet(enabled: boolean, port: number, bind: MobileBind): Promise<MobileServerStatus>
+  /** 换新令牌:旧令牌与它换来的配对立即失效;返回的令牌只出现这一次 */
+  mobileServerRotateToken(): Promise<MobileToken>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>

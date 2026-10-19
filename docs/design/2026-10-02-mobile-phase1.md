@@ -29,7 +29,7 @@ iPhone Safari / 主屏幕 PWA
    │  HTTPS(Tailscale serve 代理,自带证书)
    ▼
 Mac · 攻书壳层内置 HTTP 服务(127.0.0.1:<port>)
-   ├─ POST /api/<command>      → commands::<command>_inner(&AppState, …)   ← 与 Tauri IPC 同一命令层
+   ├─ POST /api/<command>      → 主窗口 webview.on_message(InvokeRequest)   ← 与 Tauri IPC 同一条分发路径
    ├─ GET  /files/<name>       → <data_root>/books/ 里的 EPUB 与封面
    ├─ GET  /events             → SSE:pomodoro_changed / map_job_progress
    └─ GET  /                   → 前端静态文件(Tauri 打包进二进制的同一份 dist)
@@ -42,7 +42,7 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 ## 3. Mac 端 HTTP 服务(壳层)
 
 ### 3.1 启用与暴露
-- 设置页新分区「手机访问」:开关、端口(默认 7340)、访问令牌(32 字节随机,只显示一次,可「重新生成」)、访问地址与二维码(内容 = `https://<主机名>/#token=<令牌>`,扫一下就配好)。
+- 设置页新分区「手机访问」:开关、端口(默认 7340)、访问令牌(32 字节随机,只显示一次,可「重新生成」)、访问地址与二维码(内容 = `https://<主机名>/#pair=<令牌>`,扫一下就配好)。
 - **只绑定 127.0.0.1。** 对外暴露交给 Tailscale:`tailscale serve --bg --https=443 http://127.0.0.1:7340`(一次性命令,文档写进设置页说明),得到 `https://<mac>.<tailnet>.ts.net`,证书由 Tailscale 签发、随处可达、不走公网。
 - 可选「局域网模式」(绑定 0.0.0.0):没有 Tailscale 时用,但 Safari 在 http:// 下不给麦克风,语音不可用;设置页明示。
 - 服务随 app 启动(开关为开时),随 app 退出;Mac 休眠即不可达(设置页提示"合盖/休眠时手机不可用;可在能耗设置里关闭'显示器关闭时自动睡眠'")。
@@ -52,20 +52,23 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 |---|---|
 | `POST /api/<command>` | 体为 JSON 对象,键与契约 `payloadKeys` 一致(camelCase);原始体命令(`library_import_epub_chunk`、`voice_transcribe`)体为 `application/octet-stream`,元数据走与 IPC 同名的头(`x-op-id`、`x-chunk-index`、`x-bl-lang`、`x-bl-hint`)。成功 → 200 + 命令返回值 JSON(unit 返回 `null`);失败 → 4xx/5xx + `IpcError` 的序列化(`{code,message,retryable,details}`),前端 `normalizeInvokeError` 原样可用 |
 | `GET /files/<basename>` | 只服务 `<data_root>/books/` 直接子文件(`<id>.epub`、`<id>.cover.<ext>`),拒绝路径分隔符;`Content-Type` 按扩展名;支持 `Range`(epub.js 用整文件,阅读器大书 100 MB 也只拉一次) |
-| `GET /events` | SSE;事件名与 Tauri 一致(`pomodoro_changed`、`map_job_progress`),数据为同一 JSON;壳层在现有 `app.emit` 的三处旁边同时推到一个 `tokio::sync::broadcast`;心跳 15 s |
+| `GET /events` | SSE;事件名与 Tauri 一致(`pomodoro_changed`、`map_job_progress`),数据为同一 JSON;壳层用 `app.listen_any` 把 Tauri 事件转进 `tokio::sync::broadcast`(发事件处不用改);心跳 15 s |
 | `GET /`、`/assets/*`、`/manifest.webmanifest` | 用 `app.asset_resolver()` 返回打包进二进制的前端文件(与窗口里加载的是同一份),未命中回落到 `index.html`(SPA 路由) |
-| `GET /api/ping` | 无需令牌,返回版本与 `gitSha`,配对页用来探活 |
+| `GET /api/ping` | 无需令牌,返回版本、`gitSha` 与 `paired`(本请求是否带了有效凭证),配对页用来探活 |
+| `POST /api/pair` | 体 `{token}`;对 → 204 + `Set-Cookie: bl_session=<令牌>; HttpOnly; SameSite=Strict; Max-Age=1 年`,错 → 401 |
 
-### 3.3 命令调度
-- 新文件 `web/src-tauri/src/http/dispatch.rs`:`dispatch(state, command, body, headers) -> Result<Value, IpcError>`,**每条契约命令一个 match 臂**,把 JSON 平铺参数反序列化成对应类型后调用既有的 `commands::<name>_inner`(与 Tauri 命令包装器完全相同的入口,`run_command` 日志、错误映射一字不改)。
-- 带 `AppHandle` 的命令(问书结束/提炼、微信读书同步后的投影重放、地图作业进度事件)在 HTTP 层同样拿 `AppHandle` 调用,行为一致。
-- **防遗漏测试**:foundation 新增一条用例,循环 `shared/tauri-wire-contract.json` 的每条命令,用与 IPC 循环相同的样例载荷打 `dispatch`,任一命令缺臂即失败(与现有"契约 ⇄ WIRE_COMMANDS"断言同级)。
+### 3.3 命令调度(实现时改进,2026-10-19)
+- **不写逐条调度**:HTTP 层把请求构造成 `tauri::webview::InvokeRequest`(命令名、JSON 或原始体、元数据头、`app.invoke_key()`,来源固定 `tauri://localhost`)交给主窗口 webview 的 `on_message`,用自定义 responder 拿回 `InvokeResponse`。这就是 Tauri IPC 本身的入口——参数反序列化、`generate_handler!` 分发、`run_command` 日志、`IpcError` 映射、带 `AppHandle` 的命令(投影重放、地图进度事件)全部与窗口内调用一字不差,新增命令自动可用。`on_message` 与 `invoke_key()` 都是 Tauri 2 公开 API(后者文档明说"供构造 InvokeRequest 用")。
+- **只放行契约命令**:命令名必须在 `shared/tauri-wire-contract.json` 里(编译期 `include_str!`),`automation_report` 等不在契约的一律 404。
+- **不能取 `webview.url()`**:页面没加载成功时 WKWebView 的 URL 为空,wry 在主线程 `unwrap` 直接 panic(M1 真机冒烟踩到);`tauri://localhost` 被 Tauri 无条件视为本地来源。
+- **可达性测试**:foundation 用例对每条带参数的契约命令发"参数类型全错"的请求,断言得到 tauri 的参数错误(400,文本含命令名)而不是 404——证明每条命令都经 HTTP 到达了命令层且不触发副作用。
 - 不走 HTTP 的命令:`automation_report`(调试桥)、菜单相关(`menu_action` 只是事件);`app_reveal_logs`、`export_reveal`、`weread_open_key_page` 这类"在 Mac 上打开 Finder/浏览器"的命令照常执行(效果发生在 Mac 上),前端在手机模式下隐藏这些按钮。
 
-### 3.4 安全
-- 每个 `/api` 与 `/files` 请求校验 `Authorization: Bearer <令牌>`;常量时间比较;失败 401 且不记录令牌。
-- 令牌存 `<data_root>/mobile-token`(0600),不进 SQLite(快照里不带);重新生成即旧令牌全部失效(手机需重新扫码)。
-- 不做 CORS 放行(前端与 API 同源);`/events` 的令牌走查询参数(EventSource 不能带头)——只在 HTTPS 下可接受,局域网 http 模式下同样提示。
+### 3.4 安全(实现时改进,2026-10-19)
+- 凭证 = `Authorization: Bearer <令牌>` **或** 配对换来的 `bl_session` HttpOnly cookie;常量时间比较;失败 401,日志只记"配对失败"不记令牌。用 cookie 是因为 `<img>` 封面、epub.js 拉书、`EventSource` 都不能自定义请求头,cookie 同源自动携带,令牌不必出现在 URL 里。
+- 配置与令牌存 `<data_root>/mobile-server.json`(0600,原子写),不进 SQLite(快照里不带);换令牌即旧令牌与它换来的 cookie 全部失效。
+- 停服(换令牌 / 改端口 / 关闭)时监听口立即关闭,旧实例"退役":keep-alive 长连接上再来的请求一律 503 + `Connection: close`,旧令牌不会在旧连接上继续有效;SSE 流随停机信号结束。
+- 不做 CORS 放行(前端与 API 同源)。
 - 速率:不限;单用户工具。日志里 HTTP 请求与 IPC 命令同一格式(`command=… outcome=… via=http`)。
 
 ### 3.5 依赖与并发
@@ -108,8 +111,9 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 
 ## 5. 契约与设置
 - 现有命令**一条不改**。
-- 新增(六处同步):`mobile_server_status() → {enabled, port, bind, url, tokenSet}`、`mobile_server_set({enabled, port, bind})`、`mobile_server_rotate_token() → {token, url}`(令牌只在这次返回里出现一次)。
-- 设置项进 `app_settings`(enabled/port/bind);令牌在文件。
+- 新增(六处同步):`mobile_server_status() → {enabled, port, bind, running, error, tokenSet, localUrl, tailscaleUrl, serveCommand}`、`mobile_server_set(enabled, port, bind) → 同上`、`mobile_server_rotate_token() → {token, pairUrl}`(令牌只在这次返回里出现一次)。监听失败等原因放在 `error` 字段里返回(数据,不抛),前端原样显示。
+- 开关/端口/绑定与令牌一起存 `<data_root>/mobile-server.json`,不进 `setting` 表(不随快照外流,也不用改设置 DTO)。
+- `tailscaleUrl`:运行 `tailscale status --json`(PATH 或 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`,2 s 超时)取 `Self.DNSName`;`serveCommand` 给出一次性配置 HTTPS 转发的命令。
 
 ## 6. 里程碑(约两周,每个独立分支 → PR)
 1. **M1 壳层 HTTP 服务 + 调度 + 契约循环测试**(3 天):axum 服务、`dispatch`、`/files`、`/events`、静态文件、令牌、三条设置命令。Mac 真机:curl 过一遍契约。
@@ -141,4 +145,15 @@ SQLite · 记忆库 · codex CLI · whisper(全部仍在 Mac 上)
 - Apple 开发者账号(99 美元/年)在第三阶段开工前办好即可。
 
 ## 10. 实现落点(回填)
-待 M1–M6 各 PR 回填。
+
+**M1(2026-10-19)**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 壳层 | `web/src-tauri/src/mobile.rs` | 配置文件读写(0600)、令牌(/dev/urandom)、`http_service`(axum 路由:ping / pair / api / files / events / 静态)、`MobileServer`(apply/stop,监听失败记 `last_error`)、三条设置命令的实现、Tailscale 地址探测;单测 4 条 |
+| 壳层 | `lib.rs` / `commands/mod.rs` | `register_commands` 托管 `MobileServer`;setup 按配置拉起;三条命令 + `WIRE_COMMANDS` |
+| 壳层 | `Cargo.toml` / `Cargo.lock` | `axum 0.8`、`tower`(util)、`tower-http`(fs)、`futures-util`、`tokio`(sync/net/macros/rt/time);锁文件以 Mac 解析为准(顺带补上 BL-030 起缺的 `ureq` 一系) |
+| 契约 | `shared/tauri-wire-contract.json`、`tests/foundation.rs`、`contract.test.ts`、`tauri.test.ts` | 三条命令;foundation 新增 HTTP 层集成用例(认证/配对 cookie/JSON 与原始体/契约命令全部可达/业务错误体/文件 Range 与路径限制/SSE 转发与停机/退役 503/真实端口启停与换令牌) |
+| web | `types.ts`、`backend/types.ts`、`tauri.ts`、`mock.ts` | `MobileServerStatus` / `MobileToken`;三个方法与解码、出站校验;Mock 只记配置 |
+
+M1 没有界面:手机访问分区、`HttpBackend`、配对页在 M2。

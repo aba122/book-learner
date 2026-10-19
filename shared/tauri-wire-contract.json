@@ -644,6 +644,25 @@
         "mark",
         "attachTo"
       ]
+    },
+    {
+      "method": "mobileServerStatus",
+      "command": "mobile_server_status",
+      "payloadKeys": []
+    },
+    {
+      "method": "mobileServerSet",
+      "command": "mobile_server_set",
+      "payloadKeys": [
+        "enabled",
+        "port",
+        "bind"
+      ]
+    },
+    {
+      "method": "mobileServerRotateToken",
+      "command": "mobile_server_rotate_token",
+      "payloadKeys": []
     }
   ],
   "unsupportedCapabilities": [

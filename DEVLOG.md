@@ -778,3 +778,13 @@
 - 契约:`weread_notes(localBookId)`、`weread_locate(kind,id,status,localBookId,mark,attachTo)`(六处);`NewReaderMarkDto` 是 `deny_unknown_fields`,前端只在给了时才发 `source/externalId`;`weread_connect/sync` 命令包装器加 `AppHandle` 以在后台 `replay_projection_after`。
 - 测试:core +4(db v13、reader_marks 幂等、weread 划线/想法/定位/渲染/投影/上下文、export 03)、foundation round-trip + wire 2 条、contract/tauri +2、wereadLocate 3、library +1、MarksPanel 1。门禁:core 223、clippy 0;web 460/2、tsc、oxlint 0、build;Mac 壳层 test 过(变基前);headless:Mock 三条演示划线在 fixtures/sample.epub 上 located / partial / missing 各一,想法挂成批注,阅读器标记面板出「微信读书」小标。
 - 教训:python 批量改文件时锚点要在 `cargo fmt` **之后**取(两次被 fmt 改掉的换行卡住);同一条 shell 里 python 失败不会阻断后面的 `cargo fmt && git commit`(用 `set -e` 或分开跑)。
+
+## 2026-10-19 · BL-032 手机版第一阶段 M1:Mac 端 HTTP 服务
+- 背景:用户终局要 iOS 原生 app;按设计先做 Mac 为主的网页版(`docs/design/2026-10-02-mobile-phase1.md`)。M1 只做壳层服务与三条设置命令,没有界面。
+- **调度方案比设计更简单**:HTTP 请求构造成 `tauri::webview::InvokeRequest`(`app.invoke_key()` 是 Tauri 2 公开 API,文档写明供构造 InvokeRequest 用)交给主窗口 webview 的 `on_message`,自定义 responder 拿回 `InvokeResponse`——就是 IPC 本身的入口,参数反序列化、分发、`run_command` 日志、`IpcError`、带 `AppHandle` 的命令全部一致,不用逐条写调度;只放行契约里的命令。设计 §3.3 已改。
+- **认证**:Bearer 或配对换来的 `bl_session` HttpOnly cookie(`<img>`、epub.js、EventSource 都不能带自定义头,cookie 同源自动带);令牌与开关/端口/绑定存 `<data_root>/mobile-server.json`(0600,不进 SQLite/快照)。
+- **路由**:`/api/ping`(免认证)、`/api/pair`、`/api/<command>`(JSON 平铺参数 / `application/octet-stream` 原始体 + 元数据头)、`/files/<name>`(tower-http ServeFile,Range,只许 books 目录直接子文件)、`/events`(SSE,`listen_any` 转发番茄钟/地图进度,发事件处不用改)、其余 GET 走 `asset_resolver` 静态文件(无扩展名回落 index.html;index no-cache,assets 长缓存)。
+- **真机冒烟踩到两个坑**(都已修、写进 CODE_MAP):① 取 `webview.url()` 当来源 → 调试构建页面没加载时 WKWebView URL 为空,wry 主线程 `unwrap` panic,app 直接退出;改为固定 `tauri://localhost`(Tauri 无条件视为本地来源)。② 经手机换令牌后服务起不来(EADDRINUSE):命令跑在 tokio 工作线程上,停机信号唤醒的旧服务任务进了本线程 LIFO 槽(不可被偷),本线程随即在重绑重试里 sleep,旧监听口一直没关;改为设置命令里的重启放独立线程执行。另:停服时直接丢弃 serve future(监听口立即关),旧实例"退役"——长连接上后续请求 503 + `Connection: close`,旧令牌不会在旧连接上继续有效;SSE 流随停机信号结束。
+- **锁文件**:壳层 `Cargo.lock` 从 BL-030 起就没跟上(缺 `ureq`/rustls 一系,CI 不带 `--locked` 一直现场解析),这次以 Mac 解析结果提交。
+- **Mac 仓库损坏并已修复**:`~/Developer/book-learner/.git` 的 pack 文件在 9/29–10/19 之间被外部删掉(只剩 3 个对象、`HEAD` 树读不出,原因未查明);坏 `.git` 已挪到 `~/Developer/bl-logs/book-learner.git.broken-20261019`,从 GitHub 重新克隆 `.git` 放回、`git reset` 重建索引,工作区未动。
+- 测试:壳层 mobile 单测 4、foundation HTTP 集成用例 1(认证/配对/JSON 与原始体/每条带参契约命令经 HTTP 可达/业务错误体/文件 Range 与路径限制/SSE 转发与停机/退役 503/真实端口启停/换令牌)+ wire 3 条;web contract/tauri 各 +1。门禁:壳层 Mac test 42 + clippy 0;web 见下。Mac 真机:调试构建 + 数据副本 + 端口 7350,curl 全通(含 1 分钟番茄钟到点 SSE 推送、Tailscale 地址探测 `https://<mac>.<tailnet>.ts.net`)。
