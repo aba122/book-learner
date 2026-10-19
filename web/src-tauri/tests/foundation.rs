@@ -2724,6 +2724,9 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "reading_time_summary" => json!({"date": DAY}),
             "weread_status" | "weread_books" | "weread_open_key_page" => json!({}),
             "weread_notes" => json!({"localBookId": first}),
+            // BL-032 M1:关着的服务只写配置、不监听
+            "mobile_server_status" | "mobile_server_rotate_token" => json!({}),
+            "mobile_server_set" => json!({"enabled": false, "port": 7340, "bind": "loopback"}),
             "weread_locate" => {
                 let state = app.state::<AppState>();
                 commands::weread_connect_inner(&state, "wrk-test", DAY).unwrap();
@@ -3421,4 +3424,297 @@ fn lineage_roundtrip_through_commands() {
         })
         .unwrap();
     assert!(pending >= 1, "脉络图写库应入队 sync_lineage");
+}
+
+/// BL-032 M1:手机访问 HTTP 层——请求经主窗口 webview 的 `on_message` 走与 IPC 同一条分发路径。
+#[test]
+fn mobile_http_service_routes_contract_commands_through_the_ipc_path() {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use futures_util::StreamExt;
+    use tauri::Emitter;
+    use tower::ServiceExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::open(&directory.path().join("mobile.db")).unwrap();
+    let (first, _second, _block) = seed_books(&state);
+    let books_dir = state.books_dir();
+    std::fs::create_dir_all(&books_dir).unwrap();
+    std::fs::write(books_dir.join("1.epub"), b"EPUBDATA").unwrap();
+    let app = book_learner_app::register_commands(mock_builder().manage(state))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let _webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let service = book_learner_app::mobile::http_service(app.handle(), "tok-123", books_dir);
+    let router = service.router.clone();
+    let send = |request: Request<Body>| -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+        tauri::async_runtime::block_on(async {
+            let response = router.clone().oneshot(request).await.unwrap();
+            let status = response.status();
+            let headers = response.headers().clone();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (status, headers, bytes.to_vec())
+        })
+    };
+    let post = |uri: &str, auth: Option<&str>, body: Value| {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(auth) = auth {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {auth}"));
+        }
+        builder.body(Body::from(body.to_string())).unwrap()
+    };
+    let json_of = |bytes: &[u8]| -> Value { serde_json::from_slice(bytes).unwrap() };
+
+    // 探活免认证;带对令牌显示已配对
+    let (status, _, body) = send(Request::get("/api/ping").body(Body::empty()).unwrap());
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json_of(&body)["paired"], json!(false));
+    assert_eq!(json_of(&body)["app"], json!("book-learner"));
+    let (_, _, body) = send(
+        Request::get("/api/ping")
+            .header(header::AUTHORIZATION, "Bearer tok-123")
+            .body(Body::empty())
+            .unwrap(),
+    );
+    assert_eq!(json_of(&body)["paired"], json!(true));
+
+    // 没凭证 / 错令牌 → 401
+    let (status, _, _) = send(post("/api/library_list_books", None, json!({})));
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = send(post("/api/library_list_books", Some("nope"), json!({})));
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = send(post("/api/pair", None, json!({"token": "nope"})));
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // 配对换 HttpOnly cookie,之后 cookie 即凭证
+    let (status, headers, _) = send(post("/api/pair", None, json!({"token": "tok-123"})));
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let cookie = headers[header::SET_COOKIE].to_str().unwrap().to_string();
+    assert!(cookie.starts_with("bl_session=tok-123;"), "{cookie}");
+    assert!(
+        cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"),
+        "{cookie}"
+    );
+    let session = "bl_session=tok-123";
+    let (status, _, body) = send(
+        Request::post("/api/library_list_books")
+            .header(header::COOKIE, session)
+            .body(Body::empty())
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json_of(&body).as_array().unwrap().len(), 2);
+
+    // JSON 平铺参数与 IPC 相同;命令错误体就是 IpcError
+    let (status, _, body) = send(post(
+        "/api/map_list_blocks",
+        Some("tok-123"),
+        json!({"bookId": first}),
+    ));
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(json_of(&body).is_array());
+    let (status, _, body) = send(post(
+        "/api/library_set_active_book",
+        Some("tok-123"),
+        json!({"bookId": 999_999}),
+    ));
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json_of(&body)["code"], json!("not_found"));
+    let (status, _, _) = send(
+        Request::post("/api/library_list_books")
+            .header(header::AUTHORIZATION, "Bearer tok-123")
+            .body(Body::from("{not json"))
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for unknown in ["no_such_command", "automation_report"] {
+        let (status, _, _) = send(post(&format!("/api/{unknown}"), Some("tok-123"), json!({})));
+        assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
+    }
+
+    // 原始体命令:octet-stream + 元数据头照传
+    let (status, _, body) = send(
+        Request::post("/api/library_import_epub_chunk")
+            .header(header::AUTHORIZATION, "Bearer tok-123")
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .header("x-op-id", "op-http")
+            .header("x-chunk-index", "0")
+            .body(Body::from(vec![1u8, 2, 3, 4]))
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+    // 每条带参数的契约命令都能经 HTTP 到达命令层:参数故意给错类型 → tauri 的参数错误(而不是 404/未注册)
+    let contract: Value =
+        serde_json::from_str(include_str!("../../../shared/tauri-wire-contract.json")).unwrap();
+    let mut unreachable = Vec::new();
+    for entry in contract["commands"].as_array().unwrap() {
+        let command = entry["command"].as_str().unwrap();
+        let keys = entry["payloadKeys"].as_array().unwrap();
+        if keys.is_empty() {
+            continue;
+        }
+        let payload: serde_json::Map<String, Value> = keys
+            .iter()
+            .map(|k| (k.as_str().unwrap().to_string(), json!({"__probe": true})))
+            .collect();
+        let (status, _, body) = send(post(
+            &format!("/api/{command}"),
+            Some("tok-123"),
+            Value::Object(payload),
+        ));
+        let text = String::from_utf8_lossy(&body).to_string();
+        if status != StatusCode::BAD_REQUEST || !text.contains(command) {
+            unreachable.push(format!("{command}: {status} {text}"));
+        }
+    }
+    assert!(unreachable.is_empty(), "{unreachable:#?}");
+
+    // 受管文件:认证、Range、路径限制
+    let (status, _, _) = send(Request::get("/files/1.epub").body(Body::empty()).unwrap());
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, headers, body) = send(
+        Request::get("/files/1.epub")
+            .header(header::COOKIE, session)
+            .body(Body::empty())
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, b"EPUBDATA");
+    assert_eq!(headers[header::CONTENT_TYPE], "application/epub+zip");
+    let (status, _, body) = send(
+        Request::get("/files/1.epub")
+            .header(header::COOKIE, session)
+            .header(header::RANGE, "bytes=0-3")
+            .body(Body::empty())
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(body, b"EPUB");
+    for bad in [
+        "/files/..%2Fmobile.db",
+        "/files/.hidden",
+        "/files/missing.epub",
+    ] {
+        let (status, _, _) = send(
+            Request::get(bad)
+                .header(header::COOKIE, session)
+                .body(Body::empty())
+                .unwrap(),
+        );
+        assert_eq!(status, StatusCode::NOT_FOUND, "{bad}");
+    }
+
+    // 没打包前端(测试用 noop_assets)→ 404,不 500
+    let (status, _, _) = send(Request::get("/reader/4").body(Body::empty()).unwrap());
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // SSE:Tauri 事件原样转发;停机信号让流结束
+    tauri::async_runtime::block_on(async {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get("/events")
+                    .header(header::COOKIE, session)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/event-stream"
+        );
+        let mut stream = response.into_body().into_data_stream();
+        app.handle()
+            .emit(
+                book_learner_app::pomodoro::POMODORO_CHANGED_EVENT,
+                json!({"phase": "focus"}),
+            )
+            .unwrap();
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("sse event in time")
+            .expect("stream open")
+            .unwrap();
+        let text = String::from_utf8_lossy(&chunk).to_string();
+        assert!(text.contains("event: pomodoro_changed"), "{text}");
+        assert!(text.contains("focus"), "{text}");
+        service.shutdown.send(true).unwrap();
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("stream ends after shutdown");
+        assert!(end.is_none());
+    });
+    // 停掉的实例:长连接上再来的请求一律 503 + Connection: close(旧令牌不再有效)
+    let (status, headers, _) = send(
+        Request::post("/api/library_list_books")
+            .header(header::COOKIE, session)
+            .body(Body::empty())
+            .unwrap(),
+    );
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(headers[header::CONNECTION], "close");
+
+    // 真实监听口:设置命令启停(配置文件 + 令牌),TCP 上能探活
+    let free_port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let state = app.state::<AppState>();
+    let server = app.state::<book_learner_app::mobile::MobileServer>();
+    let status =
+        book_learner_app::mobile::set(app.handle(), &server, &state, true, free_port, "loopback")
+            .unwrap();
+    assert!(status.running, "{status:?}");
+    assert!(status.token_set);
+    assert_eq!(status.local_url, format!("http://127.0.0.1:{free_port}"));
+    let ping = {
+        use std::io::{Read, Write};
+        let mut tcp = std::net::TcpStream::connect(("127.0.0.1", free_port)).unwrap();
+        tcp.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        tcp.write_all(b"GET /api/ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let mut out = String::new();
+        let _ = tcp.read_to_string(&mut out);
+        out
+    };
+    assert!(ping.starts_with("HTTP/1.1 200"), "{ping}");
+    assert!(ping.contains("book-learner"), "{ping}");
+    let rotated = book_learner_app::mobile::rotate_token(app.handle(), &state).unwrap();
+    assert_eq!(rotated.token.len(), 64);
+    assert!(rotated
+        .pair_url
+        .ends_with(&format!("#pair={}", rotated.token)));
+    assert!(book_learner_app::mobile::status(&server, state.data_root()).running);
+    assert_eq!(
+        book_learner_app::mobile::set(app.handle(), &server, &state, true, 80, "loopback")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let status =
+        book_learner_app::mobile::set(app.handle(), &server, &state, false, free_port, "loopback")
+            .unwrap();
+    assert!(!status.running);
+    // 停掉后监听口释放(可再绑)
+    let mut rebound = false;
+    for _ in 0..50 {
+        if std::net::TcpListener::bind(("127.0.0.1", free_port)).is_ok() {
+            rebound = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(rebound, "port {free_port} still bound after stop");
 }

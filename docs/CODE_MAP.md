@@ -60,6 +60,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |
 | 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>:r<n>` 行(每次重生成 n+1;若只见 :s<seq> 无 :r 是旧版);"先读一部分再生成"= 已读范围没有正文章(封面/目录/分部页不算);面板显示章节标题不是 spine 序号;`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
+| 手机连不上 Mac 上的攻书 / 401 / 换令牌后连不上 | `<data_root>/mobile-server.json`(enabled/port/bind/token);设置命令返回的 `error`(监听失败原因);日志 `手机访问服务已启动/已停止/监听失败`、`手机配对失败`;默认只绑 127.0.0.1,手机要经 `tailscale serve --bg --https=443 http://127.0.0.1:<port>`;换令牌后旧 cookie 失效需重新配对;Mac 休眠即不可达 | `web/src-tauri/src/mobile.rs` |
 | 微信读书划线导入不了 / 导入后阅读器看不到 | `weread_mark.locate_status`(pending/located/partial/missing);定位在前端 `wereadLocate.ts`(epub.js `section.search` 精确子串,版本/译本不同就 missing);落库经 `weread_locate` → `reader_mark(source='weread', external_id=bookmarkId)` 幂等;删掉本地高亮后 `local_mark_id` 置空但状态不回 pending(不会自动再导) | `core/src/weread.rs` `locate/notes_for_local`;`web/src/features/library/wereadLocate.ts` |
 | 微信读书连不上 / 同步失败 / 书没关联上 | 失败原因是数据不是异常:`weread_account.last_error`(设置页原样显示);鉴权按 HTTP 401/403 或 errcode 文案归类;书架拉不到整次失败、单本进度失败跳过;自动匹配只在唯一候选时关联(`link_source` none/auto),manual 永不覆盖;时长按北京时间分桶转日期;真网关字段以 `docs/design/2026-09-28-weread-sync.md` §2 为准 | `core/src/weread.rs`;`web/src/features/settings/WereadSection.tsx` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
@@ -118,13 +119,17 @@ select * from setting;
 | 语音 | `voice_models[]`、`voice_import_model[path]`(空则 rfd 主线程选择器)、`voice_select_model[name]`、`voice_delete_model[name]`、`voice_transcribe`(原始体 16 kHz i16 PCM,头 `x-bl-lang`/`x-bl-hint`) |
 | 设置 | `settings_get/settings_save[settings]`、`settings_codex_get[]`、`settings_codex_set[path]`、`unsupported_capability[capability]`(只剩 `completeTask`) |
 
-不在契约的命令:`automation_report`(debug 桥回传)。
+| 手机访问 | `mobile_server_status[]`、`mobile_server_set[enabled,port,bind]`、`mobile_server_rotate_token[]`(壳层 `mobile.rs`;监听失败原因在返回的 `error` 字段) |
+
+不在契约的命令:`automation_report`(debug 桥回传;HTTP 层也不放行)。
 
 **错误映射 `error.rs`**:`ErrorCode` = invalid_request / not_found / conflict / db_unavailable(可重试)/ io_failure(可重试)/ ai_unavailable(可重试;`CoreError::Ai|EvalParse`)/ not_implemented / internal。`internal_cause` 只进日志不过 IPC。前端 `tauri.ts` 的 `IPC_ERRORS` 文案与之一致。
 
 **导入 `import.rs`**:暂存 `import/<opId>/part-NNNNNN` → `assemble`(分块须连续)→ `validate_epub`(zip 魔数、条目 ≤ 5000、路径安全、首条目 `mimetype`=`application/epub+zip`、有 `container.xml`)→ `epub_metadata`(读 OPF `dc:title/dc:creator`;**zip 须开 deflate**)→ 插书行(`slug=import-<opId>`,`import_state='staged'`)→ rename 到 `books/<book_id>.epub`。总量上限 200 MiB。
 
 **语音 `voice.rs`**:`models/` 目录,`ggml-*.bin` 白名单,导入 ≥ 20 MiB 复制 + rename,首个自动选中;`transcribe` 按选中模型懒加载、`OnceLock<Mutex>` 串行;录音 ≤ 120 s;无模型 → invalid_request 且不加载 whisper;feature `voice` 默认开(需 cmake)。
+
+**手机访问 `mobile.rs`**(BL-032 第一阶段,设计 `docs/design/2026-10-02-mobile-phase1.md`):axum HTTP 服务,配置/令牌在 `<data_root>/mobile-server.json`(0600)。`POST /api/<command>` 把请求构造成 `InvokeRequest` 交给主窗口 webview 的 `on_message`(与 IPC 同一分发路径;来源固定 `tauri://localhost`,**不要取 `webview.url()`**——页面没加载时 wry 主线程 panic),只放行契约命令;`POST /api/pair` 用令牌换 `bl_session` HttpOnly cookie;`GET /api/ping` 免认证;`GET /files/<name>` 受管 books 目录(ServeFile,Range);`GET /events` SSE(`listen_any` 转发 `pomodoro_changed`/`map_job_progress`);其余 GET 走 `asset_resolver` 静态文件,无扩展名回落 index.html。`MobileServer`(由 `register_commands` 托管):`apply` 停旧起新(监听失败写 `last_error`),停服即关监听口、旧实例 `retired` → 503 + `Connection: close`;**设置命令里的重启必须放到独立线程**(`restart`),否则停机唤醒落在当前 tokio 工作线程的 LIFO 槽、被重绑重试的 sleep 卡住,新端口一直 EADDRINUSE。
 
 **自动化桥 `automation.rs`**(debug + `BOOK_LEARNER_AUTOMATION_SOCK`):unix socket,一行 JSON:`{"js":...,"timeout_ms"}` 在 WebView eval 并经 `automation_report` 回传;`{"tray_title":true}`;`{"quit":true}`(走有序退出)。
 

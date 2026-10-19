@@ -403,7 +403,7 @@ describe('TauriBackend failures and unsupported capabilities', () => {
 })
 
 // ---- 原生导入与阅读器(Mac M6):分块原始请求体、受管路径 → asset URL、块原文 ----
-const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary', 'wereadStatus', 'wereadConnect', 'wereadSync', 'wereadDisconnect', 'wereadSetAutoSync', 'wereadBooks', 'wereadLink', 'wereadReadingDays', 'wereadOpenKeyPage', 'wereadNotes', 'wereadLocate']
+const NATIVE_METHODS = ['importEpubChunk', 'importEpubFinalize', 'epubUrl', 'blockSource', 'stats', 'checkBehind', 'getPlan', 'finishBook', 'pomodoroStart', 'pomodoroPause', 'pomodoroResume', 'pomodoroStop', 'pomodoroState', 'profileGet', 'profileSave', 'extraStart', 'extraFinish', 'statsDetail', 'finalExamEligible', 'finalExamStart', 'finalExamFinish', 'exportPreview', 'exportObsidian', 'exportReveal', 'backupSnapshotNow', 'backupList', 'backupRestore', 'backupCancelRestore', 'gitRemoteGet', 'gitRemoteSet', 'gitPushNow', 'readerMarkList', 'readerMarkAdd', 'readerMarkUpdate', 'readerMarkRemove', 'readerPositionSet', 'voiceModels', 'voiceImportModel', 'voiceSelectModel', 'voiceDeleteModel', 'voiceTranscribe', 'codexBinGet', 'codexBinSet', 'appInfo', 'appRevealLogs', 'logClientEvent', 'deleteBook', 'readingTopics', 'readingMessages', 'readingSend', 'readingTopicEnd', 'readingDistill', 'lineageGet', 'lineageGenerate', 'lineageSave', 'lineageUpdate', 'lineageRevise', 'lineageNodeSource', 'readingTimeAdd', 'readingTimeSummary', 'wereadStatus', 'wereadConnect', 'wereadSync', 'wereadDisconnect', 'wereadSetAutoSync', 'wereadBooks', 'wereadLink', 'wereadReadingDays', 'wereadOpenKeyPage', 'wereadNotes', 'wereadLocate', 'mobileServerStatus', 'mobileServerSet', 'mobileServerRotateToken']
 
 describe('TauriBackend native import and reader (Mac M6)', () => {
   type RawCall = { command: string; payload: unknown; headers?: Record<string, string> }
@@ -1081,5 +1081,32 @@ describe('TauriBackend 微信读书划线/想法(BL-030 第二批)', () => {
     expect(decoded?.externalId).toBeNull()
     const bad = new TauriBackend(async <T>() => ({ ...notes, marks: [{ ...mark, locateStatus: 'lost' }] }) as T)
     await expect(bad.wereadNotes(1)).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+})
+
+describe('TauriBackend 手机访问(BL-032 M1)', () => {
+  it('三条命令按契约传键、解码状态与令牌;端口/绑定出站校验;坏载荷 → invalid_response', async () => {
+    const calls: { command: string; payload: unknown }[] = []
+    const status = {
+      enabled: true, port: 7340, bind: 'loopback', running: true, error: null, tokenSet: true,
+      localUrl: 'http://127.0.0.1:7340', tailscaleUrl: 'https://mac.tail1234.ts.net', serveCommand: 'tailscale serve --bg --https=443 http://127.0.0.1:7340',
+    }
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'mobile_server_rotate_token') return { token: 'ab'.repeat(32), pairUrl: 'https://mac.tail1234.ts.net/#pair=' + 'ab'.repeat(32) } as T
+      return status as T
+    }
+    const backend = new TauriBackend(invoke)
+    expect(await backend.mobileServerStatus()).toEqual(status)
+    expect(calls[0]).toEqual({ command: 'mobile_server_status', payload: {} })
+    await backend.mobileServerSet(true, 7341, 'lan')
+    expect(calls[1]).toEqual({ command: 'mobile_server_set', payload: { enabled: true, port: 7341, bind: 'lan' } })
+    expect((await backend.mobileServerRotateToken()).pairUrl).toContain('#pair=')
+    expect(calls[2]).toEqual({ command: 'mobile_server_rotate_token', payload: {} })
+    await expect(backend.mobileServerSet(true, 1.5, 'lan')).rejects.toMatchObject({ code: 'invalid_request' })
+    await expect(backend.mobileServerSet(true, 7340, 'wan' as never)).rejects.toMatchObject({ code: 'invalid_request' })
+    expect(calls).toHaveLength(3)
+    const bad = new TauriBackend(async <T>() => ({ ...status, bind: 'wan' }) as T)
+    await expect(bad.mobileServerStatus()).rejects.toMatchObject({ code: 'invalid_response' })
   })
 })

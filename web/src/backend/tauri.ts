@@ -3,7 +3,7 @@ import tauriWireContract from '../../../shared/tauri-wire-contract.json'
 import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus,
+  AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
@@ -649,6 +649,27 @@ function decodeReaderMark(value: unknown, path = 'readerMark'): ReaderMark {
 }
 
 const WEREAD_LOCATE_STATUSES = ['pending', 'located', 'partial', 'missing'] as const satisfies readonly WereadLocateStatus[]
+const MOBILE_BINDS = ['loopback', 'lan'] as const satisfies readonly MobileBind[]
+
+function decodeMobileStatus(value: unknown): MobileServerStatus {
+  const wire = objectAt(value, 'mobile')
+  return {
+    enabled: booleanAt(wire.enabled, 'mobile.enabled'),
+    port: safeIntegerAt(wire.port, 'mobile.port'),
+    bind: enumAt(wire.bind, 'mobile.bind', MOBILE_BINDS),
+    running: booleanAt(wire.running, 'mobile.running'),
+    error: nullableAt(wire.error, 'mobile.error', stringAt),
+    tokenSet: booleanAt(wire.tokenSet, 'mobile.tokenSet'),
+    localUrl: stringAt(wire.localUrl, 'mobile.localUrl'),
+    tailscaleUrl: nullableAt(wire.tailscaleUrl, 'mobile.tailscaleUrl', stringAt),
+    serveCommand: stringAt(wire.serveCommand, 'mobile.serveCommand'),
+  }
+}
+
+function decodeMobileToken(value: unknown): MobileToken {
+  const wire = objectAt(value, 'mobileToken')
+  return { token: stringAt(wire.token, 'mobileToken.token'), pairUrl: stringAt(wire.pairUrl, 'mobileToken.pairUrl') }
+}
 
 function decodeWereadNotes(value: unknown): WereadNotes {
   const wire = objectAt(value, 'wereadNotes')
@@ -1418,6 +1439,21 @@ export class TauriBackend implements Backend {
     return this.gated('wereadOpenKeyPage', async () => {
       await this.decode('weread_open_key_page', {}, value => unitAt(value, 'weread_open_key_page'))
     })
+  }
+  // ---- 手机访问(BL-032)----
+  mobileServerStatus(): Promise<MobileServerStatus> {
+    return this.gated('mobileServerStatus', () => this.decode('mobile_server_status', {}, decodeMobileStatus))
+  }
+  mobileServerSet(enabled: boolean, port: number, bind: MobileBind): Promise<MobileServerStatus> {
+    return this.gated('mobileServerSet', () => {
+      outboundBoolean(enabled, 'enabled')
+      outboundInteger(port, 'port')
+      if (!MOBILE_BINDS.includes(bind)) invalidShape('bind', MOBILE_BINDS.join(' | '), bind, 'invalid_request')
+      return this.decode('mobile_server_set', { enabled, port, bind }, decodeMobileStatus)
+    })
+  }
+  mobileServerRotateToken(): Promise<MobileToken> {
+    return this.gated('mobileServerRotateToken', () => this.decode('mobile_server_rotate_token', {}, decodeMobileToken))
   }
   wereadNotes(localBookId: number): Promise<WereadNotes> {
     return this.gated('wereadNotes', () => {

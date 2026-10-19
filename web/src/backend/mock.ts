@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought } from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought, MobileBind, MobileServerStatus, MobileToken } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -121,6 +121,8 @@ export class MockBackend implements Backend {
   private wereadBookRows: WereadBook[] = []
   private wereadDayRows = new Map<string, number>()
   private wereadMarkRows: WereadMark[] = []
+  // 手机访问(BL-032):浏览器 mock 只记配置,不真的监听
+  private mobile = { enabled: false, port: 7340, bind: 'loopback' as MobileBind, token: '' }
   private wereadThoughtRows: WereadThought[] = []
   private blocks: KnowledgeBlock[] = []
   private tasks: DailyTask[] = []
@@ -1353,5 +1355,31 @@ export class MockBackend implements Backend {
     row.locateStatus = status
     if (markId !== null) row.localMarkId = markId
     return created
+  }
+
+  // ---- 手机访问(BL-032)----
+  private mobileStatusView(): MobileServerStatus {
+    const m = this.mobile
+    return {
+      enabled: m.enabled, port: m.port, bind: m.bind, running: m.enabled && m.token !== '', error: null, tokenSet: m.token !== '',
+      localUrl: m.bind === 'lan' ? `http://mac.local:${m.port}` : `http://127.0.0.1:${m.port}`, tailscaleUrl: null,
+      serveCommand: `tailscale serve --bg --https=443 http://127.0.0.1:${m.port}`,
+    }
+  }
+  private mockToken() {
+    return Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + this.mobile.port + Date.now()) % 16]).join('')
+  }
+  async mobileServerStatus(): Promise<MobileServerStatus> {
+    return this.mobileStatusView()
+  }
+  async mobileServerSet(enabled: boolean, port: number, bind: MobileBind): Promise<MobileServerStatus> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw invalidRequest()
+    if (bind !== 'loopback' && bind !== 'lan') throw invalidRequest()
+    this.mobile = { ...this.mobile, enabled, port, bind, token: this.mobile.token || this.mockToken() }
+    return this.mobileStatusView()
+  }
+  async mobileServerRotateToken(): Promise<MobileToken> {
+    this.mobile = { ...this.mobile, token: this.mockToken() }
+    return { token: this.mobile.token, pairUrl: `${this.mobileStatusView().localUrl}/#pair=${this.mobile.token}` }
   }
 }
