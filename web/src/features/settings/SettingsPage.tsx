@@ -13,6 +13,7 @@ import Toolbar, { ToolbarSpacer } from '../../components/Toolbar'
 import { localCalendarDate } from '../../lib/localDate'
 import { useAsyncResource } from '../../lib/useAsyncResource'
 import { useBackendOperation } from '../../lib/useBackendOperation'
+import { useIsPhone } from '../../lib/useMedia'
 import { useSession, type ThemePreference } from '../../store'
 import type { AppSettings, BackupList, CodexBin, Profile } from '../../types'
 import SettingsSection, { SettingsRow } from './SettingsSection'
@@ -39,6 +40,27 @@ const formatBytes = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)
 
 /** 左列分区导航(视觉改版第三批):点击滚到分区;滚动时由 IntersectionObserver 跟随(jsdom 无则只响应点击) */
 function SectionNav({ active, onPick }: { active: SettingsSectionId; onPick: (id: SettingsSectionId) => void }) {
+  // 手机(BL-032 M3):顶部吸顶的横向药丸,可左右滑
+  if (useIsPhone()) {
+    return (
+      <nav aria-label="设置分区" className="sticky top-0 z-10 -mx-4 mb-4 overflow-x-auto border-b border-sep bg-content px-4 py-2">
+        <ul className="flex w-max gap-1.5">
+          {SETTINGS_SECTIONS.map(s => (
+            <li key={s.id}>
+              <button
+                type="button"
+                aria-current={active === s.id ? 'true' : undefined}
+                onClick={() => onPick(s.id)}
+                className="h-8 cursor-pointer rounded-full bg-inset px-3 text-callout whitespace-nowrap text-label-2 aria-[current=true]:bg-accent aria-[current=true]:font-medium aria-[current=true]:text-on-accent"
+              >
+                {s.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )
+  }
   return (
     <nav aria-label="设置分区" className="sticky top-0 hidden w-36 shrink-0 self-start @3xl:block">
       <ul className="flex flex-col gap-0.5">
@@ -220,7 +242,7 @@ function CodexField() {
               value={value}
               placeholder="留空自动寻找,或填 /opt/homebrew/bin/codex"
               onChange={e => setDraft(e.target.value)}
-              className="w-72 font-mono"
+              className="w-72 font-mono max-md:w-full"
             />
             <Button
               size="sm"
@@ -340,7 +362,7 @@ function SettingsShell({ toolbar, children }: { toolbar: React.ReactNode; childr
         {toolbar}
       </Toolbar>
       <div className="min-h-0 flex-1 overflow-y-auto @container" data-testid="settings-scroll">
-        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16">
+        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16 max-md:px-4 max-md:pt-4 max-md:pb-10">
           <PageHeader title="设置" subtitle="节奏、路径与同步" />
           {children}
         </div>
@@ -440,9 +462,9 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
       }
     >
       {saveError && <div className="mb-6"><AsyncError error={saveError} onRetry={submit} /></div>}
-      <div className="flex gap-8">
+      <div className="flex gap-8 max-md:flex-col max-md:gap-0">
         <SectionNav active={active} onPick={pick} />
-        <div className="flex min-w-0 flex-1 flex-col gap-8">
+        <div className="flex min-w-0 flex-1 flex-col gap-8 max-md:gap-6">
           <SettingsSection id="general" title="通用" description="外观即时生效;节奏与提醒改完点右上「保存」。">
             <AppearanceRow />
             <Field label="番茄钟(分钟)" className="px-4" error={invalid.includes('pomodoroMinutes') ? INVALID_HINT : undefined}>
@@ -499,7 +521,7 @@ function SettingsForm({ initial }: { initial: AppSettings }) {
                   type="text"
                   value={form.obsidianVault}
                   onChange={e => update({ obsidianVault: e.target.value })}
-                  className="w-80 font-mono"
+                  className="w-80 font-mono max-md:w-full"
                 />
               )}
             </Field>

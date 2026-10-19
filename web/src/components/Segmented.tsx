@@ -72,7 +72,7 @@ export default function Segmented<T extends string>({
             aria-label={o.ariaLabel}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(o.value)}
-            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-s font-medium whitespace-nowrap transition-colors duration-[var(--dur-fast)] ${size === 'sm' ? 'h-5 px-2 text-footnote' : 'h-6 px-2.5 text-callout'} ${selected ? 'bg-card text-label-1 shadow-card' : 'text-label-2 hover:text-label-1'}`}
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-s font-medium whitespace-nowrap transition-colors duration-[var(--dur-fast)] ${size === 'sm' ? 'h-5 px-2 text-footnote max-md:h-7' : 'h-6 px-2.5 text-callout max-md:h-8 max-md:px-3'} ${selected ? 'bg-card text-label-1 shadow-card' : 'text-label-2 hover:text-label-1'}`}
           >
             {o.icon && <Icon name={o.icon} size={size === 'sm' ? 12 : 14} />}
             {o.label}

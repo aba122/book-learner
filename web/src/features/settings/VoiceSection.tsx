@@ -153,7 +153,7 @@ export default function VoiceSection() {
       <div className="flex min-h-11 items-center justify-between gap-6 px-4 py-2">
         <label htmlFor="voice-device" className="text-body text-label-1">输入设备</label>
         <div className="flex flex-col items-end gap-1">
-          <Select id="voice-device" value={device} onChange={e => chooseDevice(e.target.value)} className="w-64" disabled={devices === null}>
+          <Select id="voice-device" value={device} onChange={e => chooseDevice(e.target.value)} className="w-64 max-md:w-full" disabled={devices === null}>
             <option value="">系统默认</option>
             {(devices ?? []).map(d => (
               <option key={d.deviceId} value={d.deviceId}>{d.label}</option>

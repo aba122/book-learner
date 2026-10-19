@@ -23,7 +23,7 @@ export default function SettingsSection({
 }) {
   const headingId = `${sectionDomId(id)}-title`
   return (
-    <section id={sectionDomId(id)} aria-labelledby={headingId} data-testid={testId} className="scroll-mt-4">
+    <section id={sectionDomId(id)} aria-labelledby={headingId} data-testid={testId} className="scroll-mt-4 max-md:scroll-mt-16">
       <div className="mb-2 flex items-end justify-between gap-4 px-1">
         <div className="min-w-0">
           <h2 id={headingId} className="font-serif text-title3 font-semibold text-label-1">
@@ -41,9 +41,9 @@ export default function SettingsSection({
 /** 分组列表里的一行:标签左、内容右(不经 Field 的自定义行) */
 export function SettingsRow({ label, children, className = '' }: { label: ReactNode; children?: ReactNode; className?: string }) {
   return (
-    <div className={`flex min-h-11 items-center justify-between gap-6 px-4 py-2 ${className}`}>
+    <div className={`flex min-h-11 items-center justify-between gap-6 px-4 py-2 max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-2 ${className}`}>
       <div className="min-w-0 text-body text-label-1">{label}</div>
-      {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {children && <div className="flex shrink-0 items-center gap-2 max-md:min-w-0 max-md:shrink max-md:flex-wrap">{children}</div>}
     </div>
   )
 }

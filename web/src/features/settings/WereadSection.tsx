@@ -82,7 +82,7 @@ export default function WereadSection() {
                   value={keyDraft}
                   placeholder="wrk-…"
                   onChange={e => setKeyDraft(e.target.value)}
-                  className="w-72 font-mono"
+                  className="w-72 font-mono max-md:w-full"
                 />
                 <Button
                   size="sm"

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useIsPhone } from '../lib/useMedia'
 import { useSession } from '../store'
 import IconButton from './IconButton'
 
@@ -9,14 +10,17 @@ import IconButton from './IconButton'
 export default function Toolbar({ 'aria-label': ariaLabel, className = '', children }: { 'aria-label': string; className?: string; children?: ReactNode }) {
   const collapsed = useSession(s => s.sidebarCollapsed)
   const toggleSidebar = useSession(s => s.toggleSidebar)
+  // 手机(BL-032 M3):没有侧栏(底部标签栏),带高 44、无红绿灯让位
+  const phone = useIsPhone()
+  const sidebarButton = collapsed && !phone
   return (
     <div
       role="toolbar"
       aria-label={ariaLabel}
       data-tauri-drag-region
-      className={`flex h-13 shrink-0 items-center gap-1 border-b border-sep bg-content px-3 @container ${collapsed ? 'pl-[72px]' : ''} ${className}`}
+      className={`flex h-13 shrink-0 items-center gap-1 border-b border-sep bg-content px-3 @container max-md:h-11 max-md:px-2 ${sidebarButton ? 'pl-[72px]' : ''} ${className}`}
     >
-      {collapsed && <IconButton icon="sidebar-left" label="显示侧栏" onClick={toggleSidebar} className="-ml-1 mr-1" />}
+      {sidebarButton && <IconButton icon="sidebar-left" label="显示侧栏" onClick={toggleSidebar} className="-ml-1 mr-1" />}
       {children}
     </div>
   )

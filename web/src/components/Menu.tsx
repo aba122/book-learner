@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as Rea
 import { createPortal } from 'react-dom'
 import Icon from './icons/Icon'
 import type { IconName } from './icons/paths'
+import { useIsPhone } from '../lib/useMedia'
 
 export type MenuAnchor = HTMLElement | { x: number; y: number }
 
@@ -34,12 +35,14 @@ const isSeparator = (e: MenuEntry): e is { separator: true } => e.separator === 
  * 菜单(视觉改版第二批,无第三方库):portal 到 body,`role=menu` + 28px `menuitem` 行;
  * 打开即聚焦第一项,↑↓ Home End 移动、Enter/Space 选中、Esc 关闭、外点关闭;关闭后焦点回锚定按钮。
  * 受控:由调用方持有 open/anchor(按钮点击与右键同一个菜单)。
+ * 手机(BL-032 M3):改为贴底动作单——遮罩 + 全宽 44px 行 + 「取消」,不按锚定位置摆。
  */
 export default function Menu({ open, onClose, anchor, items, 'aria-label': ariaLabel }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const [active, setActive] = useState(0)
   const enabledIdx = items.map((it, i) => (!isSeparator(it) && !it.disabled ? i : -1)).filter(i => i >= 0)
+  const phone = useIsPhone()
 
   // 位置:锚定元素下方左对齐,或右键坐标;贴边时向内收
   useLayoutEffect(() => {
@@ -107,14 +110,16 @@ export default function Menu({ open, onClose, anchor, items, 'aria-label': ariaL
     }
   }
 
-  return createPortal(
+  const panel = (
     <div
       ref={panelRef}
       role="menu"
       aria-label={ariaLabel}
       onKeyDown={onKeyDown}
-      className="bl-pop fixed z-popover min-w-44 rounded-m bg-popover p-1 shadow-popover ring-1 ring-sep/60"
-      style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999 }}
+      className={phone
+        ? 'bl-pop rounded-l bg-popover p-1.5 shadow-sheet ring-1 ring-sep/60'
+        : 'bl-pop fixed z-popover min-w-44 rounded-m bg-popover p-1 shadow-popover ring-1 ring-sep/60'}
+      style={phone ? undefined : pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999 }}
     >
       {items.map((it, i) =>
         isSeparator(it) ? (
@@ -133,15 +138,30 @@ export default function Menu({ open, onClose, anchor, items, 'aria-label': ariaL
               onClose()
               it.onSelect()
             }}
-            className={`flex h-7 w-full cursor-pointer items-center gap-2 rounded-s px-2 text-left text-body outline-none disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`flex h-7 w-full cursor-pointer items-center gap-2 rounded-s px-2 text-left text-body outline-none disabled:cursor-not-allowed disabled:opacity-40 max-md:h-11 max-md:gap-3 max-md:px-3 ${
               it.danger ? 'text-weak hover:bg-weak-soft focus-visible:bg-weak-soft' : 'text-label-1 hover:bg-fill-hover focus-visible:bg-fill-hover'
             }`}
           >
-            {it.icon && <Icon name={it.icon} size={14} className={it.danger ? 'text-weak' : 'text-label-3'} />}
+            {it.icon && <Icon name={it.icon} size={phone ? 18 : 14} className={it.danger ? 'text-weak' : 'text-label-3'} />}
             {it.label}
           </button>
         ),
       )}
+    </div>
+  )
+  if (!phone) return createPortal(panel, document.body)
+  // 遮罩与「取消」在菜单面板外:按下即触发上面的外点关闭
+  return createPortal(
+    <div className="fixed inset-0 z-popover flex flex-col justify-end gap-2 px-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+      <div aria-hidden className="bl-fade absolute inset-0 bg-scrim" />
+      <div className="relative">{panel}</div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="bl-pop relative h-12 w-full cursor-pointer rounded-l bg-popover text-body font-semibold text-accent shadow-sheet ring-1 ring-sep/60"
+      >
+        取消
+      </button>
     </div>,
     document.body,
   )

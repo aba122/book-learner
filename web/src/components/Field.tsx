@@ -60,11 +60,12 @@ export default function Field({
     )
   }
   return (
-    <div className={`flex min-h-11 items-center justify-between gap-6 py-2 ${className}`}>
+    // 手机(BL-032 M3):标签在上、控件占满一行
+    <div className={`flex min-h-11 items-center justify-between gap-6 py-2 max-md:flex-col max-md:items-stretch max-md:gap-2 ${className}`}>
       <label htmlFor={id} className="text-body text-label-1">
         {label}
       </label>
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex min-w-0 flex-col items-end gap-1 max-md:items-stretch">
         {children(ctl)}
         {notes}
       </div>

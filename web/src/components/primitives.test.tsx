@@ -11,7 +11,10 @@ import IconButton from './IconButton'
 import Input from './Input'
 import Segmented from './Segmented'
 import Toggle from './Toggle'
+import Menu from './Menu'
 import Tooltip from './Tooltip'
+import { NO_HOVER_QUERY, PHONE_QUERY } from '../lib/useMedia'
+import { stubMatchMedia } from '../test/media'
 
 afterEach(() => resetModalStack())
 
@@ -235,5 +238,50 @@ describe('Tooltip 位置(2026-09-21)', () => {
     await waitFor(() => expect(tip.style.visibility).toBe('visible'))
     expect(tip.style.left).toBe(`${1280 - 8 - 52}px`)
     vi.unstubAllGlobals()
+  })
+})
+
+describe('Tooltip · 触摸屏(BL-032 M3)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('无悬停的指针(手机):悬停与聚焦都不出提示', async () => {
+    stubMatchMedia([NO_HOVER_QUERY])
+    const user = userEvent.setup()
+    render(
+      <Tooltip content="阅读设置" delay={0}>
+        {t => (
+          <button ref={t.setAnchor} aria-describedby={t['aria-describedby']} onMouseEnter={t.onMouseEnter} onMouseLeave={t.onMouseLeave} onFocus={t.onFocus} onBlur={t.onBlur}>
+            Aa
+          </button>
+        )}
+      </Tooltip>,
+    )
+    const button = screen.getByRole('button', { name: 'Aa' })
+    await user.hover(button)
+    button.focus()
+    await new Promise(r => setTimeout(r, 20))
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(button).not.toHaveAttribute('aria-describedby')
+  })
+})
+
+describe('Menu · 手机动作单(BL-032 M3)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('手机上贴底:不按锚定坐标摆;点遮罩外的「取消」关闭;选项照常可选', async () => {
+    stubMatchMedia([PHONE_QUERY])
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const onSelect = vi.fn()
+    const { rerender } = render(
+      <Menu open onClose={onClose} anchor={{ x: 40, y: 60 }} aria-label="书的更多操作" items={[{ label: '重命名', onSelect }, { separator: true }, { label: '删除', danger: true, onSelect: () => {} }]} />,
+    )
+    const menu = screen.getByRole('menu', { name: '书的更多操作' })
+    expect(menu.style.left).toBe('')
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    expect(onClose).toHaveBeenCalled()
+    onClose.mockClear()
+    rerender(<Menu open onClose={onClose} anchor={{ x: 40, y: 60 }} aria-label="书的更多操作" items={[{ label: '重命名', onSelect }]} />)
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }))
+    expect(onSelect).toHaveBeenCalledTimes(1)
   })
 })

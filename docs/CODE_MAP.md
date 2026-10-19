@@ -62,6 +62,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
 | 手机上一直停在配对页 / 主屏幕 app 要重新配对 | 根组件 `features/mobile/MobileGate.tsx`:探活 `/api/ping` 的 `paired`;二维码地址 `#pair=<令牌>` 先配对再清片段;iOS 主屏幕 web app 与 Safari **不共享 cookie**,需在 PWA 的配对页粘贴令牌(Mac 设置页「复制令牌」,通用剪贴板);任一请求 401 → `bl:unpaired` 回配对页 | `web/src/features/mobile/MobileGate.tsx`;`web/src/backend/http.ts` |
 | 手机连不上 Mac 上的攻书 / 401 / 换令牌后连不上 | `<data_root>/mobile-server.json`(enabled/port/bind/token);设置命令返回的 `error`(监听失败原因);日志 `手机访问服务已启动/已停止/监听失败`、`手机配对失败`;默认只绑 127.0.0.1,手机要经 `tailscale serve --bg --https=443 http://127.0.0.1:<port>`;换令牌后旧 cookie 失效需重新配对;Mac 休眠即不可达 | `web/src-tauri/src/mobile.rs` |
+| 手机上布局不对 / 横向能拖动 / 提示框盖住内容 | 断点 `lib/useMedia.ts`(`useIsPhone` ≤ 767 px、`NO_HOVER_QUERY`);外壳 `App.tsx` 的 `TabBar`;原语里的 `max-md:` 类(Button/Input/IconButton/Toggle/Segmented/Field/Dialog/Menu);全局 `index.css` 手机段(100dvh、16 px 输入);用 `mobile-e2e.mjs` 第 5 段量 `scrollWidth` |
 | 微信读书划线导入不了 / 导入后阅读器看不到 | `weread_mark.locate_status`(pending/located/partial/missing);定位在前端 `wereadLocate.ts`(epub.js `section.search` 精确子串,版本/译本不同就 missing);落库经 `weread_locate` → `reader_mark(source='weread', external_id=bookmarkId)` 幂等;删掉本地高亮后 `local_mark_id` 置空但状态不回 pending(不会自动再导) | `core/src/weread.rs` `locate/notes_for_local`;`web/src/features/library/wereadLocate.ts` |
 | 微信读书连不上 / 同步失败 / 书没关联上 | 失败原因是数据不是异常:`weread_account.last_error`(设置页原样显示);鉴权按 HTTP 401/403 或 errcode 文案归类;书架拉不到整次失败、单本进度失败跳过;自动匹配只在唯一候选时关联(`link_source` none/auto),manual 永不覆盖;时长按北京时间分桶转日期;真网关字段以 `docs/design/2026-09-28-weread-sync.md` §2 为准 | `core/src/weread.rs`;`web/src/features/settings/WereadSection.tsx` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
@@ -96,7 +97,7 @@ select * from setting;
 
 **桥驱动(debug 构建)**:`BOOK_LEARNER_AUTOMATION_SOCK=<sock>` 启动后用 `docs/smoke/scripts/bl-auto.py <sock> js|text|go|click|type|file|wait|waitgone|tray|quit`,标准脚本骨架见 `docs/smoke/scripts/gate-m3.sh`;驱动前先把窗口置前(后台 WebView 被节流)。正式版 app 同时在跑时,`set frontmost of process "book-learner"` 会激活到正式版而不是调试实例,要按 pid:`set frontmost of (first process whose unix id is <pid>)`;用户在 Mac 上操作会随时把调试窗口盖住(`document.visibilityState` 变 `hidden`),所以每个依赖渲染/翻页的步骤前都置前一次并读 `visibilityState`。
 
-**手机访问端到端**(BL-032):Mac 上调试版用数据副本启动(`mobile-server.json` 开 7350 与固定令牌),再在 Mac 上跑 `docs/smoke/scripts/mobile-e2e.mjs`(Playwright + 本机 Chrome,390×844):配对、封面、阅读器经 HTTP 加载 EPUB、设置只读、扫码地址。Mac sshd 禁止 `ssh -L`,浏览器只能在 Mac 上跑;Mac 的 SSH 非交互会话 PATH 里没有 node,先加 `/opt/homebrew/bin`。
+**手机访问端到端**(BL-032):Mac 上调试版用数据副本启动(`mobile-server.json` 开 7350 与固定令牌),再在 Mac 上跑 `docs/smoke/scripts/mobile-e2e.mjs`(Playwright + 本机 Chrome,390×844):配对、封面、阅读器经 HTTP 加载 EPUB、设置只读、扫码地址、手机布局(标签栏 / 无横向溢出 / 动作单);截图在 `~/Developer/bl-logs/mobile-shots/`。Mac sshd 禁止 `ssh -L`,浏览器只能在 Mac 上跑;Mac 的 SSH 非交互会话 PATH 里没有 node,先加 `/opt/homebrew/bin`。
 
 **受控日期**(DEV 构建):`localStorage['bookLearner.testDate']`(桥命令 `a set bookLearner.testDate 2026-09-10` 后 reload)。
 

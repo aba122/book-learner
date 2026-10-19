@@ -1,12 +1,13 @@
 // BL-032 手机访问端到端:在 Mac 上用 Playwright 驱动本机 Chrome(无头,iPhone 尺寸)访问攻书的 HTTP 服务。
 // 前提:调试版已用数据副本启动,`<数据目录>/mobile-server.json` = {enabled:true, port:7350, bind:loopback, token:'e2e0'×16}。
-// 用法(Mac):cp 到 web/ 下 → `PATH=/opt/homebrew/bin:$PATH node mobile-e2e.mjs`;截图在 ~/Developer/bl-logs/m2-shots/。
+// 用法(Mac):cp 到 web/ 下 → `PATH=/opt/homebrew/bin:$PATH node mobile-e2e.mjs`;截图在 ~/Developer/bl-logs/mobile-shots/。
+// 覆盖:配对(M2)、HTTP 加载封面与 EPUB(M2)、手机布局——标签栏、无横向溢出、动作单(M3)。
 // Mac 的 sshd 禁止端口转发,Linux 端连不到 Mac 的 127.0.0.1,所以浏览器必须在 Mac 上跑。
 import { chromium } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 const B = 'http://127.0.0.1:7350'
 const TOKEN = 'e2e0'.repeat(16)
-const OUT = process.env.HOME + '/Developer/bl-logs/m2-shots'
+const OUT = process.env.HOME + '/Developer/bl-logs/mobile-shots'
 mkdirSync(OUT, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN' }
@@ -63,14 +64,31 @@ const section = page.getByRole('region', { name: '手机访问' })
 await section.waitFor({ timeout: 15000 })
 log('settings mobile:', await section.getByTestId('mobile-remote').innerText())
 
-// 5. 新会话扫码地址:#pair= 直接配好,片段被清掉
+// 5. 手机布局(M3):底部标签栏、没有侧栏、没有横向溢出;「更多操作」是贴底动作单
+for (const path of ['/', '/library', '/settings', '/stats']) {
+  await page.goto(B + path)
+  await page.getByRole('navigation', { name: '主导航' }).waitFor({ timeout: 15000 })
+  await page.waitForTimeout(1500)
+  const tabs = await page.getByRole('navigation', { name: '主导航' }).getByRole('link').count()
+  const scrollW = await page.evaluate(() => document.documentElement.scrollWidth)
+  log(`layout ${path}: tabs ${tabs} aside ${await page.locator('aside').count()} scrollWidth ${scrollW}`)
+  await page.screenshot({ path: OUT + `/5-layout${path.replaceAll('/', '-')}.png`, fullPage: false })
+}
+await page.goto(B + '/library')
+await page.getByRole('button', { name: /的更多操作$/ }).first().click({ timeout: 15000 })
+const sheet = await page.getByRole('menu').boundingBox()
+log('action sheet: bottom-aligned', sheet && sheet.y > 844 / 2, 'width', Math.round(sheet?.width ?? 0))
+await page.screenshot({ path: OUT + '/5-action-sheet.png' })
+await page.getByRole('button', { name: '取消' }).click()
+
+// 6. 新会话扫码地址:#pair= 直接配好,片段被清掉
 const ctx2 = await browser.newContext(phone)
 const p2 = await ctx2.newPage(); watch(p2)
 await p2.goto(B + '/#pair=' + TOKEN)
 await p2.getByRole('navigation', { name: '主导航' }).waitFor({ timeout: 15000 })
 log('qr flow ok, hash after:', JSON.stringify(await p2.evaluate(() => location.hash)))
 
-// 6. 失效的扫码地址 → 配对页带原因
+// 7. 失效的扫码地址 → 配对页带原因
 const ctx3 = await browser.newContext(phone)
 const p3 = await ctx3.newPage(); watch(p3)
 await p3.goto(B + '/#pair=' + 'ff'.repeat(32))

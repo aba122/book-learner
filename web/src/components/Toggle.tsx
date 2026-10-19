@@ -20,11 +20,11 @@ export default function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-[15px] w-[26px] shrink-0 cursor-pointer items-center rounded-full border border-sep-strong bg-sep-strong transition-colors duration-[var(--dur-fast)] aria-checked:border-accent aria-checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`relative inline-flex h-[15px] w-[26px] shrink-0 max-md:h-6 max-md:w-10 cursor-pointer items-center rounded-full border border-sep-strong bg-sep-strong transition-colors duration-[var(--dur-fast)] aria-checked:border-accent aria-checked:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       <span
         aria-hidden
-        className={`absolute top-1/2 size-[13px] -translate-y-1/2 rounded-full bg-knob shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-[var(--dur-fast)] ${checked ? 'translate-x-[11px]' : 'translate-x-0'}`}
+        className={`absolute top-1/2 size-[13px] -translate-y-1/2 max-md:size-[22px] rounded-full bg-knob shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-[var(--dur-fast)] ${checked ? 'translate-x-[11px] max-md:translate-x-4' : 'translate-x-0'}`}
       />
     </button>
   )

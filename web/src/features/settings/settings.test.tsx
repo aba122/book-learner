@@ -9,6 +9,8 @@ import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import type { AppSettings } from '../../types'
 import SettingsPage from './SettingsPage'
+import { PHONE_QUERY } from '../../lib/useMedia'
+import { stubMatchMedia } from '../../test/media'
 
 vi.mock('../../backend', () => ({ backend: null as unknown as object }))
 
@@ -556,5 +558,22 @@ describe('设置 · 手机访问(BL-032 M2)', () => {
     expect(await within(section).findByTestId('mobile-remote')).toHaveTextContent('请在 Mac 上管理')
     expect(within(section).queryByRole('switch', { name: '允许手机访问' })).toBeNull()
     expect(within(section).queryByRole('button', { name: /配对二维码/ })).toBeNull()
+  })
+})
+
+describe('设置 · 手机布局(BL-032 M3)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('分区导航改为顶部横向药丸(仍是「设置分区」导航),点选滚到分区并标为当前', async () => {
+    stubMatchMedia([PHONE_QUERY])
+    const user = userEvent.setup()
+    Element.prototype.scrollIntoView = vi.fn()
+    render(<SettingsPage />)
+    await screen.findByLabelText('番茄钟(分钟)')
+    const nav = screen.getByRole('navigation', { name: '设置分区' })
+    expect(nav.querySelector('ul')).toHaveClass('w-max')
+    expect(within(nav).getAllByRole('button')).toHaveLength(8)
+    await user.click(within(nav).getByRole('button', { name: '手机访问' }))
+    expect(within(nav).getByRole('button', { name: '手机访问' })).toHaveAttribute('aria-current', 'true')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
   })
 })

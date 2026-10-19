@@ -797,3 +797,15 @@
 - **设置 › 手机访问**(`MobileSection.tsx` + `components/QrCode.tsx`):开关、端口(1024–65535 校验)与访问方式、运行状态/失败原因;Tailscale 地址与一次性 `tailscale serve` 命令(可复制);二维码(新依赖 `uqr`:MIT、零依赖,只做编码,自绘一条 SVG path,固定白底黑码;令牌政策用例拦过一次 `bg-white`)。**设计调整**:iOS 主屏幕 web app 与 Safari 不共享 cookie,主屏幕上的攻书只能粘贴令牌配对,所以令牌不再"只显示一次"——状态命令带 `token`/`pairUrl`,Mac 上随时可显示二维码与「复制令牌」(通用剪贴板到 iPhone),「换新令牌」单独确认。手机上该分区只读(关服务/换端口会切断自己)。
 - **端到端**:Mac 的 sshd 禁止端口转发(`administratively prohibited`),改为在 Mac 上用 Playwright 驱动本机 Chrome(`channel: 'chrome'`,无头,390×844)访问调试版的 HTTP 服务(真实数据副本、端口 7350):运行时标记 http、错令牌提示、粘贴令牌进今日页、书架 4 本封面全经 `/files` 加载、阅读器 epub.js 经 HTTP 加载整章(1.6 万字)、设置分区只读、`#pair=` 扫码地址直接配好且片段清空、失效二维码给原因。脚本入库 `docs/smoke/scripts/mobile-e2e.mjs`,用法记进 CODE_MAP §2。
 - 测试:壳层 mobile 单测 +2(meta 注入、手机地址选择);web http 5、index +1、MobileGate 5、settings +2(八个分区)。门禁:壳层 Mac test 13 + 42、clippy 0;web 474/2、tsc、oxlint 0、build。
+
+## 2026-10-19 · BL-032 手机版第一阶段 M3:底部标签栏外壳 + 今日/书架/设置手机布局
+- **断点**:`lib/useMedia.ts`——`useIsPhone()`(视口 ≤ 767 px,与 Tailwind `max-md:` 同一条线)、`NO_HOVER_QUERY`(触摸屏);`useSyncExternalStore` 订阅,jsdom 没有 matchMedia 时恒为桌面,既有用例不受影响。Mac 主窗口最小宽 960,桌面永远不会进手机模式。
+- **外壳**(`App.tsx`):手机上不渲染侧栏,底部 `TabBar` 5 项(图标 + 短标签「今日/书架/地图/统计/设置」,可访问名沿用长名;54 px + Home 指示条安全区),顶部让出状态栏安全区;`Toolbar` 手机上 44 px、不给「显示侧栏」、不为红绿灯让位。日读/夜读在设置 › 外观。
+- **原语**(只加 `max-md:` 类,桌面零变化):按钮 32/36、输入 36/40、图标钮 36、分段 28/32、开关 40×24;`Field` 行改上下排、`SettingsRow` 可换行;`Dialog` 贴底全宽 sheet(≤ 88dvh、上圆角、底部安全区);`Menu` 改**贴底动作单**(遮罩 + 44 px 行 + 「取消」,不按锚点摆);`Tooltip` 在无悬停的指针上不出(点按会同时触发 mouseenter/focus,提示框盖住内容且不消失)。
+- **全局 CSS**:`100dvh`(Safari 地址栏伸缩);去点按高亮与双击缩放延迟;手机上输入框统一 16 px(iOS 小于 16 px 聚焦会自动放大页面)。
+- **页面**:今日/书架/设置内容区 16 px 边距;书架本地与微信读书分区两列;设置分区导航改顶部吸顶横向药丸(可左右滑),分区 `scroll-mt` 让出药丸高度;几处定宽输入框在手机上占满一行。番茄钟胶囊原样塞得下(234 px)。
+- **验证**:Linux 无头 Chromium(390×844、触摸)跑 Mock:四页无横向溢出、今日页无 < 32 px 的控件、动作单贴底可取消、分区跳转标题不被药丸遮、宽度回到 1280 侧栏回来。Mac 上调试版 + 真实数据副本跑 `mobile-e2e.mjs`(新增第 5 段手机布局检查):今日/书架/设置/统计 `scrollWidth` 都是 390、标签栏 5 项、无侧栏、动作单贴底;M2 段照旧全过。阅读器仍是桌面布局(M4)。
+- **与设计的出入**:①书架两列而非三列——本地书卡有「阅读」+「更多操作」+ 状态标签,390 宽三列每列只剩约 110 px 放不下;②「长按 = 右键」不做——iOS Safari 不发 `contextmenu`,而所有右键菜单本就有「更多操作」按钮入口;③导入向导用通用贴底 sheet(≤ 88dvh),不单做全屏。
+- 顺带发现(不在本批修):真实数据启动时「问书话题提炼失败 … prompt exceeds 102400 bytes: 168584」,每次启动都重试都失败,记为 BL-033。
+- 测试:App +1(标签栏导航、无侧栏、无「显示侧栏」)、primitives +2(Tooltip 触摸屏不出、Menu 动作单)、useMedia 1、settings +1(药丸导航);测试辅助 `src/test/media.ts`(`stubMatchMedia`)。门禁:web 479/2、tsc、oxlint 0、build。
+

@@ -74,7 +74,7 @@ export default function Pomodoro({
   return (
     <div
       data-testid="pomodoro"
-      className="flex h-7 max-w-full items-center gap-1.5 rounded-full bg-inset pr-1 pl-2.5 ring-1 ring-sep/60"
+      className="flex h-7 max-w-full items-center gap-1.5 rounded-full max-md:h-9 bg-inset pr-1 pl-2.5 ring-1 ring-sep/60"
     >
       <Icon name="timer" size={14} className={snapshot.phase === 'work' ? 'text-accent' : 'text-label-3'} />
       <span className="text-body font-semibold text-label-1 tabular-nums">{mm}:{ss}</span>

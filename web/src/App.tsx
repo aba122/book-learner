@@ -12,6 +12,7 @@ import ReaderPage from './features/reader/ReaderPage'
 import SettingsPage from './features/settings/SettingsPage'
 import StatsPage from './features/stats/StatsPage'
 import TodayPage from './features/today/TodayPage'
+import { useIsPhone } from './lib/useMedia'
 import { useSession } from './store'
 
 /** 路由切换写进 app 日志(target client),用于回溯用户操作时间线;只记路径,不记参数以外的内容 */
@@ -81,6 +82,43 @@ function WereadAutoSync() {
  * 底部一个日读/夜读快捷钮(用户要求,2026-09-21;HIG 建议不做 app 级开关,但这是一本"书",读者习惯手边有夜灯——
  * 设置页「外观」仍可改回跟随系统);原生材质从 bg-sidebar 纸色下微微透出;可隐藏(⌃⌘S / 菜单 / 右上按钮)。
  */
+interface NavItem { to: string; label: string; short: string; icon: IconName; end: boolean }
+function navItems(activeBookId: number | null): NavItem[] {
+  return [
+    { to: '/', label: '今日学习', short: '今日', icon: 'sun', end: true },
+    { to: '/library', label: '书架', short: '书架', icon: 'books', end: true },
+    { to: activeBookId ? `/map/${activeBookId}` : '/library', label: '知识地图', short: '地图', icon: 'map', end: false },
+    { to: '/stats', label: '统计', short: '统计', icon: 'chart-bar', end: true },
+    { to: '/settings', label: '设置', short: '设置', icon: 'gear', end: true },
+  ]
+}
+
+/**
+ * 手机底部标签栏(BL-032 M3):替代侧栏;5 项图标 + 短标签,选中强调色;底部让出 Home 指示条安全区。
+ * 日读/夜读在设置 › 通用 › 外观。
+ */
+function TabBar() {
+  const activeBookId = useSession(s => s.activeBookId)
+  return (
+    <nav aria-label="主导航" className="flex shrink-0 border-t border-sep bg-sidebar pb-[env(safe-area-inset-bottom)]">
+      {navItems(activeBookId).map(item => (
+        <NavLink
+          key={item.label}
+          to={item.to}
+          end={item.end}
+          aria-label={item.label}
+          className={({ isActive }) =>
+            `flex h-[54px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${isActive ? 'text-accent' : 'text-label-3'}`
+          }
+        >
+          <Icon name={item.icon} size={22} />
+          <span aria-hidden>{item.short}</span>
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
 function Sidebar() {
   const activeBookId = useSession(s => s.activeBookId)
   const collapsed = useSession(s => s.sidebarCollapsed)
@@ -89,13 +127,7 @@ function Sidebar() {
   const themePreference = useSession(s => s.themePreference)
   const setTheme = useSession(s => s.setTheme)
 
-  const items: { to: string; label: string; icon: IconName; end: boolean }[] = [
-    { to: '/', label: '今日学习', icon: 'sun', end: true },
-    { to: '/library', label: '书架', icon: 'books', end: true },
-    { to: activeBookId ? `/map/${activeBookId}` : '/library', label: '知识地图', icon: 'map', end: false },
-    { to: '/stats', label: '统计', icon: 'chart-bar', end: true },
-    { to: '/settings', label: '设置', icon: 'gear', end: true },
-  ]
+  const items = navItems(activeBookId)
 
   return (
     <aside aria-label="侧栏" hidden={collapsed} className="relative flex w-60 shrink-0 flex-col bg-sidebar">
@@ -139,6 +171,7 @@ function Sidebar() {
 
 export default function App() {
   const setActiveBookId = useSession(s => s.setActiveBookId)
+  const phone = useIsPhone()
 
   useEffect(() => {
     let alive = true
@@ -160,8 +193,9 @@ export default function App() {
       <RouteLogger />
       <MenuActions />
       <WereadAutoSync />
-      <div className="flex h-full">
-        <Sidebar />
+      <div className={`flex h-full ${phone ? 'flex-col pt-[env(safe-area-inset-top)]' : ''}`}>
+        {/* 手机(BL-032 M3):侧栏换成底部标签栏;顶部让出状态栏安全区(Safari 内为 0) */}
+        {!phone && <Sidebar />}
         {/* 主区不透明。每个页面自己渲染 52px 的 Toolbar 带(components/Toolbar)作为拖动区与标题栏延伸 */}
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-content">
           <Routes>
@@ -175,6 +209,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
+        {phone && <TabBar />}
       </div>
     </BrowserRouter>
   )

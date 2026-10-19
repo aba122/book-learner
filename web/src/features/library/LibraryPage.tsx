@@ -206,7 +206,7 @@ export default function LibraryPage() {
         </Button>
       </Toolbar>
       <div className="min-h-0 flex-1 overflow-y-auto @container">
-        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16">
+        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16 max-md:px-4 max-md:pt-4 max-md:pb-10">
           <PageHeader title="书架" subtitle="一次只主攻一本;其余的书在此静候" />
 
           {books.error && list !== null && (
@@ -218,7 +218,7 @@ export default function LibraryPage() {
           {books.error && list === null ? (
             <AsyncError error={books.error} onRetry={books.reload} />
           ) : list === null ? (
-            <div aria-busy="true" className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8">
+            <div aria-busy="true" className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8 max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-6">
               {[0, 1, 2, 3].map(i => (
                 <div key={i} className="flex flex-col gap-2.5">
                   <div className="aspect-[3/4] animate-pulse rounded-m bg-fill-active" />
@@ -238,7 +238,7 @@ export default function LibraryPage() {
               }
             />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8 max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-6">
               {list.map(book => (
                 <article key={book.id} aria-label={book.title} className="group flex flex-col" onContextMenu={onContextMenu(book)}>
                   <button
