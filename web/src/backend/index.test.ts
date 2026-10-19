@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockBackend } from './mock'
+import { HttpBackend } from './http'
 import { TauriBackend } from './tauri'
 import { backend, createBackend, isTauriRuntime } from './index'
 
@@ -24,5 +25,12 @@ describe('backend runtime selection', () => {
     expect(selected).not.toBeInstanceOf(MockBackend)
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  it('页面由 Mac 攻书的 HTTP 服务分发(手机,BL-032)→ HttpBackend;Tauri 优先', () => {
+    expect(createBackend(false, true)).toBeInstanceOf(HttpBackend)
+    expect(createBackend(false, true).runtime).toBe('http')
+    expect(createBackend(true, true)).not.toBeInstanceOf(HttpBackend)
+    expect(createBackend(false, false).runtime).toBe('mock')
   })
 })

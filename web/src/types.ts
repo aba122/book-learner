@@ -273,6 +273,10 @@ export interface MobileServerStatus {
   /** 检测到 Tailscale 时的 HTTPS 地址(需先执行 serveCommand 一次) */
   tailscaleUrl: string | null
   serveCommand: string
+  /** 当前令牌(Mac 上显示二维码 / 复制用);null = 还没生成 */
+  token: string | null
+  /** 扫码配对地址 <手机可达地址>/#pair=<令牌> */
+  pairUrl: string | null
 }
 /** 新令牌只在这次返回里出现;pairUrl = <地址>/#pair=<令牌>(二维码内容) */
 export interface MobileToken { token: string; pairUrl: string }

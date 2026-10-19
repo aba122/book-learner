@@ -113,6 +113,7 @@ function requireDate(date: string): void {
 }
 
 export class MockBackend implements Backend {
+  readonly runtime = 'mock' as const
   private books: Book[] = []
   /** 阅读时长(BL-025):按笔存,汇总时按日/周/月/书聚合(与 core 同语义) */
   private readingTimeRows: { bookId: number; date: string; seconds: number }[] = []
@@ -1364,6 +1365,8 @@ export class MockBackend implements Backend {
       enabled: m.enabled, port: m.port, bind: m.bind, running: m.enabled && m.token !== '', error: null, tokenSet: m.token !== '',
       localUrl: m.bind === 'lan' ? `http://mac.local:${m.port}` : `http://127.0.0.1:${m.port}`, tailscaleUrl: null,
       serveCommand: `tailscale serve --bg --https=443 http://127.0.0.1:${m.port}`,
+      token: m.token || null,
+      pairUrl: m.token ? `${m.bind === 'lan' ? `http://mac.local:${m.port}` : `http://127.0.0.1:${m.port}`}/#pair=${m.token}` : null,
     }
   }
   private mockToken() {
