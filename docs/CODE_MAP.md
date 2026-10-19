@@ -60,6 +60,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 问书提问没带上块 / 章节不对 | `reading_message.spine_href/block_id`:href 来自最近一次 relocated,块只在 href 属于路由块锚点段时才填 | `ReaderPage` `blockIdForHref`、`onRelocated` |
 | 脉络图生成失败 / 空图 / 进度不对 | `lineage_graph` 表(每书一张);`ai_request` `lineage:<book>:s<seq>:r<n>` 行(每次重生成 n+1;若只见 :s<seq> 无 :r 是旧版);"先读一部分再生成"= 已读范围没有正文章(封面/目录/分部页不算);面板显示章节标题不是 spine 序号;`current_seq>up_to_seq` 才提示更新 | `core/src/lineage.rs`;`web/src/features/reader/lineage/LineagePanel.tsx` |
 | 终评入口不出现 | 所有未跳过块须 `passed/consolidated` | `core/src/final_exam.rs` `eligible` |
+| 手机上一直停在配对页 / 主屏幕 app 要重新配对 | 根组件 `features/mobile/MobileGate.tsx`:探活 `/api/ping` 的 `paired`;二维码地址 `#pair=<令牌>` 先配对再清片段;iOS 主屏幕 web app 与 Safari **不共享 cookie**,需在 PWA 的配对页粘贴令牌(Mac 设置页「复制令牌」,通用剪贴板);任一请求 401 → `bl:unpaired` 回配对页 | `web/src/features/mobile/MobileGate.tsx`;`web/src/backend/http.ts` |
 | 手机连不上 Mac 上的攻书 / 401 / 换令牌后连不上 | `<data_root>/mobile-server.json`(enabled/port/bind/token);设置命令返回的 `error`(监听失败原因);日志 `手机访问服务已启动/已停止/监听失败`、`手机配对失败`;默认只绑 127.0.0.1,手机要经 `tailscale serve --bg --https=443 http://127.0.0.1:<port>`;换令牌后旧 cookie 失效需重新配对;Mac 休眠即不可达 | `web/src-tauri/src/mobile.rs` |
 | 微信读书划线导入不了 / 导入后阅读器看不到 | `weread_mark.locate_status`(pending/located/partial/missing);定位在前端 `wereadLocate.ts`(epub.js `section.search` 精确子串,版本/译本不同就 missing);落库经 `weread_locate` → `reader_mark(source='weread', external_id=bookmarkId)` 幂等;删掉本地高亮后 `local_mark_id` 置空但状态不回 pending(不会自动再导) | `core/src/weread.rs` `locate/notes_for_local`;`web/src/features/library/wereadLocate.ts` |
 | 微信读书连不上 / 同步失败 / 书没关联上 | 失败原因是数据不是异常:`weread_account.last_error`(设置页原样显示);鉴权按 HTTP 401/403 或 errcode 文案归类;书架拉不到整次失败、单本进度失败跳过;自动匹配只在唯一候选时关联(`link_source` none/auto),manual 永不覆盖;时长按北京时间分桶转日期;真网关字段以 `docs/design/2026-09-28-weread-sync.md` §2 为准 | `core/src/weread.rs`;`web/src/features/settings/WereadSection.tsx` |
@@ -94,6 +95,8 @@ select * from setting;
 ```
 
 **桥驱动(debug 构建)**:`BOOK_LEARNER_AUTOMATION_SOCK=<sock>` 启动后用 `docs/smoke/scripts/bl-auto.py <sock> js|text|go|click|type|file|wait|waitgone|tray|quit`,标准脚本骨架见 `docs/smoke/scripts/gate-m3.sh`;驱动前先把窗口置前(后台 WebView 被节流)。正式版 app 同时在跑时,`set frontmost of process "book-learner"` 会激活到正式版而不是调试实例,要按 pid:`set frontmost of (first process whose unix id is <pid>)`;用户在 Mac 上操作会随时把调试窗口盖住(`document.visibilityState` 变 `hidden`),所以每个依赖渲染/翻页的步骤前都置前一次并读 `visibilityState`。
+
+**手机访问端到端**(BL-032):Mac 上调试版用数据副本启动(`mobile-server.json` 开 7350 与固定令牌),再在 Mac 上跑 `docs/smoke/scripts/mobile-e2e.mjs`(Playwright + 本机 Chrome,390×844):配对、封面、阅读器经 HTTP 加载 EPUB、设置只读、扫码地址。Mac sshd 禁止 `ssh -L`,浏览器只能在 Mac 上跑;Mac 的 SSH 非交互会话 PATH 里没有 node,先加 `/opt/homebrew/bin`。
 
 **受控日期**(DEV 构建):`localStorage['bookLearner.testDate']`(桥命令 `a set bookLearner.testDate 2026-09-10` 后 reload)。
 
@@ -151,11 +154,11 @@ select * from setting;
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession`;右栏「脉络图」`LineageAside`:`lineageGet`(只读) | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
 | `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试);`readingTimeSummary`;`wereadStatus` → 已连接再 `wereadReadingDays`(近 370 天,前端按日/周/月分桶作第二序列) | — |
-| `/settings` | `features/settings/SettingsPage` | `getSettings`、`codexBinGet`、`voiceModels`、`profileGet`、`backupList`、`gitRemoteGet`、`wereadStatus` | `saveSettings`、`codexBinSet`、`voice*`、`profileSave`、`backup*`、`gitRemoteSet/gitPushNow`;`WereadSection`:`wereadConnect/Sync/SetAutoSync/Disconnect/OpenKeyPage` |
+| `/settings` | `features/settings/SettingsPage` | `getSettings`、`codexBinGet`、`voiceModels`、`profileGet`、`backupList`、`gitRemoteGet`、`wereadStatus` | `saveSettings`、`codexBinSet`、`voice*`、`profileSave`、`backup*`、`gitRemoteSet/gitPushNow`;`WereadSection`:`wereadConnect/Sync/SetAutoSync/Disconnect/OpenKeyPage`;`MobileSection`:`mobileServerStatus/Set/RotateToken`(手机上只读) |
 
 跨页会话态只有 zustand `store.ts`(`activeBookId/currentTaskId/theme/pendingNotice`,内存态;夜读模式**不持久化**);领域数据一律走 backend。侧栏「知识地图」目标依赖 `activeBookId`,为空退回 `/library`。
 
-**Backend 层(`backend/`)**:`index.ts` 按 `__TAURI_INTERNALS__` 选 `TauriBackend`(`tauri.ts`)或 `MockBackend`(`mock.ts`,内建《微观经济学》种子);`Backend` 接口在 `types.ts`。调用模式 `gated(method) → 出站校验 → call/callRaw → 逐字段 decode`,形状不符抛 `invalid_response`;非契约拒绝 → `transport_error`(devtools 打 `[ipc] transport_error`,脱敏)。错误码/文案表 `IPC_ERRORS`(与壳层一致);`retryable` 决定页面是否给「重试」。事件只有 `map_job_progress`(runMapJob 期间订阅)与 `pomodoro_changed`。`stats/statsDetail` 自带 `date=localCalendarDate()`。
+**Backend 层(`backend/`)**:`index.ts` 按 `__TAURI_INTERNALS__` 选 `TauriBackend`(`tauri.ts`),按 `<meta name="bl-runtime" content="http">`(壳层 HTTP 服务给 index.html 注入)选 `HttpBackend`(`http.ts`,手机访问,BL-032:就是 `TauriBackend` 换注入——`POST /api/<cmd>`、`/files/<名>`、SSE `/events`;401 派发 `bl:unpaired`、503 重试一次、网络失败 `offline` 可重试;`wereadOpenKeyPage` 改手机本地 `window.open`,`voiceImportModel(null)` 提示去 Mac),否则 `MockBackend`(`mock.ts`,内建《微观经济学》种子);`backend.runtime` = tauri/http/mock;`Backend` 接口在 `types.ts`。调用模式 `gated(method) → 出站校验 → call/callRaw → 逐字段 decode`,形状不符抛 `invalid_response`;非契约拒绝 → `transport_error`(devtools 打 `[ipc] transport_error`,脱敏)。错误码/文案表 `IPC_ERRORS`(与壳层一致);`retryable` 决定页面是否给「重试」。事件只有 `map_job_progress`(runMapJob 期间订阅)与 `pomodoro_changed`。`stats/statsDetail` 自带 `date=localCalendarDate()`。
 
 **两个共享 hook(卡「思考中」/按钮禁用先看这里)**
 - `lib/useAsyncResource.ts`:`{data,error,loading,reload}`;失败保留旧 data;多步 fetcher 每步 `if (!isCurrent()) throw new StaleResult()`;只在挂载时加载一次,换参靠 `key=` 重挂载。

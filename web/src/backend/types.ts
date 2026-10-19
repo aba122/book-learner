@@ -2,9 +2,14 @@ import type {
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
 } from '../types'
 
+/** 后端所在:Mac 窗口内原生 IPC / 手机经 HTTP(BL-032)/ 浏览器演示 */
+export type BackendRuntime = 'tauri' | 'http' | 'mock'
+
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'appearance-system' | 'appearance-light' | 'appearance-dark' | 'appearance-toggle'
 
 export interface Backend {
+  /** 后端所在(手机经 HTTP 时部分"在 Mac 上打开"的动作改为手机本地或隐藏) */
+  readonly runtime: BackendRuntime
   // 书架与导入
   listBooks(): Promise<Book[]>
   importEpub(file: File, type: BookType): Promise<{ bookId: number }>

@@ -505,6 +505,19 @@ async fn events_stream<R: Runtime>(State(ctx): State<Arc<Ctx<R>>>, headers: Head
         .into_response()
 }
 
+/// 经 HTTP 分发的 index.html 注入运行时标记:前端据此同步选 `HttpBackend`(窗口里加载的同一份文件没有这个标记)
+pub fn inject_runtime_meta(html: &[u8]) -> Vec<u8> {
+    const META: &str = r#"<meta name="bl-runtime" content="http" />"#;
+    let text = String::from_utf8_lossy(html);
+    match text.find("<head>") {
+        Some(at) => {
+            let insert_at = at + "<head>".len();
+            format!("{}\n    {META}{}", &text[..insert_at], &text[insert_at..]).into_bytes()
+        }
+        None => format!("{META}{text}").into_bytes(),
+    }
+}
+
 async fn static_files<R: Runtime>(State(ctx): State<Arc<Ctx<R>>>, uri: Uri) -> Response {
     if let Some(response) = retired(&ctx) {
         return response;
@@ -530,8 +543,16 @@ async fn static_files<R: Runtime>(State(ctx): State<Arc<Ctx<R>>>, uri: Uri) -> R
     } else {
         "public, max-age=3600"
     };
-    let mime = asset.mime_type.clone();
-    let bytes = asset.bytes.clone();
+    let mime = if key.ends_with(".webmanifest") {
+        "application/manifest+json".to_string()
+    } else {
+        asset.mime_type.clone()
+    };
+    let bytes = if is_index {
+        inject_runtime_meta(&asset.bytes)
+    } else {
+        asset.bytes.clone()
+    };
     (
         [
             (header::CONTENT_TYPE, mime),
@@ -677,6 +698,10 @@ pub struct MobileStatusDto {
     pub tailscale_url: Option<String>,
     /// 一次性配置 Tailscale HTTPS 转发的命令
     pub serve_command: String,
+    /// 当前令牌(Mac 设置页显示二维码/复制用;已配对的手机本就持有它,不构成额外泄露)
+    pub token: Option<String>,
+    /// 扫码配对地址 `<手机可达地址>/#pair=<令牌>`
+    pub pair_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -752,9 +777,27 @@ fn local_url(config: &MobileConfig) -> String {
     }
 }
 
+/// 手机该用的地址:局域网模式用本机局域网地址,否则优先 Tailscale HTTPS 地址
+fn phone_base(config: &MobileConfig, tailscale: Option<&str>) -> String {
+    match (config.bind, tailscale) {
+        (Bind::Loopback, Some(url)) => url.to_string(),
+        _ => local_url(config),
+    }
+}
+
+fn pair_url(base: &str, token: &str) -> String {
+    format!("{base}/#pair={token}")
+}
+
 pub fn status(server: &MobileServer, data_root: &Path) -> MobileStatusDto {
     let config = load_config(data_root);
+    let tailscale = tailscale_url();
+    let token = (!config.token.is_empty()).then(|| config.token.clone());
     MobileStatusDto {
+        pair_url: token
+            .as_deref()
+            .map(|t| pair_url(&phone_base(&config, tailscale.as_deref()), t)),
+        token,
         enabled: config.enabled,
         port: config.port,
         bind: config.bind.as_str().into(),
@@ -762,7 +805,7 @@ pub fn status(server: &MobileServer, data_root: &Path) -> MobileStatusDto {
         error: server.last_error(),
         token_set: !config.token.is_empty(),
         local_url: local_url(&config),
-        tailscale_url: tailscale_url(),
+        tailscale_url: tailscale,
         serve_command: format!(
             "tailscale serve --bg --https=443 http://127.0.0.1:{}",
             config.port
@@ -821,9 +864,9 @@ pub fn rotate_token<R: Runtime>(
     config.token = new_token()?;
     save_config(state.data_root(), &config)?;
     restart(app, state.data_root(), state.books_dir());
-    let base = tailscale_url().unwrap_or_else(|| local_url(&config));
+    let base = phone_base(&config, tailscale_url().as_deref());
     Ok(MobileTokenDto {
-        pair_url: format!("{base}/#pair={}", config.token),
+        pair_url: pair_url(&base, &config.token),
         token: config.token,
     })
 }
@@ -888,6 +931,35 @@ mod tests {
         ] {
             assert!(!safe_file_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn index_html_gets_runtime_meta_right_after_head() {
+        let html = b"<!doctype html>\n<html><head>\n<title>x</title></head><body></body></html>";
+        let out = String::from_utf8(inject_runtime_meta(html)).unwrap();
+        assert!(
+            out.contains(
+                r#"<head>
+    <meta name="bl-runtime" content="http" />"#
+            ),
+            "{out}"
+        );
+        assert_eq!(out.matches("bl-runtime").count(), 1);
+        let bare = String::from_utf8(inject_runtime_meta(b"<p>no head</p>")).unwrap();
+        assert!(bare.starts_with(r#"<meta name="bl-runtime""#));
+    }
+
+    #[test]
+    fn phone_base_prefers_tailscale_unless_lan() {
+        let mut config = MobileConfig::default();
+        assert_eq!(
+            phone_base(&config, Some("https://mac.ts.net")),
+            "https://mac.ts.net"
+        );
+        assert_eq!(phone_base(&config, None), "http://127.0.0.1:7340");
+        config.bind = Bind::Lan;
+        assert!(phone_base(&config, Some("https://mac.ts.net")).ends_with(":7340"));
+        assert_eq!(pair_url("https://a", "ab"), "https://a/#pair=ab");
     }
 
     #[test]

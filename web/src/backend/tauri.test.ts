@@ -1090,6 +1090,7 @@ describe('TauriBackend 手机访问(BL-032 M1)', () => {
     const status = {
       enabled: true, port: 7340, bind: 'loopback', running: true, error: null, tokenSet: true,
       localUrl: 'http://127.0.0.1:7340', tailscaleUrl: 'https://mac.tail1234.ts.net', serveCommand: 'tailscale serve --bg --https=443 http://127.0.0.1:7340',
+      token: 'ab'.repeat(32), pairUrl: 'https://mac.tail1234.ts.net/#pair=' + 'ab'.repeat(32),
     }
     const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
       calls.push({ command, payload })

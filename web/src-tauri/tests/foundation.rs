@@ -3677,6 +3677,13 @@ fn mobile_http_service_routes_contract_commands_through_the_ipc_path() {
             .unwrap();
     assert!(status.running, "{status:?}");
     assert!(status.token_set);
+    let token = status.token.clone().expect("token in status");
+    assert_eq!(token.len(), 64);
+    assert!(status
+        .pair_url
+        .as_deref()
+        .unwrap()
+        .ends_with(&format!("/#pair={token}")));
     assert_eq!(status.local_url, format!("http://127.0.0.1:{free_port}"));
     let ping = {
         use std::io::{Read, Write};

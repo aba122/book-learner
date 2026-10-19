@@ -437,14 +437,14 @@ describe('设置页 · 外观(视觉改版第一批)', () => {
 })
 
 describe('设置页 · 分区导航(视觉改版第三批)', () => {
-  it('左列七个分区,点「画像」滚到分区并标为当前;工具栏带里有「保存」', async () => {
+  it('左列八个分区,点「画像」滚到分区并标为当前;工具栏带里有「保存」', async () => {
     const user = userEvent.setup()
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
     render(<SettingsPage />)
     await screen.findByLabelText('番茄钟(分钟)')
     const nav = screen.getByRole('navigation', { name: '设置分区' })
-    expect(within(nav).getAllByRole('button').map(b => b.textContent)).toEqual(['通用', 'AI 与导出', '语音', '画像', '微信读书', '数据', '诊断'])
+    expect(within(nav).getAllByRole('button').map(b => b.textContent)).toEqual(['通用', 'AI 与导出', '语音', '画像', '微信读书', '手机访问', '数据', '诊断'])
     expect(within(nav).getByRole('button', { name: '通用' })).toHaveAttribute('aria-current', 'true')
     await user.click(within(nav).getByRole('button', { name: '画像' }))
     expect(scrollIntoView).toHaveBeenCalled()
@@ -453,7 +453,7 @@ describe('设置页 · 分区导航(视觉改版第三批)', () => {
     const toolbar = screen.getByRole('toolbar', { name: '设置工具栏' })
     expect(within(toolbar).getByRole('button', { name: '保存' })).toBeInTheDocument()
     // 六个分区全部渲染(不隐藏),标题顺序固定
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['通用', 'AI 与导出', '语音', '学习者画像', '微信读书', '数据', '诊断'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['通用', 'AI 与导出', '语音', '学习者画像', '微信读书', '手机访问', '数据', '诊断'])
   })
 
   it('校验提示仍是 role=alert,分区里的行是分组列表', async () => {
@@ -501,5 +501,60 @@ describe('设置 · 微信读书(BL-030)', () => {
     await user.click(await screen.findByRole('button', { name: '断开并清除' }))
     expect(await within(section).findByRole('button', { name: '连接并同步' })).toBeInTheDocument()
     expect(await backendModule.backend.wereadBooks()).toEqual([])
+  })
+})
+
+describe('设置 · 手机访问(BL-032 M2)', () => {
+  it('Mac 上:打开后显示运行地址;生成二维码与令牌、复制令牌、收起;换新令牌要确认且令牌变化;端口校验', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<SettingsPage />)
+    const section = await screen.findByRole('region', { name: '手机访问' })
+    expect(within(section).getByTestId('mobile-status')).toHaveTextContent('已关闭')
+    expect(within(section).getByRole('button', { name: '生成配对二维码' })).toBeDisabled()
+    expect(within(section).getByText('先打开「允许手机访问」。')).toBeInTheDocument()
+
+    await user.click(within(section).getByRole('switch', { name: '允许手机访问' }))
+    await waitFor(() => expect(within(section).getByTestId('mobile-status')).toHaveTextContent('运行中 · http://127.0.0.1:7340'))
+    expect(within(section).getByTestId('mobile-access')).toHaveTextContent('没检测到 Tailscale')
+
+    // 第一次开启已自动生成令牌 → 「显示配对二维码」
+    await user.click(within(section).getByRole('button', { name: '显示配对二维码' }))
+    const pairing = within(section).getByTestId('mobile-pairing')
+    expect(within(pairing).getByRole('img', { name: '手机配对二维码' })).toBeInTheDocument()
+    const token = within(pairing).getByTestId('mobile-token').textContent!
+    expect(token).toMatch(/^[0-9a-f]{64}$/)
+    await user.click(within(pairing).getByRole('button', { name: '复制令牌' }))
+    expect(writeText).toHaveBeenCalledWith(token)
+    expect(within(pairing).getByRole('button', { name: '已复制' })).toBeInTheDocument()
+
+    await user.click(within(section).getByRole('button', { name: '换新令牌' }))
+    await user.click(await screen.findByRole('button', { name: '生成新的' }))
+    await waitFor(() => expect(within(section).getByTestId('mobile-token').textContent).not.toBe(token))
+
+    await user.click(within(section).getByRole('button', { name: '收起二维码' }))
+    expect(within(section).queryByTestId('mobile-pairing')).toBeNull()
+
+    const port = within(section).getByLabelText('端口')
+    await user.clear(port)
+    await user.type(port, '80')
+    expect(within(section).getByRole('alert')).toHaveTextContent('1024–65535')
+    expect(within(section).getByRole('button', { name: '应用' })).toBeDisabled()
+    await user.clear(port)
+    await user.type(port, '7341')
+    await user.click(within(section).getByRole('radio', { name: '局域网' }))
+    await user.click(within(section).getByRole('button', { name: '应用' }))
+    await waitFor(() => expect(within(section).getByTestId('mobile-status')).toHaveTextContent('运行中 · http://mac.local:7341'))
+    expect(within(section).getByTestId('mobile-access')).toHaveTextContent('局域网模式')
+  })
+
+  it('从手机打开(HTTP 后端)时只读:不给开关与配对,免得切断自己', async () => {
+    Object.defineProperty(backendModule.backend, 'runtime', { value: 'http', configurable: true })
+    render(<SettingsPage />)
+    const section = await screen.findByRole('region', { name: '手机访问' })
+    expect(await within(section).findByTestId('mobile-remote')).toHaveTextContent('请在 Mac 上管理')
+    expect(within(section).queryByRole('switch', { name: '允许手机访问' })).toBeNull()
+    expect(within(section).queryByRole('button', { name: /配对二维码/ })).toBeNull()
   })
 })

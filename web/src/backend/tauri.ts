@@ -6,7 +6,7 @@ import type {
   AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
 } from '../types'
 import { BackendError } from './errors'
-import type { Backend, MenuAction } from './types'
+import type { Backend, BackendRuntime, MenuAction } from './types'
 
 export type InvokeFn = typeof invoke
 export type UnlistenFn = () => void
@@ -74,6 +74,8 @@ const IPC_ERRORS = {
 } as const
 
 function normalizeInvokeError(value: unknown): BackendError {
+  // HTTP 调用(手机,BL-032)自己构造的错误(离线 / 需重新配对)原样透传
+  if (value instanceof BackendError) return value
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const wire = value as WireObject
     if (typeof wire.code === 'string' && Object.hasOwn(IPC_ERRORS, wire.code)
@@ -663,6 +665,8 @@ function decodeMobileStatus(value: unknown): MobileServerStatus {
     localUrl: stringAt(wire.localUrl, 'mobile.localUrl'),
     tailscaleUrl: nullableAt(wire.tailscaleUrl, 'mobile.tailscaleUrl', stringAt),
     serveCommand: stringAt(wire.serveCommand, 'mobile.serveCommand'),
+    token: nullableAt(wire.token, 'mobile.token', stringAt),
+    pairUrl: nullableAt(wire.pairUrl, 'mobile.pairUrl', stringAt),
   }
 }
 
@@ -1016,6 +1020,7 @@ function validateSettings(settings: AppSettings): void {
 }
 
 export class TauriBackend implements Backend {
+  readonly runtime: BackendRuntime = 'tauri'
   private readonly invokeFn: InvokeFn
   private readonly contract: WireContract
   private readonly listen: ListenFn
