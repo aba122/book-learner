@@ -30,7 +30,7 @@ interface Props {
  */
 export default function WereadShelf({ status, books, localBooks, notes, syncing, importing = null, onSync, onLink, onImport }: Props) {
   return (
-    <section aria-labelledby="weread-shelf-title" className="mt-12" data-testid="weread-shelf">
+    <section aria-labelledby="weread-shelf-title" className="mt-12 max-md:mt-8" data-testid="weread-shelf">
       <div className="flex items-baseline justify-between gap-4">
         <div className="min-w-0">
           <h2 id="weread-shelf-title" className="font-serif text-title3 font-semibold text-label-1">微信读书</h2>
@@ -47,7 +47,7 @@ export default function WereadShelf({ status, books, localBooks, notes, syncing,
       {books.length === 0 ? (
         <p className="mt-4 text-callout text-label-3">微信读书书架上还没有电子书。</p>
       ) : (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-6 gap-y-8 max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-6">
           {books.map(b => (
             <article key={b.wereadId} aria-label={`微信读书《${b.title}》`} className={`flex flex-col ${b.removed ? 'opacity-60' : ''}`} data-testid="weread-book">
               <CoverTile title={b.title} coverUrl={b.coverUrl || null} />

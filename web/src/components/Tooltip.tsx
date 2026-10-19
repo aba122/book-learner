@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
+import { NO_HOVER_QUERY, useMediaQuery } from '../lib/useMedia'
 
 /** 触发元素要接上的属性(render-prop 传入;setAnchor 接到 ref={…}) */
 export interface TooltipTriggerProps {
@@ -39,7 +40,9 @@ export default function Tooltip({ content, children, placement = 'top', delay = 
     return () => clearTimeout(t)
   }, [hovering, delay])
 
-  const visible = focused || (hovering && hoverReady)
+  // 触摸屏(无悬停):点按会同时触发 mouseenter/focus,提示框会盖住内容又不消失——不出(BL-032 M3)
+  const noHover = useMediaQuery(NO_HOVER_QUERY)
+  const visible = !noHover && (focused || (hovering && hoverReady))
 
   useEffect(() => {
     if (!visible) return

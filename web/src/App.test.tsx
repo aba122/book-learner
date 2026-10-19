@@ -1,10 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { backend } from './backend'
 import { BackendError } from './backend/errors'
 import App from './App'
 import { useSession } from './store'
+import { NO_HOVER_QUERY, PHONE_QUERY } from './lib/useMedia'
+import { stubMatchMedia } from './test/media'
 
 describe('App 外壳', () => {
   beforeEach(() => {
@@ -112,5 +114,29 @@ describe('App 外壳 · 微信读书启动自动同步(BL-030)', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(sync).toHaveBeenCalledTimes(1)
     vi.restoreAllMocks()
+  })
+})
+
+describe('App 外壳 · 手机布局(BL-032 M3)', () => {
+  beforeEach(() => {
+    window.history.pushState(null, '', '/')
+    stubMatchMedia([PHONE_QUERY, NO_HOVER_QUERY])
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('手机上没有侧栏,底部标签栏 5 项可导航;工具栏不给「显示侧栏」', async () => {
+    const user = userEvent.setup()
+    if (!useSession.getState().sidebarCollapsed) useSession.getState().toggleSidebar()
+    render(<App />)
+    const tabs = await screen.findByRole('navigation', { name: '主导航' })
+    expect(screen.queryByRole('complementary', { name: '侧栏' })).toBeNull()
+    expect([...tabs.querySelectorAll('a')].map(a => a.getAttribute('aria-label'))).toEqual(['今日学习', '书架', '知识地图', '统计', '设置'])
+    expect(screen.getByRole('link', { name: '今日学习' })).toHaveAttribute('aria-current', 'page')
+    await user.click(screen.getByRole('link', { name: '书架' }))
+    expect(await screen.findByRole('heading', { level: 1, name: '书架' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '书架' })).toHaveAttribute('aria-current', 'page')
+    // 侧栏折叠状态在手机上无意义:工具栏不出「显示侧栏」
+    expect(screen.queryByRole('button', { name: '显示侧栏' })).toBeNull()
+    useSession.getState().toggleSidebar()
   })
 })

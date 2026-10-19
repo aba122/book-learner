@@ -137,7 +137,7 @@ export default function TodayPage() {
         )}
       </Toolbar>
       <div className="min-h-0 flex-1 overflow-y-auto @container">
-        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16">
+        <div className="mx-auto w-full max-w-[56rem] px-8 pt-6 pb-16 max-md:px-4 max-md:pt-4 max-md:pb-10">
           <PageHeader
             title="今日学习"
             subtitle={`${today} · 薄弱重考 → 间隔复习 → 新块攻克`}

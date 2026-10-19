@@ -84,6 +84,29 @@ body,
 #root {
   height: 100%;
 }
+/* 手机(BL-032 M3):iOS Safari 地址栏伸缩时用动态视口高度;去掉点按高亮与双击缩放延迟 */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  touch-action: manipulation;
+}
+/* iOS 在字号 < 16px 的输入框聚焦时会自动放大页面:手机上统一 16px */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
 
 html {
   background: var(--surface-window);

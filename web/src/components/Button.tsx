@@ -10,8 +10,8 @@ const VARIANT: Record<Variant, string> = {
   danger: 'bg-weak text-on-ink hover:opacity-90 active:opacity-80',
 }
 const SIZE: Record<Size, string> = {
-  md: 'h-7 px-3 text-body',
-  sm: 'h-6 px-2.5 text-callout',
+  md: 'h-7 px-3 text-body max-md:h-9 max-md:px-3.5',
+  sm: 'h-6 px-2.5 text-callout max-md:h-8 max-md:px-3',
 }
 
 /**

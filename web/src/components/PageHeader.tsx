@@ -14,7 +14,7 @@ export default function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className="mb-6 flex items-end justify-between gap-4">
+    <header className="mb-6 flex items-end justify-between gap-4 max-md:mb-4">
       <div className="min-w-0">
         <h1 className="font-serif text-large-title font-semibold tracking-wide text-label-1">{title}</h1>
         {subtitle && <p className="mt-1.5 text-callout text-label-3">{subtitle}</p>}

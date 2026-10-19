@@ -76,7 +76,8 @@ export default function Dialog({
 
   if (!open) return null
   return createPortal(
-    <div className="fixed inset-0 z-dialog flex items-center justify-center p-8">
+    // 手机(BL-032 M3):贴底 sheet——全宽、上圆角、高 ≤ 88dvh、让出底部安全区
+    <div className="fixed inset-0 z-dialog flex items-center justify-center p-8 max-md:items-end max-md:p-0">
       <div aria-hidden className="bl-fade absolute inset-0 bg-scrim" onClick={dismissible ? onClose : undefined} />
       <div
         ref={panelRef}
@@ -87,9 +88,9 @@ export default function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         data-testid={testId}
-        className={`bl-pop relative flex max-h-[calc(100vh-6rem)] max-w-[calc(100vw-4rem)] flex-col rounded-l bg-card shadow-sheet ring-1 ring-sep/60 outline-none ${WIDTH[size]} ${className}`}
+        className={`bl-pop relative flex max-h-[calc(100vh-6rem)] max-w-[calc(100vw-4rem)] flex-col rounded-l bg-card shadow-sheet ring-1 ring-sep/60 outline-none max-md:max-h-[88dvh] max-md:w-full max-md:max-w-full max-md:rounded-b-none max-md:pb-[env(safe-area-inset-bottom)] ${WIDTH[size]} ${className}`}
       >
-        <header className="flex items-start justify-between gap-4 px-6 pt-5">
+        <header className="flex items-start justify-between gap-4 px-6 pt-5 max-md:px-5">
           <div className="min-w-0">
             <h2 id={titleId} className="font-serif text-title2 font-semibold text-label-1">
               {title}
@@ -102,8 +103,8 @@ export default function Dialog({
           </div>
           {dismissible && closeButton && onClose && <IconButton icon="xmark" label="关闭" onClick={onClose} className="-mr-2 -mt-1" />}
         </header>
-        {children ? <div className="min-h-0 overflow-y-auto px-6 py-4">{children}</div> : <div className="h-4" />}
-        {footer && <footer className="flex justify-end gap-2 px-6 pb-5">{footer}</footer>}
+        {children ? <div className="min-h-0 overflow-y-auto px-6 py-4 max-md:px-5">{children}</div> : <div className="h-4" />}
+        {footer && <footer className="flex flex-wrap justify-end gap-2 px-6 pb-5 max-md:px-5">{footer}</footer>}
       </div>
     </div>,
     document.body,
