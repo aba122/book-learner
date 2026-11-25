@@ -512,7 +512,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
           {/* 选区工具条:高亮四色 / 复制 / 问 AI / 存为书摘 */}
           {selection && (
             <div role="toolbar" aria-label="选区操作" className={FLOAT_BAR}>
-              <span className="max-w-48 truncate px-1 text-footnote text-label-3">{selection.text || '已选中'}</span>
+              {/* 预览收窄(BL-034 多了「存为书摘」,整条宽度保持与之前相当);手机上不显示预览 */}
+              <span className="max-w-36 truncate px-1 text-footnote text-label-3 max-md:hidden">{selection.text || '已选中'}</span>
               {HIGHLIGHT_COLORS.map(c => (
                 <button
                   key={c.color}

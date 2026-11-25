@@ -203,6 +203,8 @@ setting(key, value)
 
 **v6–v8(2026-09-08,M3,追加式)**:v6 `feynman_session.book_id`(NULL;终评会话所属书)+ partial unique `feynman_session_final_once(book_id) WHERE kind='final_exam' AND state<>'abandoned'`;v7 `projection_outbox.lane`(main|git_push)与 `next_retry_at`(push 通道退避);v8 `reader_mark(id, book_id→CASCADE, kind highlight|bookmark|position, spine_href, cfi_start, cfi_end, text, color, note, created_at, updated_at)`(书签同书同点幂等;position 每书一行)。`artifact.kind` 增 `report`(整书终评学习报告,`block_id` NULL)。`setting` 表直读键(不进 `AppSettings`):`codexBin`(codex 可执行绝对路径,M3 T6 设置页可填)、`voiceModel`(whisper 模型名)、`notified:<kind>:<date>`。
 
+**v14(2026-11-25,BL-034 书摘,追加式)**:`excerpt(id, book_id→CASCADE, source ai|user, status active|removed, text, original_text, norm_key, tag, spine_href, chapter_title, chapter_idx, char_offset, cfi?, edited, run, created_at, updated_at)` 与 `excerpt_job(book_id PK→CASCADE, run, stage queued|reading|selecting|done|failed, next_piece, total_pieces, target, candidates_json, added, error, error_detail, queued_at, updated_at, finished_at)`。删除是软删(`removed` 当墓碑,按 `norm_key` 去重:重新整理与阅读器存入都不会把删过的文字建回来);卡片显示 `text`,定位/恢复用 `original_text`。
+
 **设置权威(2026-09-08,M2 T2)**:提醒时间以 `setting` 表的 `remindTime`/`eveningRemindTime` 为唯一权威(`AppSettings`,默认 21:00 / 22:00);`study_plan.remind_time/evening_remind_time` 列保留但**废弃**(仍由 `planning_set_plan` 写入以兼容旧行,不再被读取)。通知判定在 core `notify`(纯函数 + `setting` 表 `notified:<kind>:<date>` 幂等标记),壳层线程每 30s 用本地时间轮询并经 tauri-plugin-notification 发送。
 
 ## 5. Codex 集成
@@ -283,6 +285,16 @@ system 要点:「你扮演一位聪明但完全没学过这个主题的学生,�
 > **实现说明(M3 T1,2026-09-08)**:拆为阶段化对话 system prompt `prompts::final_exam_system(ty, profile, map_summary, phase)`(学生回合 <3 为第一阶段追问全书框架,其后为第二阶段跨章综合题;无 JSON 子句;前端固定 opener「请开始终评」先开口;学生回合上限 8)与报告 prompt `prompts::final_report_prompt(map_summary, weak_history, transcript)`(只输出 markdown,首行元注释 `<!-- overall:N strongest:… weakest:… -->`,解析失败经 `run_ai_parsed` 纠错重试)。会话 `kind='final_exam'`、`book_id`(v6 加列)为所属书、`block_id` 为该书 seq 最小未跳过块占位,每书同时只有一个未放弃终评会话;`final_exam::finish` 写 `artifact(kind='report', block_id NULL)`、会话 confirmed 且**不写 eval_json**、`finish_book_in` 把书标为已学完,并经 outbox `report_archive`(追加到 `books/<slug>/_report.md`)+ `sync_map` + `git_commit`。旧单段 `final_exam_prompt` 仅保留供参考。
 
 「基于 _map.md 全图与各块状态:①请用户先讲出全书框架(学生扮演式追问 2–3 轮);②出 2–3 道跨章节综合题(按书籍类型:综合应用/整合方法论/贯通脉络论述);③输出学习报告 markdown:总体掌握度、最强/最弱模块、薄弱点修复历程、建议重读章节。」
+
+### 6.9 书摘整理(BL-034,2026-11-25)
+
+两阶段,结构同知识地图作业(`core/src/excerpt.rs`,断点在 `excerpt_job`,AI 调用全部幂等、不持事务,壳层后台线程 `excerpt_worker.rs` 逐本跑):
+
+- **选章与切片**:沿用脉络图的正文判定(剔封面/书名页/版权/目录/< 200 字页),另剔索引、参考文献、注释、尾注、译名对照(标题去空白后匹配);正文按段落切成 ≤ 80 KiB 的片。目标条数 `clamp(正文字数/2000, 12, 50)`;每片要 `clamp(ceil(2×目标×片字数/正文字数), 3, 15)` 条候选。
+- **阶段 A**(`prompts::excerpt_read_prompt`,请求 id `excerpt:<book>:r<run>:p<k>`):按书型给挑选角度(人文:论断/比喻/追问/画面;方法论:原则/心得/反常识判断;教材:定义/原理/结论),要求逐字照抄同一自然段内的连续原文,好句 15–120 字、好段 ≤ 300 字,宁缺毋滥;输出 `[{text, tag(2–6 字), why, score(1–5)}]`。
+- **逐字校验**:候选按归一化文本(去空白、全角转半角、引号/破折号统一、省略号展开)在本章正文里查找,找不到再去首尾标点重找;命中后卡片文字取书中原文,句末标点与未闭合的引号从原文补齐;含标题行、少于 6 字或多于 400 字的丢弃;与已有候选同键或同章区间重叠过半的去重。一片给了候选却一条都对不上 → 纠错重试一次,仍不行就跳过这一片。
+- **阶段 B**(`prompts::excerpt_pick_prompt`,请求 id `excerpt:<book>:r<run>:pick`):全部候选(每条截到 240 字;超出 prompt 上限时按自评分从低到高剔除)一次精选,标准为质量、覆盖全书、去重、长短搭配、统一标签,输出 `{"picks":[{id, tag}]}`;输出纠错后仍不可用时按各章自评分轮流取兜底。
+- **落库**:单事务;第 n>1 轮(重新整理)先删 `source='ai' AND status='active' AND edited=0`,插入时跳过已有 `norm_key`(含墓碑)。失败原因按类别存中文(超时 / AI 无回应 / 输出无法解析),技术细节进 `error_detail` 与日志;「重试」同一轮续跑(已完成的片从 `ai_request` 重放);spine 变了(片数不同)开新一轮。超时同地图每章 300 s。
 
 ## 7. EPUB 处理
 

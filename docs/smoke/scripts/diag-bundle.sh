@@ -42,6 +42,9 @@ q weakpoints  "SELECT id,block_id,title,status,pass_streak,created_at,fixed_at F
 q reviews     "SELECT * FROM review_schedule ORDER BY due_date DESC LIMIT 60;"
 q settings    "SELECT key, CASE WHEN key LIKE 'codexBin' THEN value ELSE substr(value,1,80) END AS value FROM setting;"
 q marks       "SELECT id,book_id,kind,spine_href,substr(cfi_start,1,40) AS cfi,created_at FROM reader_mark ORDER BY id DESC LIMIT 40;"
+# 书摘(BL-034):作业断点与失败原因;卡片只导出计数,不导出正文
+q excerpt_jobs "SELECT book_id,run,stage,next_piece,total_pieces,target,added,error,substr(error_detail,1,300) AS detail,queued_at,updated_at,finished_at FROM excerpt_job ORDER BY book_id;"
+q excerpts    "SELECT book_id,source,status,count(*) AS n,sum(edited) AS edited FROM excerpt GROUP BY book_id,source,status ORDER BY book_id;"
 
 # 4. 记忆库状态(不含正文)
 if [ -d "$DATA/memory/.git" ]; then
