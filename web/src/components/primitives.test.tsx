@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -283,5 +283,23 @@ describe('Menu · 手机动作单(BL-032 M3)', () => {
     rerender(<Menu open onClose={onClose} anchor={{ x: 40, y: 60 }} aria-label="书的更多操作" items={[{ label: '重命名', onSelect }]} />)
     await user.click(screen.getByRole('menuitem', { name: '重命名' }))
     expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ToastHost 动作钮(BL-034)', () => {
+  it('带动作的提示:点动作钮执行回调并关闭,不触发整条点击', async () => {
+    const { toast, clearToasts } = await import('../lib/toastStore')
+    const { default: ToastHost } = await import('./ToastHost')
+    const onSelect = vi.fn()
+    render(<ToastHost />)
+    act(() => {
+      toast({ message: '已删除', description: '其实地上本没有路', action: { label: '撤销', onSelect } })
+    })
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('已删除')
+    fireEvent.click(within(status).getByRole('button', { name: '撤销' }))
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('status')).toBeNull()
+    clearToasts()
   })
 })

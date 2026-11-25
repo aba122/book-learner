@@ -7,6 +7,7 @@ import IconButton from './components/IconButton'
 import FeynmanPage from './features/feynman/FeynmanPage'
 import FinalExamPage from './features/feynman/FinalExamPage'
 import LibraryPage from './features/library/LibraryPage'
+import ExcerptsPage from './features/excerpts/ExcerptsPage'
 import MapPage from './features/map/MapPage'
 import ReaderPage from './features/reader/ReaderPage'
 import SettingsPage from './features/settings/SettingsPage'
@@ -87,6 +88,7 @@ function navItems(activeBookId: number | null): NavItem[] {
   return [
     { to: '/', label: '今日学习', short: '今日', icon: 'sun', end: true },
     { to: '/library', label: '书架', short: '书架', icon: 'books', end: true },
+    { to: '/excerpts', label: '书摘', short: '书摘', icon: 'quote', end: true },
     { to: activeBookId ? `/map/${activeBookId}` : '/library', label: '知识地图', short: '地图', icon: 'map', end: false },
     { to: '/stats', label: '统计', short: '统计', icon: 'chart-bar', end: true },
     { to: '/settings', label: '设置', short: '设置', icon: 'gear', end: true },
@@ -94,7 +96,7 @@ function navItems(activeBookId: number | null): NavItem[] {
 }
 
 /**
- * 手机底部标签栏(BL-032 M3):替代侧栏;5 项图标 + 短标签,选中强调色;底部让出 Home 指示条安全区。
+ * 手机底部标签栏(BL-032 M3):替代侧栏;6 项图标 + 短标签(BL-034 加「书摘」),选中强调色;底部让出 Home 指示条安全区。
  * 日读/夜读在设置 › 通用 › 外观。
  */
 function TabBar() {
@@ -201,6 +203,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<TodayPage />} />
             <Route path="/library" element={<LibraryPage />} />
+            <Route path="/excerpts" element={<ExcerptsPage />} />
             <Route path="/map/:bookId" element={<MapPage />} />
             <Route path="/reader/:blockId" element={<ReaderPage />} />
             <Route path="/feynman/:taskId" element={<FeynmanPage />} />

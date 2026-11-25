@@ -1,6 +1,6 @@
 import type { NavItem } from 'epubjs'
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
@@ -11,9 +11,11 @@ import Popover from '../../components/Popover'
 import ProgressBar from '../../components/ProgressBar'
 import Segmented, { type SegmentedOption } from '../../components/Segmented'
 import Skeleton from '../../components/Skeleton'
+import ToastHost from '../../components/ToastHost'
 import Toolbar, { ToolbarDivider } from '../../components/Toolbar'
-import { READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_PANEL_WIDTH_KEY, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
+import { EXCERPT_TEXT_MAX_CHARS, READER_FONT_DEFAULT_IDX, READER_FONT_STEPS, READER_LINE_HEIGHTS, READER_LINE_HEIGHT_DEFAULT_IDX, READER_PANEL_WIDTH_KEY, READER_POSITION_DEBOUNCE_MS, READER_PREFS_KEY } from '../../config'
 import { readPref, writePref } from '../../lib/prefs'
+import { toast } from '../../lib/toastStore'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import { useReadingClock } from '../../lib/useReadingClock'
 import { useSession } from '../../store'
@@ -24,6 +26,8 @@ import MarksPanel from './MarksPanel'
 import ReadingChatPanel from './ReadingChatPanel'
 import LineagePanel from './lineage/LineagePanel'
 import { isModalOpen } from '../../lib/modalStack'
+import { authorInfo } from '../excerpts/authors'
+import type { RevealTarget } from '../excerpts/ExcerptsPage'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
   { name: 'paper', label: '纸白', swatchClass: 'bg-card border-sep-strong' },
@@ -170,6 +174,11 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const taskId = searchParams.get('task')
   const backTaskId = searchParams.get('back')
   const navigate = useNavigate()
+  // 从书摘卡片「在书中查看」进来(BL-034):起点放在那段原文,渲染后定位并闪一下;这次查看不改写阅读位置
+  const location = useLocation()
+  const reveal = (location.state as { reveal?: RevealTarget } | null)?.reveal ?? null
+  const revealStarted = useRef(false)
+  const suppressPositionUntil = useRef(reveal ? Number.POSITIVE_INFINITY : 0)
 
   const epubRef = useRef<EpubHandle>(null)
   const [toc, setToc] = useState<NavItem[]>([])
@@ -289,7 +298,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const position = initialMarks.find(m => m.kind === 'position') ?? null
   // 起始定位(BL-018):回读原文(?back)强制到本块原文;否则优先回到上次阅读位置;都没有再按模式给块首/书首
   const blockStart = content.data?.segments[0]?.cfiStart ?? source?.href
-  const initialHref = backTaskId ? blockStart : (position?.cfiStart ?? (learning ? blockStart : source?.href))
+  const initialHref = reveal ? (reveal.cfi ?? reveal.href) : backTaskId ? blockStart : (position?.cfiStart ?? (learning ? blockStart : source?.href))
   const highlights = currentMarks.filter(m => m.kind === 'highlight' && m.cfiEnd).map(m => ({ cfiRange: m.cfiEnd as string, color: m.color }))
   const bookId = block?.bookId ?? null
   // 阅读时长(BL-025):书打开后开始计;可见且有操作才算
@@ -317,6 +326,33 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     addMarkOp.clearError('add')
     void addMarkOp.run('add', { kind: 'bookmark', spineHref: loc.href, cfiStart: loc.cfi, text: block ? `${block.moduleName} · ${block.title}` : loc.href })
   }
+  // 存为书摘(BL-034):存进这本书作者的卡片库;同一段文字重复存不会重复建卡
+  const saveExcerpt = () => {
+    if (!selection || bookId === null) return
+    const sel = selection
+    setSelection(null)
+    epubRef.current?.clearSelection()
+    const text = sel.text.trim()
+    if (text.replace(/\s/g, '').length < 2) {
+      toast({ message: '选中的文字太短了' })
+      return
+    }
+    if ([...text].length > EXCERPT_TEXT_MAX_CHARS) {
+      toast({ message: `书摘最多 ${EXCERPT_TEXT_MAX_CHARS} 字`, description: '选短一些再存' })
+      return
+    }
+    backend
+      .excerptAdd(bookId, { text, spineHref: sel.href || currentHref, cfi: sel.cfiRange || null })
+      .then(added => {
+        const author = authorInfo(added.author)
+        toast({
+          message: added.created ? `已存入「${author.name}」的书摘` : '这段已经在书摘里了',
+          description: added.excerpt.chapterTitle || undefined,
+          action: { label: '查看', onSelect: () => navigate(`/excerpts?author=${encodeURIComponent(author.key)}`) },
+        })
+      })
+      .catch(error => toast({ message: '没能存入书摘', description: error instanceof Error ? error.message : undefined }))
+  }
   const addHighlight = (color: HighlightColor) => {
     if (!selection || bookId === null) return
     const sel = selection
@@ -328,6 +364,22 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   }
   const onRelocated = (loc: { cfi: string; href: string }) => {
     setCurrentHref(loc.href)
+    if (reveal && !revealStarted.current) {
+      revealStarted.current = true
+      void epubRef.current
+        ?.reveal(reveal)
+        .then(result => {
+          if (result === 'chapter' && reveal.text) toast({ message: '没在这一章找到原句的准确位置', description: '已打开所在章节' })
+        })
+        .catch(() => {
+          /* 定位失败:停在起点 */
+        })
+        .finally(() => {
+          suppressPositionUntil.current = Date.now() + 1500
+        })
+    }
+    // 查看书摘引起的跳转不写回阅读位置(之后用户自己翻页才写)
+    if (Date.now() < suppressPositionUntil.current) return
     if (bookId === null) return
     pendingPos.current = { href: loc.href, cfi: loc.cfi }
     if (positionTimer.current) clearTimeout(positionTimer.current)
@@ -358,6 +410,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <ToastHost />
       <Toolbar aria-label="阅读器工具栏">
         {backTaskId ? (
           <Button size="sm" onClick={goBack}>返回讲授</Button>
@@ -456,7 +509,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
             </div>
           )}
 
-          {/* 选区工具条:高亮四色 / 复制 / 问 AI */}
+          {/* 选区工具条:高亮四色 / 复制 / 问 AI / 存为书摘 */}
           {selection && (
             <div role="toolbar" aria-label="选区操作" className={FLOAT_BAR}>
               <span className="max-w-48 truncate px-1 text-footnote text-label-3">{selection.text || '已选中'}</span>
@@ -486,6 +539,10 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
               >
                 <Icon name="quote-bubble" size={14} />
                 问 AI
+              </Button>
+              <Button variant="ghost" size="sm" aria-label="存为书摘" onClick={saveExcerpt}>
+                <Icon name="quote" size={14} />
+                存为书摘
               </Button>
               <IconButton icon="xmark" label="取消" size="sm" onClick={() => { setSelection(null); epubRef.current?.clearSelection() }} />
             </div>

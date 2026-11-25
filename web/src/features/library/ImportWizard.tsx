@@ -73,6 +73,10 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       await backend.storeSpine(bookId, chapters)
       setProgress('正在生成知识地图…')
       const blocks = await backend.runMapJob(bookId, captured.jobId, p => setProgress(progressLabel(p)))
+      // 书摘(BL-034):地图好了就让后台线程整理这本书的书摘(约 50 条);入队失败不影响导入,书摘页可再点「整理」
+      backend
+        .excerptGenerate(bookId, false)
+        .catch(error => console.error('[excerpts] enqueue failed:', error instanceof Error ? error.message : String(error)))
       // 锚点回填(BL-001):把每块的小节标题解析成精确 CFI 写回;失败只退回整章,不阻塞导入
       setProgress(`正在定位原文 0/${blocks.length}`)
       let book: Awaited<ReturnType<typeof openEpub>> | null = null

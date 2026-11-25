@@ -23,6 +23,12 @@ export const READER_PREFS_KEY = 'bookLearner.readerPrefs'
 export const READING_QUOTE_MAX_CHARS = 8000
 export const READING_TEXT_MAX_CHARS = 4000
 export const READING_POLL_MS = 3000
+/** 书摘(BL-034):选中的作者(存归一键;'*' = 全部)、有作业进行时轮询作业状态的间隔、卡片短句阈值(字)、「在书中查看」落点高亮时长 */
+export const EXCERPT_AUTHOR_KEY = 'bookLearner.excerptAuthor'
+export const EXCERPT_POLL_MS = 5000
+export const EXCERPT_SHORT_CHARS = 34
+export const EXCERPT_TEXT_MAX_CHARS = 1200
+export const READER_FLASH_MS = 2400
 /** 脉络图手改自动保存防抖 */
 export const LINEAGE_AUTOSAVE_MS = 800
 export const READING_POLL_MAX_MS = 120_000

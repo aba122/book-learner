@@ -62,6 +62,17 @@
   --hl-alpha: 50%;
   --reader-block-underline: rgb(120 90 40 / 0.55);
 
+  /* ── 作者色(书摘 BL-034;传统色:黛 青 赭 绛 苍 藕):只作装饰(引号/徽记/标签),不承载数据。
+     色 on 浅底 ≥ 4.8:1 ── */
+  --author-1: #4a5a85; --author-1-soft: #e4e7f0;
+  --author-2: #2f6b66; --author-2-soft: #dcebe8;
+  --author-3: #8c5f12; --author-3-soft: #f1e6cd;
+  --author-4: #9a3b33; --author-4-soft: #f3e0dc;
+  --author-5: #56672b; --author-5-soft: #e7ead6;
+  --author-6: #7d4a6b; --author-6-soft: #f0e2ea;
+  /* 「在书中查看」落点的闪烁高亮 */
+  --reader-flash: rgb(59 90 166 / 0.30);
+
   /* ── 字体 ── */
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB',
     'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'Helvetica Neue', sans-serif;
@@ -159,6 +170,14 @@
   --hl-pink: #7a3d5a;
   --hl-alpha: 55%;
   --reader-block-underline: rgb(207 198 179 / 0.45);
+
+  --author-1: #a3b3de; --author-1-soft: #232a3b;
+  --author-2: #82bfb7; --author-2-soft: #1c2e2c;
+  --author-3: #cf9f43; --author-3-soft: #362c18;
+  --author-4: #db8e82; --author-4-soft: #3a2420;
+  --author-5: #b3c37d; --author-5-soft: #2a2f1c;
+  --author-6: #d5a0c2; --author-6-soft: #352330;
+  --reader-flash: rgb(157 179 234 / 0.32);
 
   --elev-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
   --elev-popover: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 8px 24px rgb(0 0 0 / 0.5);

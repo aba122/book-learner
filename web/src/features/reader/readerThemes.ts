@@ -20,6 +20,11 @@ export function highlightFill(color: string): string {
   return `color-mix(in srgb, ${hex} ${alpha}, transparent)`
 }
 
+/** 「在书中查看」落点的闪烁填充(BL-034) */
+export function flashFill(): string {
+  return tokenValue('--reader-flash', 'rgb(59 90 166 / 0.30)')
+}
+
 /** 知识块原文范围的下划线色(EpubView 注解) */
 export function blockUnderlineStroke(): string {
   return tokenValue('--reader-block-underline', 'rgb(120 90 40 / 0.55)')
