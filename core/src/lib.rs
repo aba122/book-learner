@@ -2,6 +2,7 @@ pub mod ai;
 pub mod backup;
 pub mod db;
 pub mod eval;
+pub mod excerpt;
 pub mod export;
 pub mod extra;
 pub mod final_exam;

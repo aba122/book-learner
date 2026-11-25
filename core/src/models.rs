@@ -117,6 +117,34 @@ pub fn list_books(conn: &Connection) -> Result<Vec<Book>> {
     .collect()
 }
 
+/// 按 id 取一本书(找不到 → NotFound)。
+pub fn get_book(conn: &Connection, book_id: i64) -> Result<Book> {
+    list_books(conn)?
+        .into_iter()
+        .find(|b| b.id == book_id)
+        .ok_or_else(|| crate::CoreError::NotFound(format!("book {book_id}")))
+}
+
+/// 更正作者(BL-034:书摘按作者归类,OPF 里没有作者的书显示「待识别」)。去首尾空白,1–120 字。
+pub fn set_author(conn: &Connection, book_id: i64, author: &str) -> Result<Book> {
+    let author = author.trim();
+    let n = author.chars().count();
+    if n == 0 || n > crate::excerpt::AUTHOR_MAX_CHARS {
+        return Err(crate::CoreError::InvalidInput(format!(
+            "作者名需要 1–{} 个字",
+            crate::excerpt::AUTHOR_MAX_CHARS
+        )));
+    }
+    let changed = conn.execute(
+        "UPDATE book SET author=?2 WHERE id=?1",
+        rusqlite::params![book_id, author],
+    )?;
+    if changed == 0 {
+        return Err(crate::CoreError::NotFound(format!("book {book_id}")));
+    }
+    get_book(conn, book_id)
+}
+
 /// 记下封面文件名(BL-031;空串 = 清除)。
 pub fn set_cover_path(conn: &Connection, book_id: i64, cover_path: &str) -> Result<()> {
     let changed = conn.execute(
@@ -295,6 +323,27 @@ pub fn get_book_slug_type(conn: &Connection, book_id: i64) -> Result<(String, Bo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn set_author_trims_validates_and_returns_book() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let id =
+            super::insert_book(&conn, "书", "待识别", super::BookType::Humanities, "a1").unwrap();
+        let book = super::set_author(&conn, id, "  齐格蒙特·鲍曼 ").unwrap();
+        assert_eq!(book.author, "齐格蒙特·鲍曼");
+        assert!(matches!(
+            super::set_author(&conn, id, "   "),
+            Err(crate::CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            super::set_author(&conn, 999, "某人"),
+            Err(crate::CoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            super::get_book(&conn, 999),
+            Err(crate::CoreError::NotFound(_))
+        ));
+    }
+
     #[test]
     fn insert_and_fetch_book_with_blocks() {
         let conn = crate::db::open_in_memory().unwrap();

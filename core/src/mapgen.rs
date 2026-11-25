@@ -218,13 +218,18 @@ pub fn validate_draft(draft: &DraftMap, chapters: &[SpineChapter]) -> Result<()>
 
 /// 按段落("\n\n")贪心切片,单段超限时按字符边界切;每片 ≤ STAGE_A_PIECE_BYTES。
 fn split_pieces(text: &str) -> Vec<String> {
-    if text.len() <= STAGE_A_PIECE_BYTES {
+    split_text(text, STAGE_A_PIECE_BYTES)
+}
+
+/// 按段落("\n\n")贪心切片,单段超限时按字符边界切;每片 ≤ `limit` 字节(书摘阶段 A 也用)。
+pub(crate) fn split_text(text: &str, limit: usize) -> Vec<String> {
+    if text.len() <= limit {
         return vec![text.to_string()];
     }
     let mut pieces = vec![];
     let mut current = String::new();
     let push_chunk = |chunk: &str, pieces: &mut Vec<String>, current: &mut String| {
-        if !current.is_empty() && current.len() + 2 + chunk.len() > STAGE_A_PIECE_BYTES {
+        if !current.is_empty() && current.len() + 2 + chunk.len() > limit {
             pieces.push(std::mem::take(current));
         }
         if !current.is_empty() {
@@ -233,7 +238,7 @@ fn split_pieces(text: &str) -> Vec<String> {
         current.push_str(chunk);
     };
     for para in text.split("\n\n") {
-        if para.len() <= STAGE_A_PIECE_BYTES {
+        if para.len() <= limit {
             push_chunk(para, &mut pieces, &mut current);
             continue;
         }
@@ -241,7 +246,7 @@ fn split_pieces(text: &str) -> Vec<String> {
         let mut start = 0;
         let mut last_ok = 0;
         for (i, _) in para.char_indices() {
-            if i - start > STAGE_A_PIECE_BYTES {
+            if i - start > limit {
                 push_chunk(&para[start..last_ok], &mut pieces, &mut current);
                 start = last_ok;
             }
