@@ -1449,8 +1449,11 @@ export class MockBackend implements Backend {
       pairUrl: m.token ? `${m.bind === 'lan' ? `http://mac.local:${m.port}` : `http://127.0.0.1:${m.port}`}/#pair=${m.token}` : null,
     }
   }
+  /** 每次生成都换一个种子(3 与 16 互素,连续 16 次互不相同);旧写法取 Date.now() % 16,约 1/16 的概率换出同一个令牌,设置页用例偶发失败 */
+  private mockTokenSeq = 0
   private mockToken() {
-    return Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + this.mobile.port + Date.now()) % 16]).join('')
+    const seed = this.mobile.port + 3 * ++this.mockTokenSeq
+    return Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + seed) % 16]).join('')
   }
   async mobileServerStatus(): Promise<MobileServerStatus> {
     return this.mobileStatusView()
