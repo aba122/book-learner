@@ -17,24 +17,84 @@ use crate::dto::{
 use crate::error::IpcError;
 use crate::state::AppState;
 
-pub fn list_books(state: &AppState) -> Result<Vec<BookDto>, IpcError> {
+/// 书 → DTO,封面(BL-031)文件名补成绝对路径(前端转 asset URL);"-" = 已检查过没封面
+fn book_dto(state: &AppState, book: book_learner_core::models::Book) -> BookDto {
     let store = state.import_store();
+    let mut dto = BookDto::from(book);
+    dto.cover_path = dto
+        .cover_path
+        .filter(|name| name != "-")
+        .map(|name| store.cover_abs_path(&name).to_string_lossy().into_owned());
+    dto
+}
+
+pub fn list_books(state: &AppState) -> Result<Vec<BookDto>, IpcError> {
     state
         .with_connection(book_learner_core::models::list_books)
-        .map(|books| {
-            books
-                .into_iter()
-                .map(|book| {
-                    let mut dto = BookDto::from(book);
-                    // 封面(BL-031):文件名 → 绝对路径(前端转 asset URL);"-" = 已检查过没封面
-                    dto.cover_path = dto
-                        .cover_path
-                        .filter(|name| name != "-")
-                        .map(|name| store.cover_abs_path(&name).to_string_lossy().into_owned());
-                    dto
-                })
-                .collect()
-        })
+        .map(|books| books.into_iter().map(|book| book_dto(state, book)).collect())
+}
+
+/// 更正作者(BL-034;书摘按作者归类)
+pub fn set_book_author(state: &AppState, book_id: i64, author: &str) -> Result<BookDto, IpcError> {
+    let book =
+        state.with_connection(|c| book_learner_core::models::set_author(c, book_id, author))?;
+    Ok(book_dto(state, book))
+}
+
+// ---- 书摘(BL-034)----
+
+pub fn excerpt_library(
+    state: &AppState,
+) -> Result<book_learner_core::excerpt::ExcerptLibrary, IpcError> {
+    state.with_connection(book_learner_core::excerpt::library)
+}
+
+pub fn excerpt_jobs(
+    state: &AppState,
+) -> Result<Vec<book_learner_core::excerpt::ExcerptJob>, IpcError> {
+    state.with_connection(book_learner_core::excerpt::jobs)
+}
+
+/// 入队(不跑 AI;后台线程负责,命令层随后唤醒它)
+pub fn excerpt_generate(
+    state: &AppState,
+    book_id: i64,
+    regenerate: bool,
+) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
+    state.with_connection(|c| book_learner_core::excerpt::enqueue(c, book_id, regenerate))
+}
+
+pub fn excerpt_add(
+    state: &AppState,
+    book_id: i64,
+    excerpt: crate::dto::NewExcerptDto,
+) -> Result<book_learner_core::excerpt::Added, IpcError> {
+    let input = book_learner_core::excerpt::NewExcerpt {
+        text: excerpt.text,
+        spine_href: excerpt.spine_href,
+        cfi: excerpt.cfi,
+    };
+    state.with_connection(|c| book_learner_core::excerpt::add(c, book_id, &input))
+}
+
+/// 改字;`text = None` 恢复原文
+pub fn excerpt_update(
+    state: &AppState,
+    id: i64,
+    text: Option<String>,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    state.with_connection(|c| book_learner_core::excerpt::update_text(c, id, text.as_deref()))
+}
+
+pub fn excerpt_remove(state: &AppState, id: i64) -> Result<(), IpcError> {
+    state.with_connection(|c| book_learner_core::excerpt::remove(c, id))
+}
+
+pub fn excerpt_restore(
+    state: &AppState,
+    id: i64,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    state.with_connection(|c| book_learner_core::excerpt::restore(c, id))
 }
 
 pub fn set_active_book(state: &AppState, book_id: i64) -> Result<(), IpcError> {

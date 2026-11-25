@@ -7,7 +7,7 @@ use book_learner_app::application;
 use book_learner_app::commands;
 use book_learner_app::dto::{
     AnchorSegmentDto, AppSettingsDto, BookDto, DailyTaskDto, KnowledgeBlockDto, MapEditOpDto,
-    MapProgressDto, ProfileDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
+    MapProgressDto, NewExcerptDto, ProfileDto, SpineChapterDto, StudyPlanRequest, TurnResultDto,
 };
 use book_learner_app::error::{ErrorCode, IpcError};
 use book_learner_app::state::{resolve_codex_bin, resolve_database_path, AppState, JobRegistry};
@@ -1546,6 +1546,14 @@ impl AiProvider for EngineMock {
         if id.starts_with("extra:") {
             return Ok("## 题目\n实验定价\n## 评语\n运用正确\n## 掌握判断\n已掌握迁移能力".into());
         }
+        // 书摘(BL-034):阶段 A 给一条与 spine「正文正文…」逐字一致的候选,精选取 c1
+        if id.starts_with("excerpt:") {
+            return Ok(if id.ends_with(":pick") {
+                r#"{"picks":[{"id":"c1","tag":"正文"}]}"#.into()
+            } else {
+                r#"[{"text":"正文正文正文正文","tag":"正文","why":"测试","score":4}]"#.into()
+            });
+        }
         if id.ends_with(":merge") {
             return Ok(r#"{"modules":[{"name":"供给与需求","blocks":[
                 {"title":"供需弹性","summary":"","source_sections":["ch0.xhtml#第一章"],"prereqs":[]}]}]}"#
@@ -2720,6 +2728,32 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
                 json!({"bookId": first, "nodeId": null, "instruction": "把主线说清楚"})
             }
             "lineage_node_source" => json!({"bookId": first, "nodeId": "a"}),
+            // BL-034:书摘(first 已有 spine;入队不跑 AI,后台线程在测试里不起)
+            "excerpt_library" | "excerpt_jobs" => json!({}),
+            "excerpt_generate" => json!({"bookId": first, "regenerate": false}),
+            "excerpt_add" => json!({"bookId": first, "excerpt": {
+                "text": "需求定律说价格越高需求量越少。", "spineHref": "ch0.xhtml",
+                "cfi": "epubcfi(/6/2!/4/2,/1:0,/1:5)"
+            }}),
+            "excerpt_update" | "excerpt_remove" | "excerpt_restore" => {
+                let state = app.state::<AppState>();
+                let added = commands::excerpt_add_inner(
+                    &state,
+                    first,
+                    NewExcerptDto {
+                        text: format!("契约探针 {command} 的书摘"),
+                        spine_href: "ch0.xhtml".into(),
+                        cfi: None,
+                    },
+                )
+                .unwrap();
+                let id = added.excerpt.id;
+                match command {
+                    "excerpt_update" => json!({"id": id, "text": "改过的书摘"}),
+                    _ => json!({"id": id}),
+                }
+            }
+            "library_set_author" => json!({"bookId": first, "author": "曼昆"}),
             "reading_time_add" => json!({"bookId": first, "date": DAY, "seconds": 90}),
             "reading_time_summary" => json!({"date": DAY}),
             "weread_status" | "weread_books" | "weread_open_key_page" => json!({}),
@@ -3334,6 +3368,74 @@ fn reading_chat_roundtrip_through_commands() {
             .code,
         ErrorCode::NotFound
     );
+}
+
+#[test]
+fn excerpt_commands_and_worker_round_trip() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, mock) = state_with_mock(&directory.path().join("excerpt.db"));
+    let (first, second, _block) = seed_books(&state);
+    state
+        .with_connection(|c| {
+            c.execute(
+                "INSERT INTO spine_item(book_id,idx,href,title,text) VALUES(?1,0,'ch0.xhtml','第一章',replace(hex(zeroblob(120)),'00','正文'))",
+                [first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    // 没有正文的书不能整理
+    let err = commands::excerpt_generate_inner(&state, second, false).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidRequest, "{err:?}");
+    // 入队不调 AI;后台线程(这里直接调 drain)跑完作业
+    let job = commands::excerpt_generate_inner(&state, first, false).unwrap();
+    assert_eq!(job.stage, "queued");
+    assert_eq!(mock.calls(), 0);
+    let worker_conn = state.open_connection().unwrap();
+    book_learner_app::excerpt_worker::drain(&state, &worker_conn);
+    let jobs = commands::excerpt_jobs_inner(&state).unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!((jobs[0].stage.as_str(), jobs[0].added), ("done", 1));
+    let lib = commands::excerpt_library_inner(&state).unwrap();
+    assert_eq!(lib.excerpts.len(), 1);
+    assert_eq!(lib.excerpts[0].text, "正文正文正文正文");
+    assert_eq!(lib.excerpts[0].tag, "正文");
+    let stats = lib.books.iter().find(|b| b.book_id == first).unwrap();
+    assert!(stats.has_text);
+    assert_eq!(stats.ai_count, 1);
+    assert!(stats.reader_block_id.is_some(), "first 有知识块");
+    // 阅读器存入 → 改字 → 恢复原文 → 删除 → 撤销
+    let added = commands::excerpt_add_inner(
+        &state,
+        first,
+        NewExcerptDto {
+            text: "需求定律说价格越高需求量越少。".into(),
+            spine_href: "ch0.xhtml".into(),
+            cfi: Some("epubcfi(/6/2!/4/2,/1:0,/1:5)".into()),
+        },
+    )
+    .unwrap();
+    assert!(added.created);
+    assert_eq!(added.excerpt.chapter_title, "第一章");
+    let id = added.excerpt.id;
+    let edited = commands::excerpt_update_inner(&state, id, Some("价格越高需求量越少。".into())).unwrap();
+    assert!(edited.edited);
+    let back = commands::excerpt_update_inner(&state, id, None).unwrap();
+    assert!(!back.edited);
+    commands::excerpt_remove_inner(&state, id).unwrap();
+    assert_eq!(commands::excerpt_library_inner(&state).unwrap().excerpts.len(), 1);
+    commands::excerpt_restore_inner(&state, id).unwrap();
+    assert_eq!(commands::excerpt_library_inner(&state).unwrap().excerpts.len(), 2);
+    assert_eq!(
+        commands::excerpt_remove_inner(&state, 999).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+    // 重新整理时作业还在跑 → conflict;更正作者
+    commands::excerpt_generate_inner(&state, first, true).unwrap();
+    let err = commands::excerpt_generate_inner(&state, first, true).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
+    let book = commands::library_set_author_inner(&state, first, " 曼昆 ".into()).unwrap();
+    assert_eq!(book.author, "曼昆");
 }
 
 #[test]

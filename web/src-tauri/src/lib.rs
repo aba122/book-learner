@@ -4,6 +4,7 @@ pub mod commands;
 pub mod diagnostics;
 pub mod dto;
 pub mod error;
+pub mod excerpt_worker;
 pub mod import;
 pub mod mobile;
 pub mod notify;
@@ -30,6 +31,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
     // 手机访问服务单例(BL-032):设置命令按需启停,setup 里按配置拉起
     builder
         .manage(mobile::MobileServer::default())
+        // 书摘整理线程的唤醒通道(BL-034):线程在 setup 里起,命令入队后 poke
+        .manage(excerpt_worker::ExcerptWorker::default())
         .invoke_handler(tauri::generate_handler![
             commands::library_list_books,
             commands::library_set_active_book,
@@ -124,6 +127,14 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
             commands::mobile_server_status,
             commands::mobile_server_set,
             commands::mobile_server_rotate_token,
+            commands::excerpt_library,
+            commands::excerpt_jobs,
+            commands::excerpt_generate,
+            commands::excerpt_add,
+            commands::excerpt_update,
+            commands::excerpt_remove,
+            commands::excerpt_restore,
+            commands::library_set_author,
             commands::automation_report,
         ])
 }
@@ -493,6 +504,8 @@ pub fn run() {
                     pomodoro::spawn_ticker(app.handle().clone());
                     // 每日/晚间系统通知(常驻线程,30s 轮询,判定在 core::notify)
                     notify::spawn_reminder_thread(app.handle().clone());
+                    // 书摘整理(BL-034):逐本跑未完成的作业,含上次退出时没跑完的
+                    excerpt_worker::spawn(app.handle().clone());
                     // 启动恢复放后台阻塞线程:文件/git I/O 不占主线程,也不持有 AppState 守卫
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn_blocking(move || {

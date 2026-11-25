@@ -4,6 +4,7 @@ import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
+  Excerpt, ExcerptAdded, ExcerptJob, ExcerptLibrary, NewExcerpt,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, BackendRuntime, MenuAction } from './types'
@@ -597,6 +598,79 @@ function decodeLineageNodeSource(value: unknown, path: string): LineageNodeSourc
     excerpt: stringAt(wire.excerpt, `${path}.excerpt`),
   }
 }
+// ---- 书摘解码/出站校验(BL-034;camelCase 镜像 core::excerpt)----
+const EXCERPT_SOURCES = ['ai', 'user'] as const
+const EXCERPT_JOB_STAGES = ['queued', 'reading', 'selecting', 'done', 'failed'] as const
+function decodeExcerpt(value: unknown, path: string): Excerpt {
+  const wire = objectAt(value, path)
+  return {
+    id: safeIntegerAt(wire.id, `${path}.id`),
+    bookId: safeIntegerAt(wire.bookId, `${path}.bookId`),
+    source: enumAt(wire.source, `${path}.source`, EXCERPT_SOURCES),
+    text: stringAt(wire.text, `${path}.text`),
+    originalText: stringAt(wire.originalText, `${path}.originalText`),
+    tag: stringAt(wire.tag, `${path}.tag`),
+    spineHref: stringAt(wire.spineHref, `${path}.spineHref`),
+    chapterTitle: stringAt(wire.chapterTitle, `${path}.chapterTitle`),
+    chapterIdx: safeIntegerAt(wire.chapterIdx, `${path}.chapterIdx`),
+    cfi: nullableAt(wire.cfi, `${path}.cfi`, stringAt),
+    edited: booleanAt(wire.edited, `${path}.edited`),
+    createdAt: stringAt(wire.createdAt, `${path}.createdAt`),
+    updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
+  }
+}
+function decodeExcerptJob(value: unknown, path: string): ExcerptJob {
+  const wire = objectAt(value, path)
+  return {
+    bookId: safeIntegerAt(wire.bookId, `${path}.bookId`),
+    run: safeIntegerAt(wire.run, `${path}.run`),
+    stage: enumAt(wire.stage, `${path}.stage`, EXCERPT_JOB_STAGES),
+    nextPiece: safeIntegerAt(wire.nextPiece, `${path}.nextPiece`),
+    totalPieces: safeIntegerAt(wire.totalPieces, `${path}.totalPieces`),
+    target: safeIntegerAt(wire.target, `${path}.target`),
+    added: safeIntegerAt(wire.added, `${path}.added`),
+    error: nullableAt(wire.error, `${path}.error`, stringAt),
+    queuedAt: stringAt(wire.queuedAt, `${path}.queuedAt`),
+    updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
+    finishedAt: nullableAt(wire.finishedAt, `${path}.finishedAt`, stringAt),
+  }
+}
+function decodeExcerptLibrary(value: unknown, path: string): ExcerptLibrary {
+  const wire = objectAt(value, path)
+  return {
+    books: arrayAt(wire.books, `${path}.books`, (item, p) => {
+      const w = objectAt(item, p)
+      return {
+        bookId: safeIntegerAt(w.bookId, `${p}.bookId`),
+        hasText: booleanAt(w.hasText, `${p}.hasText`),
+        readerBlockId: nullableAt(w.readerBlockId, `${p}.readerBlockId`, safeIntegerAt),
+        aiCount: safeIntegerAt(w.aiCount, `${p}.aiCount`),
+        userCount: safeIntegerAt(w.userCount, `${p}.userCount`),
+        job: nullableAt(w.job, `${p}.job`, decodeExcerptJob),
+      }
+    }),
+    excerpts: arrayAt(wire.excerpts, `${path}.excerpts`, decodeExcerpt),
+  }
+}
+function decodeExcerptAdded(value: unknown, path: string): ExcerptAdded {
+  const wire = objectAt(value, path)
+  return {
+    excerpt: decodeExcerpt(wire.excerpt, `${path}.excerpt`),
+    created: booleanAt(wire.created, `${path}.created`),
+    author: stringAt(wire.author, `${path}.author`),
+  }
+}
+/** 存入载荷:三键齐全(壳层 DTO deny_unknown_fields);cfi 为 null 或字符串 */
+function outboundNewExcerpt(value: unknown): void {
+  const wire = objectAt(value, 'excerpt', 'invalid_request')
+  outboundString(wire.text, 'excerpt.text')
+  outboundString(wire.spineHref, 'excerpt.spineHref')
+  if (wire.cfi !== null) outboundString(wire.cfi, 'excerpt.cfi')
+  for (const key of Object.keys(wire)) {
+    if (!['text', 'spineHref', 'cfi'].includes(key)) invalidShape(`excerpt.${key}`, 'no extra keys', wire[key], 'invalid_request')
+  }
+}
+
 function outboundLineageGraph(value: unknown): void {
   const wire = objectAt(value, 'graph', 'invalid_request')
   if (!Array.isArray(wire.nodes)) invalidShape('graph.nodes', 'array', wire.nodes, 'invalid_request')
@@ -1459,6 +1533,53 @@ export class TauriBackend implements Backend {
   }
   mobileServerRotateToken(): Promise<MobileToken> {
     return this.gated('mobileServerRotateToken', () => this.decode('mobile_server_rotate_token', {}, decodeMobileToken))
+  }
+  excerptLibrary(): Promise<ExcerptLibrary> {
+    return this.gated('excerptLibrary', () => this.decode('excerpt_library', {}, value => decodeExcerptLibrary(value, 'excerpt_library')))
+  }
+  excerptJobs(): Promise<ExcerptJob[]> {
+    return this.gated('excerptJobs', () => this.decode('excerpt_jobs', {}, value => arrayAt(value, 'excerpt_jobs', decodeExcerptJob)))
+  }
+  excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob> {
+    return this.gated('excerptGenerate', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundBoolean(regenerate, 'regenerate')
+      return this.decode('excerpt_generate', { bookId, regenerate }, value => decodeExcerptJob(value, 'excerpt_generate'))
+    })
+  }
+  excerptAdd(bookId: number, excerpt: NewExcerpt): Promise<ExcerptAdded> {
+    return this.gated('excerptAdd', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundNewExcerpt(excerpt)
+      const payload = { text: excerpt.text, spineHref: excerpt.spineHref, cfi: excerpt.cfi }
+      return this.decode('excerpt_add', { bookId, excerpt: payload }, value => decodeExcerptAdded(value, 'excerpt_add'))
+    })
+  }
+  excerptUpdate(id: number, text: string | null): Promise<Excerpt> {
+    return this.gated('excerptUpdate', () => {
+      outboundInteger(id, 'id')
+      if (text !== null) outboundString(text, 'text')
+      return this.decode('excerpt_update', { id, text }, value => decodeExcerpt(value, 'excerpt_update'))
+    })
+  }
+  excerptRemove(id: number): Promise<void> {
+    return this.gated('excerptRemove', async () => {
+      outboundInteger(id, 'id')
+      await this.decode('excerpt_remove', { id }, value => unitAt(value, 'excerpt_remove'))
+    })
+  }
+  excerptRestore(id: number): Promise<Excerpt> {
+    return this.gated('excerptRestore', () => {
+      outboundInteger(id, 'id')
+      return this.decode('excerpt_restore', { id }, value => decodeExcerpt(value, 'excerpt_restore'))
+    })
+  }
+  setBookAuthor(bookId: number, author: string): Promise<Book> {
+    return this.gated('setBookAuthor', () => {
+      outboundInteger(bookId, 'bookId')
+      outboundString(author, 'author')
+      return this.decode('library_set_author', { bookId, author }, value => decodeBook(value, 'library_set_author', this.toAssetUrl))
+    })
   }
   wereadNotes(localBookId: number): Promise<WereadNotes> {
     return this.gated('wereadNotes', () => {

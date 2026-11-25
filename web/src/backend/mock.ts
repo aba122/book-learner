@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought, MobileBind, MobileServerStatus, MobileToken } from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought, MobileBind, MobileServerStatus, MobileToken, Excerpt, ExcerptAdded, ExcerptBookStats, ExcerptJob, ExcerptLibrary, NewExcerpt } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -108,6 +108,62 @@ const invalidRequest = () => new BackendError({ code: 'invalid_request', message
 function requireClientId(id: string): void {
   if (!CLIENT_ID_RE.test(id)) throw invalidRequest()
 }
+
+// ---- 书摘(BL-034)演示数据 ----
+/** 去重键:去空白、全角转半角、去首尾标点(core excerpt::norm_key 的简化镜像) */
+export function mockExcerptKey(text: string): string {
+  return text
+    .replace(/\s+/g, '')
+    .replace(/[\uFF01-\uFF5E]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[“”]/g, '"')
+    .replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '')
+    .toLowerCase()
+}
+type MockExcerptSeed = { text: string; chapter: string; tag: string }
+/** 种子书《微观经济学》的 AI 书摘样例(教材:定义与原理) */
+const MOCK_EXCERPTS_MICRO: MockExcerptSeed[] = [
+  { text: '需求定律:在其他条件不变时,一种物品的价格上升,该物品的需求量就会减少。', chapter: '需求曲线与需求定律', tag: '需求' },
+  { text: '弹性衡量的是需求量对价格变化反应的灵敏程度,而不是需求曲线的斜率。', chapter: '供需弹性', tag: '弹性' },
+  { text: '价格上限只有低于均衡价格时才有约束力,这时市场上会出现短缺。', chapter: '价格管制与市场干预', tag: '管制' },
+  { text: '边际效用递减意味着,每多消费一单位商品,带来的额外满足会越来越少。', chapter: '效用与边际效用', tag: '效用' },
+  { text: '一种物品的机会成本,是为了得到它而必须放弃的东西。', chapter: '预算约束与最优选择', tag: '成本' },
+  { text: '长期中所有投入都是可变的,企业可以选择最适合自己的生产规模。', chapter: '长期成本与规模经济', tag: '规模' },
+]
+/** 浏览器演示(localStorage bookLearner.mockDemo=excerpts):三本公版书与它们的书摘,用于看多作者布局 */
+const MOCK_DEMO_BOOKS: { title: string; author: string; color: string; excerpts: MockExcerptSeed[]; running?: boolean }[] = [
+  {
+    title: '道德经', author: '(春秋)老子', color: '#8c5f12', excerpts: [
+      { text: '上善若水。水善利万物而不争,处众人之所恶,故几于道。', chapter: '第八章', tag: '水' },
+      { text: '知人者智,自知者明。胜人者有力,自胜者强。', chapter: '第三十三章', tag: '自知' },
+      { text: '合抱之木,生于毫末;九层之台,起于累土;千里之行,始于足下。', chapter: '第六十四章', tag: '积累' },
+      { text: '天下难事,必作于易;天下大事,必作于细。', chapter: '第六十三章', tag: '细处' },
+      { text: '大方无隅,大器晚成,大音希声,大象无形。', chapter: '第四十一章', tag: '大象' },
+    ],
+  },
+  {
+    title: '庄子', author: '庄子', color: '#2f6b66', excerpts: [
+      { text: '吾生也有涯,而知也无涯。以有涯随无涯,殆已!', chapter: '养生主', tag: '知' },
+      { text: '泉涸,鱼相与处于陆,相呴以湿,相濡以沫,不如相忘于江湖。', chapter: '大宗师', tag: '相忘' },
+      { text: '昔者庄周梦为胡蝶,栩栩然胡蝶也,自喻适志与!不知周也。', chapter: '齐物论', tag: '梦蝶' },
+      { text: '井蛙不可以语于海者,拘于虚也;夏虫不可以语于冰者,笃于时也;曲士不可以语于道者,束于教也。', chapter: '秋水', tag: '局限' },
+      { text: '北冥有鱼,其名为鲲。鲲之大,不知其几千里也;化而为鸟,其名为鹏。', chapter: '逍遥游', tag: '逍遥' },
+    ],
+  },
+  {
+    title: '孙子兵法', author: '孙武 著', color: '#9a3b33', running: true, excerpts: [
+      { text: '兵者,国之大事,死生之地,存亡之道,不可不察也。', chapter: '计篇', tag: '慎战' },
+      { text: '知彼知己者,百战不殆;不知彼而知己,一胜一负;不知彼,不知己,每战必殆。', chapter: '谋攻篇', tag: '知己' },
+      { text: '故兵无常势,水无常形;能因敌变化而取胜者,谓之神。', chapter: '虚实篇', tag: '应变' },
+    ],
+  },
+]
+function mockDemoEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem('bookLearner.mockDemo') === 'excerpts'
+  } catch {
+    return false
+  }
+}
 function requireDate(date: string): void {
   if (!DATE_RE.test(date)) throw invalidRequest()
 }
@@ -157,6 +213,28 @@ export class MockBackend implements Backend {
   constructor() {
     this.seed()
     this.seedReadingTime()
+    if (mockDemoEnabled()) this.seedExcerptDemo()
+  }
+
+  /** 书摘演示:三本公版书 + 种子书的一批 AI 书摘;孙子兵法停在「正在读」 */
+  private seedExcerptDemo() {
+    const now = new Date().toISOString()
+    for (const demo of MOCK_DEMO_BOOKS) {
+      const id = this.nextBookId++
+      this.books.push({ id, title: demo.title, author: demo.author, type: 'humanities', slug: `demo-${id}`, status: 'paused', mapRevision: 1, importState: 'mapped', coverUrl: mockCover(demo.color, demo.title) })
+      this.blocks.push({ id: this.nextBlockId++, bookId: id, moduleName: demo.title, seq: 1, title: demo.title, slug: `demo-block-${id}`, prereqIds: [], status: 'unlearned', skipped: false })
+      this.excerptDemoText.add(id)
+      if (demo.running) {
+        this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'reading', nextPiece: 5, totalPieces: 14, target: 50, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null })
+        this.excerptPending.set(id, demo.excerpts)
+        continue
+      }
+      this.insertAiExcerpts(id, demo.excerpts)
+      this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'done', nextPiece: 4, totalPieces: 4, target: 50, added: demo.excerpts.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now })
+    }
+    this.insertAiExcerpts(1, MOCK_EXCERPTS_MICRO)
+    this.excerptJobRows.set(1, { bookId: 1, run: 1, stage: 'done', nextPiece: 6, totalPieces: 6, target: 12, added: MOCK_EXCERPTS_MICRO.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now })
+    this.excerptAdd(1, { text: '经济学研究的是社会如何管理自己的稀缺资源。', spineHref: 'ch1.xhtml', cfi: null }).catch(() => {})
   }
 
   /** 演示数据:最近 40 天里约 2/3 的日子读过书,10–50 分钟不等(确定性,便于测试) */
@@ -326,6 +404,8 @@ export class MockBackend implements Backend {
     this.readingMessageRows = this.readingMessageRows.filter(m => !topicIds.has(m.topicId))
     this.spines.delete(bookId)
     this.lineageRows.delete(bookId)
+    this.excerptRows = this.excerptRows.filter(e => e.bookId !== bookId)
+    this.excerptJobRows.delete(bookId)
     for (const [id, s] of this.v2Sessions) if (blockIds.has(s.blockId) || s.bookId === bookId) this.v2Sessions.delete(id)
     this.snapshots = [{ name: `app-${date}.db`, date, bytes: 204800 }, ...this.snapshots.filter(s => s.date !== date)]
   }
@@ -1384,5 +1464,178 @@ export class MockBackend implements Backend {
   async mobileServerRotateToken(): Promise<MobileToken> {
     this.mobile = { ...this.mobile, token: this.mockToken() }
     return { token: this.mobile.token, pairUrl: `${this.mobileStatusView().localUrl}/#pair=${this.mobile.token}` }
+  }
+
+  // ---- 书摘(BL-034):与 core::excerpt 同语义;整理不用定时器——每次轮询(excerptJobs / excerptLibrary)推进一步 ----
+  private excerptRows: (Excerpt & { status: 'active' | 'removed'; normKey: string })[] = []
+  private excerptJobRows = new Map<number, ExcerptJob>()
+  /** 演示书(seedExcerptDemo)视为已有正文 */
+  private excerptDemoText = new Set<number>()
+  /** 演示里"正在整理"的书完成时要插入的书摘 */
+  private excerptPending = new Map<number, MockExcerptSeed[]>()
+  private nextExcerptId = 1
+
+  private excerptHasText(bookId: number): boolean {
+    return bookId === 1 || this.spines.has(bookId) || this.excerptDemoText.has(bookId)
+  }
+  private excerptView(row: Excerpt & { status: string; normKey: string }): Excerpt {
+    const { status: _status, normKey: _normKey, ...view } = row
+    return { ...view }
+  }
+  private insertAiExcerpts(bookId: number, seeds: MockExcerptSeed[]): number {
+    const now = new Date().toISOString()
+    const keys = new Set(this.excerptRows.filter(e => e.bookId === bookId).map(e => e.normKey))
+    let added = 0
+    seeds.forEach((seed, i) => {
+      const normKey = mockExcerptKey(seed.text)
+      if (!normKey || keys.has(normKey)) return
+      keys.add(normKey)
+      added += 1
+      this.excerptRows.push({
+        id: this.nextExcerptId++, bookId, source: 'ai', text: seed.text, originalText: seed.text, tag: seed.tag,
+        spineHref: `ch${i + 1}.xhtml`, chapterTitle: seed.chapter, chapterIdx: i + 1, cfi: null, edited: false,
+        createdAt: now, updatedAt: now, status: 'active', normKey,
+      })
+    })
+    return added
+  }
+  /** 整理时要插入的书摘:演示书用预置的,种子书用样例,导入的书从 spine 正文里按句号切 */
+  private excerptSeedsFor(bookId: number): MockExcerptSeed[] {
+    const pending = this.excerptPending.get(bookId)
+    if (pending) return pending
+    if (bookId === 1) return MOCK_EXCERPTS_MICRO
+    const chapters = this.spines.get(bookId) ?? []
+    const out: MockExcerptSeed[] = []
+    for (const ch of chapters) {
+      for (const sentence of ch.text.split(/(?<=[。!?])/)) {
+        const t = sentence.trim()
+        if (t.length >= 8 && t.length <= 120 && !t.startsWith('#')) out.push({ text: t, chapter: ch.title, tag: '' })
+        if (out.length >= 12) return out
+      }
+    }
+    return out
+  }
+  /** 推进最早入队的那一个作业一步(镜像后台线程逐本串行) */
+  private advanceExcerptJobs() {
+    const active = [...this.excerptJobRows.values()]
+      .filter(j => j.stage === 'queued' || j.stage === 'reading' || j.stage === 'selecting')
+      .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt) || a.bookId - b.bookId)[0]
+    if (!active) return
+    const now = new Date().toISOString()
+    const job = { ...active, updatedAt: now }
+    if (job.stage === 'queued') {
+      const pieces = Math.max(1, this.spines.get(job.bookId)?.length ?? 4)
+      Object.assign(job, { stage: 'reading', nextPiece: 0, totalPieces: job.totalPieces || pieces, target: job.target || 12 })
+    } else if (job.stage === 'reading') {
+      job.nextPiece = Math.min(job.totalPieces, job.nextPiece + 1)
+      if (job.nextPiece >= job.totalPieces) job.stage = 'selecting'
+    } else {
+      if (job.run > 1) this.excerptRows = this.excerptRows.filter(e => !(e.bookId === job.bookId && e.source === 'ai' && e.status === 'active' && !e.edited))
+      job.added = this.insertAiExcerpts(job.bookId, this.excerptSeedsFor(job.bookId))
+      this.excerptPending.delete(job.bookId)
+      Object.assign(job, { stage: 'done', finishedAt: now, error: null })
+    }
+    this.excerptJobRows.set(job.bookId, job)
+  }
+  async excerptLibrary(): Promise<ExcerptLibrary> {
+    this.advanceExcerptJobs()
+    const books: ExcerptBookStats[] = this.books.map(b => {
+      const active = this.excerptRows.filter(e => e.bookId === b.id && e.status === 'active')
+      const firstBlock = this.blocks.filter(k => k.bookId === b.id).sort((x, y) => x.seq - y.seq || x.id - y.id)[0]
+      const job = this.excerptJobRows.get(b.id)
+      return {
+        bookId: b.id, hasText: this.excerptHasText(b.id), readerBlockId: firstBlock?.id ?? null,
+        aiCount: active.filter(e => e.source === 'ai').length, userCount: active.filter(e => e.source === 'user').length,
+        job: job ? { ...job } : null,
+      }
+    })
+    const excerpts = this.excerptRows
+      .filter(e => e.status === 'active')
+      .sort((a, b) => a.bookId - b.bookId || Number(a.chapterIdx < 0) - Number(b.chapterIdx < 0) || a.chapterIdx - b.chapterIdx || a.id - b.id)
+      .map(e => this.excerptView(e))
+    return { books, excerpts }
+  }
+  async excerptJobs(): Promise<ExcerptJob[]> {
+    this.advanceExcerptJobs()
+    return [...this.excerptJobRows.values()].sort((a, b) => a.bookId - b.bookId).map(j => ({ ...j }))
+  }
+  async excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob> {
+    if (!this.books.some(b => b.id === bookId)) throw notFound()
+    if (!this.excerptHasText(bookId)) throw new BackendError({ code: 'invalid_request', message: '这本书还没抽取正文,先完成导入', retryable: false })
+    const now = new Date().toISOString()
+    const existing = this.excerptJobRows.get(bookId)
+    const fresh = (run: number): ExcerptJob => ({ bookId, run, stage: 'queued', nextPiece: 0, totalPieces: 0, target: 0, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null })
+    let job: ExcerptJob
+    if (!existing) job = fresh(1)
+    else if (existing.stage === 'queued' || existing.stage === 'reading' || existing.stage === 'selecting') {
+      if (regenerate) throw new BackendError({ code: 'conflict', message: '这本书正在整理书摘,请稍等', retryable: false })
+      return { ...existing }
+    } else if (existing.stage === 'failed' && !regenerate) job = { ...existing, stage: 'queued', error: null, queuedAt: now, updatedAt: now }
+    else if (existing.stage === 'done' && !regenerate) return { ...existing }
+    else job = fresh(existing.run + 1)
+    this.excerptJobRows.set(bookId, job)
+    return { ...job }
+  }
+  async excerptAdd(bookId: number, input: NewExcerpt): Promise<ExcerptAdded> {
+    const book = this.books.find(b => b.id === bookId)
+    if (!book) throw notFound()
+    const text = input.text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n')
+    const visible = text.replace(/\s/g, '').length
+    if (visible < 2) throw new BackendError({ code: 'invalid_request', message: '书摘至少要两个字', retryable: false })
+    if ([...text].length > 1200) throw new BackendError({ code: 'invalid_request', message: '书摘最多 1200 字,选短一些再存', retryable: false })
+    const normKey = mockExcerptKey(text)
+    const existing = this.excerptRows.filter(e => e.bookId === bookId && e.normKey === normKey).sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active'))[0]
+    const now = new Date().toISOString()
+    if (existing?.status === 'active') return { excerpt: this.excerptView(existing), created: false, author: book.author }
+    if (existing) {
+      existing.status = 'active'
+      existing.cfi = existing.cfi ?? input.cfi
+      existing.updatedAt = now
+      return { excerpt: this.excerptView(existing), created: true, author: book.author }
+    }
+    const bare = input.spineHref.split('#')[0]
+    const chapter = (this.spines.get(bookId) ?? []).find(c => c.href === bare || c.href.endsWith(`/${bare}`) || bare.endsWith(`/${c.href}`))
+    const row = {
+      id: this.nextExcerptId++, bookId, source: 'user' as const, text, originalText: text, tag: '',
+      spineHref: chapter?.href ?? input.spineHref, chapterTitle: chapter && !chapter.title.includes('/') ? chapter.title : '',
+      chapterIdx: chapter?.idx ?? -1, cfi: input.cfi, edited: false, createdAt: now, updatedAt: now, status: 'active' as const, normKey,
+    }
+    this.excerptRows.push(row)
+    return { excerpt: this.excerptView(row), created: true, author: book.author }
+  }
+  async excerptUpdate(id: number, text: string | null): Promise<Excerpt> {
+    const row = this.excerptRows.find(e => e.id === id)
+    if (!row) throw notFound()
+    let next = row.originalText
+    if (text !== null) {
+      next = text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n')
+      if (next.replace(/\s/g, '').length < 2) throw new BackendError({ code: 'invalid_request', message: '书摘至少要两个字', retryable: false })
+      if ([...next].length > 1200) throw new BackendError({ code: 'invalid_request', message: '书摘最多 1200 字,选短一些再存', retryable: false })
+    }
+    row.text = next
+    row.edited = next !== row.originalText
+    row.updatedAt = new Date().toISOString()
+    return this.excerptView(row)
+  }
+  async excerptRemove(id: number): Promise<void> {
+    const row = this.excerptRows.find(e => e.id === id)
+    if (!row) throw notFound()
+    row.status = 'removed'
+    row.updatedAt = new Date().toISOString()
+  }
+  async excerptRestore(id: number): Promise<Excerpt> {
+    const row = this.excerptRows.find(e => e.id === id)
+    if (!row) throw notFound()
+    row.status = 'active'
+    row.updatedAt = new Date().toISOString()
+    return this.excerptView(row)
+  }
+  async setBookAuthor(bookId: number, author: string): Promise<Book> {
+    const book = this.books.find(b => b.id === bookId)
+    if (!book) throw notFound()
+    const trimmed = author.trim()
+    if (trimmed.length === 0 || [...trimmed].length > 120) throw new BackendError({ code: 'invalid_request', message: '作者名需要 1–120 个字', retryable: false })
+    book.author = trimmed
+    return { ...book }
   }
 }

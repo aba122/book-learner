@@ -280,3 +280,54 @@ export interface MobileServerStatus {
 }
 /** 新令牌只在这次返回里出现;pairUrl = <地址>/#pair=<令牌>(二维码内容) */
 export interface MobileToken { token: string; pairUrl: string }
+
+// ---- 书摘(BL-034,core excerpt;设计 docs/design/2026-11-25-excerpt-cards.md)----
+export type ExcerptSource = 'ai' | 'user'
+export type ExcerptJobStage = 'queued' | 'reading' | 'selecting' | 'done' | 'failed'
+export interface Excerpt {
+  id: number; bookId: number
+  /** ai = 导入后 AI 整理;user = 阅读时存入 */
+  source: ExcerptSource
+  /** 卡片显示的文字(可编辑) */
+  text: string
+  /** 书中原文(「在书中查看」按它定位;「恢复原文」回到它) */
+  originalText: string
+  tag: string
+  spineHref: string
+  /** 章节名;spine 标题只是文件路径时为空 */
+  chapterTitle: string
+  chapterIdx: number
+  /** 阅读器划选的区间 CFI(AI 的为 null,查看时按原文现找) */
+  cfi: string | null
+  edited: boolean
+  createdAt: string; updatedAt: string
+}
+export interface ExcerptJob {
+  bookId: number; run: number; stage: ExcerptJobStage
+  /** reading 时正在读第 nextPiece+1 片(共 totalPieces 片) */
+  nextPiece: number; totalPieces: number
+  target: number
+  /** done 时本轮新增的卡片数 */
+  added: number
+  /** 给用户看的失败原因 */
+  error: string | null
+  queuedAt: string; updatedAt: string; finishedAt: string | null
+}
+export interface ExcerptBookStats {
+  bookId: number
+  /** 已存正文才能整理 */
+  hasText: boolean
+  /** 打开阅读器用的块;null = 没生成知识地图,阅读器打不开 */
+  readerBlockId: number | null
+  aiCount: number; userCount: number
+  job: ExcerptJob | null
+}
+export interface ExcerptLibrary { books: ExcerptBookStats[]; excerpts: Excerpt[] }
+export interface NewExcerpt { text: string; spineHref: string; cfi: string | null }
+export interface ExcerptAdded {
+  excerpt: Excerpt
+  /** false = 这段文字本来就在书摘里 */
+  created: boolean
+  /** 书的作者(book.author 原样;前端归一后显示) */
+  author: string
+}
