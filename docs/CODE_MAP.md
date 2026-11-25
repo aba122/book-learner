@@ -65,6 +65,10 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 手机上布局不对 / 横向能拖动 / 提示框盖住内容 | 断点 `lib/useMedia.ts`(`useIsPhone` ≤ 767 px、`NO_HOVER_QUERY`);外壳 `App.tsx` 的 `TabBar`;原语里的 `max-md:` 类(Button/Input/IconButton/Toggle/Segmented/Field/Dialog/Menu);全局 `index.css` 手机段(100dvh、16 px 输入);用 `mobile-e2e.mjs` 第 5 段量 `scrollWidth` |
 | 微信读书划线导入不了 / 导入后阅读器看不到 | `weread_mark.locate_status`(pending/located/partial/missing);定位在前端 `wereadLocate.ts`(epub.js `section.search` 精确子串,版本/译本不同就 missing);落库经 `weread_locate` → `reader_mark(source='weread', external_id=bookmarkId)` 幂等;删掉本地高亮后 `local_mark_id` 置空但状态不回 pending(不会自动再导) | `core/src/weread.rs` `locate/notes_for_local`;`web/src/features/library/wereadLocate.ts` |
 | 微信读书连不上 / 同步失败 / 书没关联上 | 失败原因是数据不是异常:`weread_account.last_error`(设置页原样显示);鉴权按 HTTP 401/403 或 errcode 文案归类;书架拉不到整次失败、单本进度失败跳过;自动匹配只在唯一候选时关联(`link_source` none/auto),manual 永不覆盖;时长按北京时间分桶转日期;真网关字段以 `docs/design/2026-09-28-weread-sync.md` §2 为准 | `core/src/weread.rs`;`web/src/features/settings/WereadSection.tsx` |
+| 书摘页一直「排队中」/ 不整理 | 后台线程 `excerpt-worker` 启动 15 s 后才开始;`excerpt_job` 表 stage/next_piece/error;日志 `开始整理书摘 / 书摘整理进度 / 书摘整理完成|失败`;codex 不可用时作业直接标 failed(原因 = 「未找到 codex…」) | `web/src-tauri/src/excerpt_worker.rs`;`core/src/excerpt.rs` `next_job/run_job` |
+| 书摘整理失败 / 条数很少 | `excerpt_job.error`(给用户看)与 `error_detail`(原始错误);`ai_request` 表 `excerpt:<book>:r<run>:p<k>` / `:pick` 行;一片候选都对不上原文会纠错一次再跳过(看该片 `ai_request.status=failed` 的 error) | `core/src/excerpt.rs` `parse_piece/select`;prompt 在 `core/src/prompts.rs` |
+| 书摘作者分组不对 / 同一作者分成两组 | 前端归一 `features/excerpts/authors.ts` `authorInfo`(国别前缀/原名括注/著译/多作者);原始值是 `book.author`(OPF `dc:creator`,缺省「待识别」);可在书的「⋯ › 更正作者」改 | `authors.ts`;`library_set_author` → `models::set_author` |
+| 「在书中查看」没翻到原句 / 提示「没在这一章找到原句」 | 用户存入的有 `excerpt.cfi` 直接去;AI 的没有 cfi,按 `original_text` 在 `spine_href` 那章 `section.search`(全文 → 40/20 字前缀);译本排版带内联元素超过 5 个文本节点时会找不到;书没有知识块时阅读器打不开 | `web/src/features/reader/locateText.ts`;`EpubView` `reveal/flash`;`ReaderPage` `location.state.reveal` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
 | 阅读时长没涨 / 涨得不对 | 只在阅读器页面可见且 90 s 内有指针/键盘/滚轮操作时计秒,60 s 落一笔、离开补零头(`reading_time` 表按笔存);周从周一起、本月从 1 日起;未来日期不进汇总 | `web/src/lib/useReadingClock.ts`;`core/src/reading_time.rs` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |
@@ -124,6 +128,7 @@ select * from setting;
 | 设置 | `settings_get/settings_save[settings]`、`settings_codex_get[]`、`settings_codex_set[path]`、`unsupported_capability[capability]`(只剩 `completeTask`) |
 
 | 手机访问 | `mobile_server_status[]`、`mobile_server_set[enabled,port,bind]`、`mobile_server_rotate_token[]`(壳层 `mobile.rs`;监听失败原因在返回的 `error` 字段) |
+| 书摘(BL-034) | `excerpt_library[]`(全部 active 卡片 + 每书 `hasText/readerBlockId/aiCount/userCount/job`;书名/作者/封面前端从 `library_list_books` 合并)、`excerpt_jobs[]`(轮询;成功只记 debug 日志)、`excerpt_generate[bookId,regenerate]`(只入队,命令层随后 `ExcerptWorker::poke`)、`excerpt_add[bookId,excerpt{text,spineHref,cfi}]`→`{excerpt,created,author}`、`excerpt_update[id,text|null]`(null = 恢复原文)、`excerpt_remove[id]`(软删)、`excerpt_restore[id]`、`library_set_author[bookId,author]`→Book |
 
 不在契约的命令:`automation_report`(debug 桥回传;HTTP 层也不放行)。
 
@@ -137,7 +142,7 @@ select * from setting;
 
 **自动化桥 `automation.rs`**(debug + `BOOK_LEARNER_AUTOMATION_SOCK`):unix socket,一行 JSON:`{"js":...,"timeout_ms"}` 在 WebView eval 并经 `automation_report` 回传;`{"tray_title":true}`;`{"quit":true}`(走有序退出)。
 
-**线程**:`reminder`(30 s 轮询,长连接,`setting` 表 `notified:<kind>:<date>` 幂等;晚间窗口才查队列)、`pomodoro-ticker`(1 s,锁外落库 `study_minutes`)。
+**线程**:`reminder`(30 s 轮询,长连接,`setting` 表 `notified:<kind>:<date>` 幂等;晚间窗口才查队列)、`pomodoro-ticker`(1 s,锁外落库 `study_minutes`)、`excerpt-worker`(BL-034:启动 15 s 后开始,长连接,逐本跑 `excerpt::next_job` 直到没有;空闲时等 `ExcerptWorker::poke` 或 60 s;provider 同其它 AI 功能(`ai_provider()`);不登记 `JobRegistry`,退出不等它,断点在库里)。
 
 **数据目录**(release `~/Library/Application Support/book-learner/`):`app.db(.replaced-<ts>)`、`memory/`、`books/<book_id>.epub`、`import/`、`models/`、`snapshots/app-YYYY-MM-DD.db`、`restore-pending.json`。`capabilities/default.json` 只有 `core:default` + `notification:default`(无 dialog/fs/shell 权限:文件选择走 rfd,`open` 走 `std::process::Command`)。
 
@@ -154,6 +159,7 @@ select * from setting;
 | ⤷ 右栏第三标签 🗺 脉络图 | `features/reader/lineage/LineagePanel` | `lineageGet` → 空态「生成」`lineageGenerate` / 看图(`LineageGraph` 自绘 SVG+卡片,按真实卡高布局,`layout.ts`)| 点节点开底部浮层:改名·摘要·详情·删节点 → 800 ms 防抖 `lineageSave`,卸载补写;「看原文」`lineageNodeSource` → `epubRef.display`;「问一问」→ quoteDraft 切问书;读到更后面 →「更新到最新进度」`lineageUpdate`;「让 AI 按我的理解修正」`lineageRevise`;缩放/方向键选节点;hidden 不卸载 |
 | `/feynman/:taskId` | `features/feynman/FeynmanPage` | `todayQueue` → `getBlock` → `blockSource` → `startOrResumeSession`;右栏「脉络图」`LineageAside`:`lineageGet`(只读) | `submitTurn`、`requestEvaluation`、`confirmSessionVerdict`、`abandonSession`、`extraStart/extraFinish` |
 | `/final/:bookId` | `features/feynman/FinalExamPage` | `listBooks` → `finalExamStart` | `submitTurn`、`finalExamFinish` |
+| `/excerpts?author=` | `features/excerpts/ExcerptsPage`(BL-034) | `listBooks` + `excerptLibrary`(合并);有作业进行时每 5 s `excerptJobs`,某本完成/失败 → 重载 + 提示 | `excerptGenerate`(整理/重试/重新整理需确认)、`excerptRemove`(提示里「撤销」= `excerptRestore`)、`excerptUpdate`(编辑 / 恢复原文)、`setBookAuthor`;「在书中查看」= `navigate('/reader/<readerBlockId>', {state:{reveal:{href,text,cfi}}})` |
 | `/stats` | `features/stats/StatsPage` | `stats`、`statsDetail`(独立失败/重试);`readingTimeSummary`;`wereadStatus` → 已连接再 `wereadReadingDays`(近 370 天,前端按日/周/月分桶作第二序列) | — |
 | `/settings` | `features/settings/SettingsPage` | `getSettings`、`codexBinGet`、`voiceModels`、`profileGet`、`backupList`、`gitRemoteGet`、`wereadStatus` | `saveSettings`、`codexBinSet`、`voice*`、`profileSave`、`backup*`、`gitRemoteSet/gitPushNow`;`WereadSection`:`wereadConnect/Sync/SetAutoSync/Disconnect/OpenKeyPage`;`MobileSection`:`mobileServerStatus/Set/RotateToken`(手机上只读) |
 
@@ -178,7 +184,7 @@ select * from setting;
 
 **终评/导出/阅读器/统计/设置**:`FinalExamPage`(`FINAL_EXAM_REQUEST_ID='final-report'`、`FINAL_EXAM_MIN_ANSWERS=2`;confirmed 时直接重放报告;报告视图去首行元注释)。`ExportDialog`(目标目录不存在则禁用导出;`reveal` 独立 key)。`ReaderPage`(`EpubView` props `url/fontSizePct/theme/typography/initialHref/highlights/blockSegments/onToc/onProgress/onSelected/onRelocated`;标记首载后本地维护;偏好 `bookLearner.readerPrefs`;`EpubView` 只在 `url` 变化时重建 rendition,首次 `rendered` 前显示骨架)。`StatsPage`(四卡 + 三区)。`SettingsPage`(`key=version` 重挂表单;节奏卡 → `saveSettings`;`CodexField`;`VoiceSection`;`ProfileSection`;`DataSection`)。
 
-**localStorage 键**:`bookLearner.readerPrefs`、`bookLearner.replanDismissed`、`bookLearner.voiceDevice`、`bookLearner.testDate`(仅 DEV)。
+**localStorage 键**:`bookLearner.readerPrefs`、`bookLearner.replanDismissed`、`bookLearner.voiceDevice`、`bookLearner.excerptAuthor`(书摘页选中的作者归一键,`*` = 全部)、`bookLearner.testDate`(仅 DEV)、`bookLearner.mockDemo=excerpts`(仅浏览器 Mock:加三本公版书的书摘演示数据)。
 
 **测试**:vitest 22 文件 / 322 用例(`pnpm -C web test -- --run`);Playwright `web/e2e/{anchors,cfi}-smoke.spec.ts`(需 `PLAYWRIGHT_BROWSERS_PATH`);`pnpm -C web build` 是唯一有效的类型门禁;oxlint 配置 `web/.oxlintrc.json`。
 
@@ -187,13 +193,13 @@ select * from setting;
 | 文件 | 作用 |
 |---|---|
 | `theme/tokens.css` | 语义令牌两层:`surface-*` / `label-1..4`(四级只准装饰,可点元素最低三级,`theme/tokensPolicy.test.ts` 棘轮 = 0)/ `separator` / `fill-*` / `accent`(固定 #3b5aa6 / #9db3ea,WKWebView 的 `AccentColor` 关键字只对 color 生效)/ `signal-*`(三任务色只标数据)/ `hl-*`(阅读高亮);**旧名 `--ink-*`/`--paper-*`/`--line`/`--c-*`/`--shadow-*` 已删(第三批)**;字阶 `text-large-title…text-footnote`;`prefers-reduced-motion/contrast/reduced-transparency` 回退 |
-| `components/icons/` | `paths.ts` 52 个自绘 SF 风格图标 + `Icon`(无 label 即装饰) |
+| `components/icons/` | `paths.ts` 55 个自绘 SF 风格图标(BL-034 加 `quote`/`doc-on-doc`/`book-open`)+ `Icon`(无 label 即装饰) |
 | `components/Dialog` + `lib/useFocusTrap` + `lib/modalStack` | 模态原语:焦点陷阱/Esc/还原;打开时 `<html data-modal-open>`(阅读器翻页监听让路);`Confirm` 是它的薄壳 |
 | `components/Field/Input/Textarea/Select/Checkbox/Toggle` + `lib/formClasses` | 表单原语;焦点 3px 强调环;`Field` 用 `useId`,error 带 `role=alert` |
 | `components/Segmented` | radio/tabs 两种语义,逐项 `ariaLabel`,方向键 |
 | `components/Toolbar` / `IconButton` / `Tooltip` | 52px 工具栏带(拖动区 + `@container`,折叠时自带「显示侧栏」);28×28 图标钮(`aria-label` + sr-only 文字,桥按 innerText 点;`forwardRef` 可作浮层锚定;`active` → aria-pressed、`expanded` → aria-expanded);提示为 render-prop、无 ref;提示框量尺寸那帧先放左缘再夹边(贴右缘的钮否则被压成竖排,BL-029) |
 | `components/Menu` / `Popover` / `ProgressBar` | 受控菜单(按钮锚定或右键坐标,`menuitem` 28px 行,键盘完整);非模态锚定浮层(`role=dialog aria-modal=false`,Esc/外点关闭、焦点回锚);进度条(定/不定,`size sm|md`) |
-| `components/ToastHost` + `lib/toastStore` | 轻提示:`toast({message})`;每条自带 `role=status`,无条目时不渲染 DOM(别放常驻 status 容器,会撞页面测试);只在书架页挂载 |
+| `components/ToastHost` + `lib/toastStore` | 轻提示:`toast({message, description?, action?})`;`action` 是尾部动作钮(「撤销」「查看」,点了执行并关闭,带动作的默认留 6 s);每条自带 `role=status`,无条目时不渲染 DOM(别放常驻 status 容器,会撞页面测试);挂在书架、书摘、阅读器三页 |
 | `components/Markdown` + `lib/markdownParse` | 从 `features/reader/` 下沉;问书气泡在用,第三批费曼/终评复用;标题仍渲成 `<p>`(页面靠“只有一个 heading”断言) |
 | `features/settings/SettingsSection` + `settingsSections.ts` | 设置页分区壳(衬线标题 + 说明 + `Card p-0 divide-y` 分组列表)与分区清单(左列导航 / `scrollIntoView` / IntersectionObserver 跟随共用) |
 | `components/Dialog` 的 `label` / `closeButton` | `label` 固定可访问名(向导标题随阶段变);`closeButton={false}` 关掉头部 ×(页脚已有取消/关闭时,否则「关闭」重名) |
@@ -204,7 +210,7 @@ select * from setting;
 
 ## 5. core `core/src/`(crate `book_learner_core`,纯 Rust,Linux 可测)
 
-`reading_time.rs`(BL-025):阅读时长 `record`/`summary`,schema v11 `reading_time`;`db::SCHEMA_VERSION` 改版号时备份模块的"拒绝更新快照"断言要跟着改。
+`reading_time.rs`(BL-025):阅读时长 `record`/`summary`,schema v11 `reading_time`;`db::SCHEMA_VERSION` 改版号时备份模块的"拒绝更新快照"断言要跟着改,`db.rs` 测试里写死的 `user_version` 也要一起改(BL-034 升 v14 时改了 13 处)。
 
 **模块职责**
 
@@ -228,15 +234,16 @@ select * from setting;
 | `weread.rs` | 微信读书同步(BL-030):`Gateway` trait + `HttpGateway`(ureq,`POST i.weread.qq.com/api/agent/gateway`,Bearer Key,`api_name`+`skill_version`+平铺参数;`check_errcode` 把 errcode≠0 归为 Auth/Gateway)、`plan`(读库:每本 `progress_fetched_for`、要拉的月份——首次回补 11 个月,每月 1–3 日补上月)→ `fetch`(只网络:书架 → 变化的进度 ≤60 本 → overall + 各月;书架失败 `fatal`)→ `apply`(一个事务:书架 upsert/标 removed、进度、`weread_reading_day` 按北京时间分桶、`auto_link` 唯一候选、account 状态);`connect`(先 `validate_key`,失败不落库)、`books/link/book_for_local/reading_days/status/set_auto_sync/disconnect`;`Status::last_error` 承载失败原因(壳层会把异常消息替换成固定文案)。第二批:`fetch` 对 `plan.linked`(已关联在架书)拉 `/book/bookmarklist` + 分页 `/review/list/mine`,`apply_marks/apply_thoughts` upsert(消失标 removed、保留 `local_mark_id`),`enqueue_notes_projection`(`weread:<local>:h<hash>:sync_weread`);`notes_for_local/notes_for_weread`、`locate`(一个事务:建 source=weread 高亮或把想法追加进批注 + 写状态)、`render_markdown`(`_weread.md`/导出正文)、`notes_for_block`(块锚点章节里的已定位划线 → FixedContext) | weread_account、weread_book、weread_reading_day、weread_mark、weread_thought |
 | `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`is_content_chapter`(剔封面/版权/目录/分部页与 <200 字页)、`generate`(已读正文章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>:r<n>`(n=同前缀已有行数,否则同进度重生成会重放旧结果),非事务)、`get`(带 current_seq 与两端章节标题)、`save`(清洗后保留 up_to_seq)、`update`(只喂新读章节,`merge_preserving` 保留 userEdited 节点与其旧边)、`revise`(指令 + 可聚焦节点,改动节点标 userEdited)、`node_source`(章节/块/节选)、`render_markdown`;`clean_graph`(空标题/重 id/悬空自环边/截 40;AI 无边时串链);所有写库经 `upsert` 入队 `sync_lineage`(op_id 带内容哈希) | lineage_graph |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |
-| `prompts.rs` | `feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON)、`lineage_update_prompt`(旧图 + 新章,userEdited 不许改)、`lineage_revise_prompt`(指令 + 现图) | — |
+| `excerpt.rs` | 书摘(BL-034):`enqueue`(入队语义见设计 §4)、`next_job`、`run_job`(选章 → 80 KiB 切片 → 阶段 A 逐片 `run_ai_json` + `parse_piece` 逐字校验 → 阶段 B `select` 精选/兜底 → `finish` 单事务落库)、`library`/`jobs`、`add`(阅读器存入:spine 按 href 后缀对上、章内位置、同键返回已有/恢复墓碑)、`update_text`(None = 恢复原文)、`remove`/`restore`、`norm_key`/`find_verbatim`、`friendly_error`/`fail_job_with` | excerpt, excerpt_job |
+| `prompts.rs` | `excerpt_read_prompt`、`excerpt_pick_prompt`(BL-034)、`feynman_system`、`eval_prompt`、`review_quiz_system`、`map_stage_a/b_prompt`、`extra_system/extra_summary_prompt`、`final_exam_system/final_report_prompt`、`lineage_generate_prompt`(按书型给梳理角度,出节点/边 JSON)、`lineage_update_prompt`(旧图 + 新章,userEdited 不许改)、`lineage_revise_prompt`(指令 + 现图) | — |
 
-**Schema 演进**:v1 基础八表 → v2 计划唯一索引 → v3 `book_single_active` + 子表补外键 → v4 `map_revision/import_state`、`spine_item`、`block_anchor(exact|chapter_fallback)`、`map_job`、`ai_request`、`session_turn`、`projection_outbox`、会话 `state/version/client_request_id/verdict_*` → v5 `extra_kind`、`study_minutes` → v6 `feynman_session.book_id`(终评唯一)→ v7 outbox `lane/next_retry_at` → v8 `reader_mark`。**只做加法**(重建 `feynman_session` 会级联删光回合)。
+**Schema 演进**:v1 基础八表 → v2 计划唯一索引 → v3 `book_single_active` + 子表补外键 → v4 `map_revision/import_state`、`spine_item`、`block_anchor(exact|chapter_fallback)`、`map_job`、`ai_request`、`session_turn`、`projection_outbox`、会话 `state/version/client_request_id/verdict_*` → v5 `extra_kind`、`study_minutes` → v6 `feynman_session.book_id`(终评唯一)→ v7 outbox `lane/next_retry_at` → v8 `reader_mark` → v9 问书两表 → v10 `lineage_graph` → v11 `reading_time` → v12/v13 微信读书 → v14 `excerpt`/`excerpt_job`(BL-034)。**只做加法**(重建 `feynman_session` 会级联删光回合)。
 
 **状态机**:`knowledge_block.status` unlearned → learning(判定再学)→ passed(判定通过)→ consolidated(14 天档复习通过);`feynman_session.state` open → evaluating → evaluated → confirmed(任意未确认可 abandoned;AI 失败回退 open);`kind` learn|retest|review|final_exam(由 daily_task.kind new|weak_retest|review 映射);`weak_point` open →(连续 2 次通过)→ fixed;`review_schedule` 1→3→7→14 天,失败重置 +1 天;`book.status` active|paused|finished(至多一本 active);`import_state` ready → extracted(存 spine)→ mapped;`map_job.stage` chapters → merge → done|failed。
 
-**ai_request 命名空间**:`turn:{session}:{clientTurnId}`、`eval:{session}:{requestId}`、`extra:{session}:{requestId}`、`final:{session}:{requestId}`、`map:{jobId}:ch{idx}[:p{k}]`、`map:{jobId}:merge`;客户端 id ≤ 64 且不含 `:`。
+**ai_request 命名空间**:`turn:{session}:{clientTurnId}`、`eval:{session}:{requestId}`、`extra:{session}:{requestId}`、`final:{session}:{requestId}`、`map:{jobId}:ch{idx}[:p{k}]`、`map:{jobId}:merge`、`excerpt:{book}:r{run}:p{k}`、`excerpt:{book}:r{run}:pick`(BL-034);客户端 id ≤ 64 且不含 `:`。
 
-**超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、`--version` 10。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
+**超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、书摘每片/精选 420、`--version` 10。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
 
 **投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`sync_reading`(`_reading.md`,问书提炼,op_id 带消息水位 `reading:<book>:t<topic>:m<id>`)、`sync_lineage`(`_lineage.md`,脉络图,op_id `lineage:<book>:h<hash>`)、`sync_weread`(`_weread.md`,微信读书划线/想法,op_id `weread:<book>:h<hash>`,同步后壳层 `replay_projection_after`)、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
 
@@ -257,7 +264,7 @@ select * from setting;
 | 壳层门禁(只能 Mac) | 同上 `--manifest-path web/src-tauri/Cargo.toml`;Linux 缺 GTK 编不了 |
 | 一键 CI 等待合并 | `/bigtemp/fzv6en/book-learner/ci-merge.sh <PR号>` |
 
-CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.0)、`mac-foundation`(macos-14:fmt → core test → src-tauri test → clippy → `tauri:build:debug`),整轮约 6 分钟(含 whisper 编译)。Feature `voice` 默认开(cmake);`zip` 必须 `features=["deflate"]`。**Cargo.lock 以 Mac 解析为准**(Linux 跑 cargo 会加 Linux 依赖,提交前回退)。Mac 依赖:cmake、codex CLI(node)、Calibre(可选,PDF)。
+CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.0)、`mac-foundation`(macos-15,2026-11 起;GitHub 下线 macos-14 后任务一启动就被取消:fmt → core test → src-tauri test → clippy → `tauri:build:debug`),整轮约 6 分钟(含 whisper 编译)。Feature `voice` 默认开(cmake);`zip` 必须 `features=["deflate"]`。**Cargo.lock 以 Mac 解析为准**(Linux 跑 cargo 会加 Linux 依赖,提交前回退)。Mac 依赖:cmake、codex CLI(node)、Calibre(可选,PDF)。
 
 流程约定:每任务独立分支 → 本地门禁 → DEVLOG 条目 → PR → CI 绿合并;设计变更回写 PRODUCT_SPEC/TECH_DESIGN;schema 只做加法。
 
@@ -292,6 +299,9 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 **导入 / EPUB**
 - zip 未开 deflate 读不到 OPF(书名变文件名)——已修;单章 HTML 的书所有锚点整章回退,费曼注入整章原文(≤ 60 KiB);Calibre 转出的 EPUB 同样整章回退、章节名为拆分文件名。
 - epub.js CFI 必须锚定文本节点。
+
+**调试版 / 门禁环境**
+- 经 `bl-run.sh` 启动的调试版会继承它导出的 `https_proxy=http://127.0.0.1:7897`;Mac 上代理没开时,调试版调起的 codex 连不上 OpenAI,会话收到 prompt 后一直没有回复、挂到超时(2026-11-25 BL-034 真机误判过一次「xhigh 太慢」)。启动调试版前 `env -u https_proxy -u HTTPS_PROXY …`;从 Finder 启动的正式版走 launchd 环境,没有这些变量。
 
 **流程 / 脚本**
 - 假绿:管道后要立刻读 `pipestatus`;改动脚本别挂在 `&&` 链尾;每任务核对用例数变化;分支 rebase 后 `--force-with-lease`;同名 tmux 会话先杀;传给 `bl-run.sh` 的脚本用 `<name>-cmd.sh`;python 里禁止 `open(p,'w').write(open(p).read())`;只按 pid 文件结束进程。

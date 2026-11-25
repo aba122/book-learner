@@ -968,6 +968,16 @@ impl From<book_learner_core::reader_marks::ReaderMark> for ReaderMarkDto {
     }
 }
 
+/// 阅读器「存为书摘」的载荷(BL-034):章节标题与位置由 core 按 spine 补
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewExcerptDto {
+    pub text: String,
+    pub spine_href: String,
+    #[serde(default)]
+    pub cfi: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewReaderMarkDto {

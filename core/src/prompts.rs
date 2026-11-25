@@ -37,6 +37,79 @@ fn context_block(ctx: &FixedContext) -> String {
         ctx.eval_history, ctx.related_weakpoints, ctx.prereq_status, reading)
 }
 
+fn excerpt_byline(author: &str) -> String {
+    let a = author.trim();
+    if a.is_empty() || a == "待识别" {
+        String::new()
+    } else {
+        format!("({a})")
+    }
+}
+
+/// 书摘阶段 A(BL-034):从一片正文里挑值得摘抄的句子/段落,逐字照抄原文;只输出 JSON 数组。
+/// `part` 为「(第 i/n 部分)」或空;`max_items` 为这一片最多要的条数。
+pub fn excerpt_read_prompt(
+    book_title: &str,
+    author: &str,
+    ty: BookType,
+    chapter_title: &str,
+    part: &str,
+    max_items: usize,
+    text: &str,
+) -> String {
+    let angle = match ty {
+        BookType::Humanities => "观点鲜明的论断、精彩的比喻和描写、发人深省的追问、有画面感的叙述",
+        BookType::Methodology => {
+            "可以直接指导行动的原则、凝练的心得、反常识但有道理的判断、一针见血的比喻"
+        }
+        BookType::Textbook => "精准的定义、一句话讲透的原理、值得记住的结论、作者对方法的精辟评论",
+    };
+    let by = excerpt_byline(author);
+    let chapter = if chapter_title.trim().is_empty() {
+        "本段原文"
+    } else {
+        chapter_title
+    };
+    format!(
+"你在为《{book_title}》{by}挑选书摘:从下面这段原文里找出最值得摘抄、反复品读的句子或段落,之后会做成书摘卡片。\n\
+好的书摘:能脱离上下文单独读懂;有洞见、表达精准或优美,读完让人想停下来想一想。这本书里尤其留意:{angle}。\n\
+不要:标题、目录、图表与注释、引文出处、过渡句、只交代情节或背景的流水句、离开上下文就看不懂的片段。\n\n\
+硬性要求:\n\
+1. text 必须逐字照抄原文中连续的一段:用字、标点都不改,不增不删,不加省略号,不跨自然段;\n\
+2. 长度:好句 15–120 字;好段不超过 300 字(原段落更长就截取其中最精彩、能独立成立的连续部分);\n\
+3. 最多 {max_items} 条,宁缺毋滥,确实没有好的可以少给,甚至给空数组 [];\n\
+4. tag 是 2–6 字的主题词(如 消费社会、自由、死亡焦虑);why 是一句不超过 30 字的入选理由;score 是 1–5 的整数,5 为最值得摘抄。\n\n\
+只输出 JSON 数组,不要任何别的文字:\n\
+[{{\"text\":\"逐字原文\",\"tag\":\"主题词\",\"why\":\"入选理由\",\"score\":4}}]\n\n\
+=== {chapter}{part} ===\n{text}"
+    )
+}
+
+/// 书摘阶段 B(BL-034):从全书候选里精选约 `target` 条;只输出 `{"picks":[{"id","tag"}]}`。
+/// `candidates` 每行「编号 [章节] (主题词) 原文」。
+pub fn excerpt_pick_prompt(
+    book_title: &str,
+    author: &str,
+    target: usize,
+    candidates: &str,
+) -> String {
+    let by = excerpt_byline(author);
+    format!(
+"你在为《{book_title}》{by}编一组书摘卡片。下面是从全书各章挑出的候选,每行:编号 [章节] (主题词) 原文(过长的已截断)。\n\
+请从中选出约 {target} 条组成最终的书摘集;候选不够好就少选,不必凑数。\n\
+选择标准:\n\
+1. 质量第一:最有洞见、最优美、最能脱离上下文单独成立的优先;\n\
+2. 覆盖全书:各主要章节都要有代表,不要扎堆在开头几章;\n\
+3. 不重复:意思相近的只留表达最好的一条;\n\
+4. 长短搭配:以好句为主,穿插少量好段;\n\
+5. 主题词:可以改写候选的主题词,让全书用词统一(同一主题用同一个词),2–6 字。\n\n\
+只输出 JSON,不要任何别的文字:\n\
+{{\"picks\":[{{\"id\":\"c12\",\"tag\":\"主题词\"}}]}}\n\
+picks 按精彩程度从高到低排列,id 只能用下面出现过的编号。\n\n\
+=== 候选 ===\n{candidates}"
+    )
+}
+
 /// 脉络图生成(plan 2026-09-19):按已读章节/知识块骨架,产出节点-连线图 JSON。只输出 JSON。
 /// 增量更新(第二批):旧图 + 新读章节 → 完整新图;userEdited 节点不许改
 pub fn lineage_update_prompt(

@@ -5,10 +5,11 @@ use crate::dto::{
     AnchorSegmentDto, AppSettingsDto, BackupListDto, BlockSourceDto, BookDto, CodexBinDto,
     DailyTaskDto, DistillResultDto, EvaluationViewDto, ExportPreviewDto, ExportReportDto,
     ExtraOutcomeDto, FinalReportDto, GitRemoteDto, ImportChunkDto, ImportResultDto,
-    KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, NewReaderMarkDto,
-    PomodoroSnapshotDto, ProfileDto, PushResultDto, ReaderMarkDto, ReadingMessageDto,
-    ReadingSendResultDto, ReadingTopicDto, ReplanDto, SessionViewDto, SnapshotDto, SpineChapterDto,
-    StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest, TurnResultDto, VerdictOutcomeDto,
+    KnowledgeBlockDto, MapEditOpDto, MapProgressDto, MapRevisionDto, NewExcerptDto,
+    NewReaderMarkDto, PomodoroSnapshotDto, ProfileDto, PushResultDto, ReaderMarkDto,
+    ReadingMessageDto, ReadingSendResultDto, ReadingTopicDto, ReplanDto, SessionViewDto,
+    SnapshotDto, SpineChapterDto, StatsDetailDto, StatsDto, StudyPlanDto, StudyPlanRequest,
+    TurnResultDto, VerdictOutcomeDto,
 };
 use crate::error::IpcError;
 use crate::state::AppState;
@@ -170,6 +171,15 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     ("mobile_server_status", &[]),
     ("mobile_server_set", &["enabled", "port", "bind"]),
     ("mobile_server_rotate_token", &[]),
+    // BL-034:书摘卡片(作业由后台线程跑,excerpt_jobs 供书摘页轮询)
+    ("excerpt_library", &[]),
+    ("excerpt_jobs", &[]),
+    ("excerpt_generate", &["bookId", "regenerate"]),
+    ("excerpt_add", &["bookId", "excerpt"]),
+    ("excerpt_update", &["id", "text"]),
+    ("excerpt_remove", &["id"]),
+    ("excerpt_restore", &["id"]),
+    ("library_set_author", &["bookId", "author"]),
 ];
 
 pub const UNSUPPORTED_CAPABILITIES: &[&str] = &["completeTask"];
@@ -186,6 +196,29 @@ fn run_command<T>(
     match &result {
         // 交互日志:每条命令一行(只记元数据,不记正文),便于按时间线回溯用户操作
         Ok(_) => tracing::info!(command, correlation_id, elapsed_ms, outcome = "ok"),
+        Err(error) => tracing::error!(
+            command,
+            correlation_id,
+            elapsed_ms,
+            error_code = error.code.as_str(),
+            internal_cause = error.internal_cause()
+        ),
+    }
+    result
+}
+
+/// 轮询类命令:成功只记 debug(书摘页每 5 秒查一次作业,info 会刷屏),失败照常 error
+fn run_polled_command<T>(
+    state: &AppState,
+    command: &'static str,
+    operation: impl FnOnce() -> Result<T, IpcError>,
+) -> Result<T, IpcError> {
+    let correlation_id = state.next_correlation_id();
+    let started = std::time::Instant::now();
+    let result = operation();
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        Ok(_) => tracing::debug!(command, correlation_id, elapsed_ms, outcome = "ok"),
         Err(error) => tracing::error!(
             command,
             correlation_id,
@@ -1964,4 +1997,142 @@ pub async fn mobile_server_rotate_token<R: tauri::Runtime>(
     run_command(&state, "mobile_server_rotate_token", || {
         crate::mobile::rotate_token(&app, &state)
     })
+}
+
+// ---- 书摘(BL-034)----
+
+pub fn excerpt_library_inner(
+    state: &AppState,
+) -> Result<book_learner_core::excerpt::ExcerptLibrary, IpcError> {
+    run_command(state, "excerpt_library", || {
+        application::excerpt_library(state)
+    })
+}
+
+pub fn excerpt_jobs_inner(
+    state: &AppState,
+) -> Result<Vec<book_learner_core::excerpt::ExcerptJob>, IpcError> {
+    run_polled_command(state, "excerpt_jobs", || application::excerpt_jobs(state))
+}
+
+pub fn excerpt_generate_inner(
+    state: &AppState,
+    book_id: i64,
+    regenerate: bool,
+) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
+    run_command(state, "excerpt_generate", || {
+        application::excerpt_generate(state, book_id, regenerate)
+    })
+}
+
+pub fn excerpt_add_inner(
+    state: &AppState,
+    book_id: i64,
+    excerpt: NewExcerptDto,
+) -> Result<book_learner_core::excerpt::Added, IpcError> {
+    run_command(state, "excerpt_add", || {
+        application::excerpt_add(state, book_id, excerpt)
+    })
+}
+
+pub fn excerpt_update_inner(
+    state: &AppState,
+    id: i64,
+    text: Option<String>,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    run_command(state, "excerpt_update", || {
+        application::excerpt_update(state, id, text)
+    })
+}
+
+pub fn excerpt_remove_inner(state: &AppState, id: i64) -> Result<(), IpcError> {
+    run_command(state, "excerpt_remove", || {
+        application::excerpt_remove(state, id)
+    })
+}
+
+pub fn excerpt_restore_inner(
+    state: &AppState,
+    id: i64,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    run_command(state, "excerpt_restore", || {
+        application::excerpt_restore(state, id)
+    })
+}
+
+pub fn library_set_author_inner(
+    state: &AppState,
+    book_id: i64,
+    author: String,
+) -> Result<BookDto, IpcError> {
+    run_command(state, "library_set_author", || {
+        application::set_book_author(state, book_id, &author)
+    })
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_library(
+    state: State<'_, AppState>,
+) -> Result<book_learner_core::excerpt::ExcerptLibrary, IpcError> {
+    excerpt_library_inner(&state)
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_jobs(
+    state: State<'_, AppState>,
+) -> Result<Vec<book_learner_core::excerpt::ExcerptJob>, IpcError> {
+    excerpt_jobs_inner(&state)
+}
+
+/// 入队后唤醒整理线程(线程在 setup 里起;测试里没有线程,poke 是空操作)
+#[tauri::command(async)]
+pub async fn excerpt_generate<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    book_id: i64,
+    regenerate: bool,
+) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
+    let job = excerpt_generate_inner(&state, book_id, regenerate)?;
+    app.state::<crate::excerpt_worker::ExcerptWorker>().poke();
+    Ok(job)
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_add(
+    state: State<'_, AppState>,
+    book_id: i64,
+    excerpt: NewExcerptDto,
+) -> Result<book_learner_core::excerpt::Added, IpcError> {
+    excerpt_add_inner(&state, book_id, excerpt)
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_update(
+    state: State<'_, AppState>,
+    id: i64,
+    text: Option<String>,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    excerpt_update_inner(&state, id, text)
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_remove(state: State<'_, AppState>, id: i64) -> Result<(), IpcError> {
+    excerpt_remove_inner(&state, id)
+}
+
+#[tauri::command(async)]
+pub async fn excerpt_restore(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<book_learner_core::excerpt::Excerpt, IpcError> {
+    excerpt_restore_inner(&state, id)
+}
+
+#[tauri::command(async)]
+pub async fn library_set_author(
+    state: State<'_, AppState>,
+    book_id: i64,
+    author: String,
+) -> Result<BookDto, IpcError> {
+    library_set_author_inner(&state, book_id, author)
 }

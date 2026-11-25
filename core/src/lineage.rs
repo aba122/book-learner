@@ -196,7 +196,7 @@ fn spine_title(conn: &Connection, book_id: i64, idx: i64) -> Result<String> {
 }
 
 /// 封面/书名页/版权页/目录/分部页不是正文:标题命中关键字或正文太短的都不喂给 AI
-fn is_content_chapter(c: &crate::mapgen::SpineChapter) -> bool {
+pub(crate) fn is_content_chapter(c: &crate::mapgen::SpineChapter) -> bool {
     const JUNK: [&str; 8] = [
         "封面",
         "书名页",

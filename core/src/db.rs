@@ -34,7 +34,7 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 当前 schema 版本(快照恢复只接受 ≤ 此版本的库)。
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -92,6 +92,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 13 {
         tx.execute_batch(SCHEMA_V13)?;
         tx.pragma_update(None, "user_version", 13)?;
+    }
+    if v < 14 {
+        tx.execute_batch(SCHEMA_V14)?;
+        tx.pragma_update(None, "user_version", 14)?;
     }
     tx.commit()
 }
@@ -456,6 +460,44 @@ CREATE TABLE weread_thought(
 CREATE INDEX weread_thought_book ON weread_thought(weread_id, removed);
 "#;
 
+/// v14(BL-034,2026-11-25):书摘卡片——每条书摘(AI 整理 / 阅读器存入,软删留墓碑去重)与每书一行的整理作业。
+const SCHEMA_V14: &str = r#"
+CREATE TABLE excerpt(
+  id INTEGER PRIMARY KEY,
+  book_id INTEGER NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  source TEXT NOT NULL CHECK(source IN ('ai','user')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed')),
+  text TEXT NOT NULL,
+  original_text TEXT NOT NULL,
+  norm_key TEXT NOT NULL,
+  tag TEXT NOT NULL DEFAULT '',
+  spine_href TEXT NOT NULL DEFAULT '',
+  chapter_title TEXT NOT NULL DEFAULT '',
+  chapter_idx INTEGER NOT NULL DEFAULT -1,
+  char_offset INTEGER NOT NULL DEFAULT -1,
+  cfi TEXT,
+  edited INTEGER NOT NULL DEFAULT 0,
+  run INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL);
+CREATE INDEX excerpt_book ON excerpt(book_id, status);
+CREATE INDEX excerpt_norm ON excerpt(book_id, norm_key);
+CREATE TABLE excerpt_job(
+  book_id INTEGER PRIMARY KEY REFERENCES book(id) ON DELETE CASCADE,
+  run INTEGER NOT NULL DEFAULT 1,
+  stage TEXT NOT NULL CHECK(stage IN ('queued','reading','selecting','done','failed')),
+  next_piece INTEGER NOT NULL DEFAULT 0,
+  total_pieces INTEGER NOT NULL DEFAULT 0,
+  target INTEGER NOT NULL DEFAULT 0,
+  candidates_json TEXT NOT NULL DEFAULT '[]',
+  added INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  error_detail TEXT,
+  queued_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT);
+"#;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -502,7 +544,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 13);
+        assert_eq!(v, 14);
         for t in [
             "book",
             "knowledge_block",
@@ -777,7 +819,7 @@ mod tests {
         }
         drop(legacy);
         let conn = super::open(&path).expect("多活跃计划的旧库必须可迁移,不得永久锁死");
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         assert_eq!(count(&conn, "SELECT count(*) FROM study_plan"), 2);
         let active_book: i64 = conn
             .query_row("SELECT book_id FROM study_plan WHERE active=1", [], |r| {
@@ -911,7 +953,7 @@ mod tests {
         ).unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         let (id, title, detail): (i64, String, String) = conn
             .query_row("SELECT id,title,detail FROM weak_point", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -961,7 +1003,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v4() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         for t in [
             "spine_item",
             "block_anchor",
@@ -1016,7 +1058,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         let (state, version): (String, i64) = conn
             .query_row(
                 "SELECT state,version FROM feynman_session WHERE id=5",
@@ -1192,7 +1234,7 @@ mod tests {
     #[test]
     fn open_creates_schema_v6_and_v5_rows_survive() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         assert!(has_column(&conn, "feynman_session", "book_id"));
         let idx: i64 = conn
             .query_row(
@@ -1223,7 +1265,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 1);
         let book_id: Option<i64> = conn
             .query_row("SELECT book_id FROM feynman_session WHERE id=3", [], |r| {
@@ -1242,13 +1284,13 @@ mod tests {
         conn.execute("INSERT INTO feynman_session(block_id,kind,started_at,state,version,book_id) VALUES(7,'final_exam','x','open',0,1)", []).unwrap();
         drop(conn);
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 13);
+        assert_eq!(user_version(&again), 14);
     }
 
     #[test]
     fn open_creates_schema_v5() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         assert!(has_column(&conn, "feynman_session", "extra_kind"));
         assert_eq!(
             count(
@@ -1322,7 +1364,7 @@ mod tests {
         drop(legacy);
 
         let conn = super::open(&path).unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         assert_eq!(count(&conn, "SELECT count(*) FROM session_turn"), 2);
         assert_eq!(
             count(&conn, "SELECT count(*) FROM feynman_session WHERE id=7 AND extra_kind IS NULL AND state='confirmed'"),
@@ -1347,7 +1389,7 @@ mod tests {
         drop(conn);
         // 幂等:再次打开不报错、版本不变
         let again = super::open(&path).unwrap();
-        assert_eq!(user_version(&again), 13);
+        assert_eq!(user_version(&again), 14);
         assert_eq!(count(&again, "SELECT count(*) FROM session_turn"), 2);
     }
 
@@ -1357,7 +1399,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 13);
+        assert_eq!(v, 14);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1396,9 +1438,57 @@ mod tests {
     }
 
     #[test]
+    fn v14_creates_excerpt_tables_with_checks_and_cascade() {
+        let conn = super::open_in_memory().unwrap();
+        assert_eq!(user_version(&conn), 14);
+        let book = crate::models::insert_book(
+            &conn,
+            "书",
+            "作者",
+            crate::models::BookType::Humanities,
+            "bk14",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO excerpt(book_id,source,text,original_text,norm_key,created_at,updated_at)
+             VALUES(?1,'ai','句','句','句','t','t')",
+            [book],
+        )
+        .unwrap();
+        assert!(conn
+            .execute(
+                "INSERT INTO excerpt(book_id,source,text,original_text,norm_key,created_at,updated_at)
+                 VALUES(?1,'bogus','句','句','句','t','t')",
+                [book],
+            )
+            .is_err());
+        conn.execute(
+            "INSERT INTO excerpt_job(book_id,stage,queued_at,updated_at) VALUES(?1,'queued','t','t')",
+            [book],
+        )
+        .unwrap();
+        assert!(conn
+            .execute(
+                "UPDATE excerpt_job SET stage='bogus' WHERE book_id=?1",
+                [book]
+            )
+            .is_err());
+        conn.execute("DELETE FROM book WHERE id=?1", [book])
+            .unwrap();
+        let left: i64 = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM excerpt)+(SELECT count(*) FROM excerpt_job)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
     fn v13_adds_mark_source_and_weread_note_tables() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1449,7 +1539,7 @@ mod tests {
     #[test]
     fn v12_creates_weread_tables_with_set_null_and_checks() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         conn.execute(
             "INSERT INTO weread_account(id, api_key, connected_at) VALUES(1, 'wrk-x', 't')",
             [],
@@ -1503,7 +1593,7 @@ mod tests {
     #[test]
     fn v11_creates_reading_time_with_check_and_cascade() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         let book = crate::models::insert_book(
             &conn,
             "书",
@@ -1535,7 +1625,7 @@ mod tests {
     #[test]
     fn v10_creates_lineage_graph_with_cascade() {
         let conn = super::open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 13);
+        assert_eq!(user_version(&conn), 14);
         let book = crate::models::insert_book(
             &conn,
             "书",

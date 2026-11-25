@@ -663,6 +663,62 @@
       "method": "mobileServerRotateToken",
       "command": "mobile_server_rotate_token",
       "payloadKeys": []
+    },
+    {
+      "method": "excerptLibrary",
+      "command": "excerpt_library",
+      "payloadKeys": []
+    },
+    {
+      "method": "excerptJobs",
+      "command": "excerpt_jobs",
+      "payloadKeys": []
+    },
+    {
+      "method": "excerptGenerate",
+      "command": "excerpt_generate",
+      "payloadKeys": [
+        "bookId",
+        "regenerate"
+      ]
+    },
+    {
+      "method": "excerptAdd",
+      "command": "excerpt_add",
+      "payloadKeys": [
+        "bookId",
+        "excerpt"
+      ]
+    },
+    {
+      "method": "excerptUpdate",
+      "command": "excerpt_update",
+      "payloadKeys": [
+        "id",
+        "text"
+      ]
+    },
+    {
+      "method": "excerptRemove",
+      "command": "excerpt_remove",
+      "payloadKeys": [
+        "id"
+      ]
+    },
+    {
+      "method": "excerptRestore",
+      "command": "excerpt_restore",
+      "payloadKeys": [
+        "id"
+      ]
+    },
+    {
+      "method": "setBookAuthor",
+      "command": "library_set_author",
+      "payloadKeys": [
+        "bookId",
+        "author"
+      ]
     }
   ],
   "unsupportedCapabilities": [

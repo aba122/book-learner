@@ -12,6 +12,7 @@ import { READER_FONT_STEPS } from '../../config'
 import EpubView from './EpubView'
 import { READER_SELECTION_POLL_MS } from '../../config'
 import ReaderPage from './ReaderPage'
+import { clearToasts } from '../../lib/toastStore'
 
 const h = vi.hoisted(() => {
   const rendition = {
@@ -62,6 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  clearToasts()
   vi.restoreAllMocks()
 })
 
@@ -655,5 +657,103 @@ describe('右栏宽度与收起(BL-028)', () => {
     await user.click(screen.getByRole('tab', { name: '脉络图' }))
     expect(aside.style.width).toBe('640px')
     expect(within(aside).getByRole('button', { name: '收窄' })).toBeInTheDocument()
+  })
+})
+
+describe('书摘(BL-034)', () => {
+  const sel = (text = '价格上限', cfi = 'epubcfi(/6/8!/4/2,/1:0,/1:12)') => handler('selected')?.(cfi, { window: { getSelection: () => ({ toString: () => text }) }, section: { href: 'chap2.xhtml' } })
+
+  it('选区工具条「存为书摘」存进这本书作者的卡片库并提示;重复存提示已在;「查看」去书摘页对应作者', async () => {
+    const user = userEvent.setup()
+    const add = vi.spyOn(backendModule.backend, 'excerptAdd')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => { sel() })
+    await user.click(within(await screen.findByRole('toolbar', { name: '选区操作' })).getByRole('button', { name: '存为书摘' }))
+    await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
+    expect(add).toHaveBeenCalledWith(1, { text: '价格上限', spineHref: 'chap2.xhtml', cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:12)' })
+    expect(screen.queryByRole('toolbar', { name: '选区操作' })).toBeNull()
+    expect(await screen.findByText('已存入「哈尔·范里安」的书摘')).toBeInTheDocument()
+
+    await act(async () => { sel('价格上限 ', 'epubcfi(/6/8!/4/2,/1:0,/1:13)') })
+    await user.click(within(await screen.findByRole('toolbar', { name: '选区操作' })).getByRole('button', { name: '存为书摘' }))
+    expect(await screen.findByText('这段已经在书摘里了')).toBeInTheDocument()
+    const toastEl = screen.getByText('这段已经在书摘里了').closest('[role=status]') as HTMLElement
+    await user.click(within(toastEl).getByRole('button', { name: '查看' }))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/excerpts?author=${encodeURIComponent('哈尔范里安')}`))
+  })
+
+  it('选得太短不调后端', async () => {
+    const user = userEvent.setup()
+    const add = vi.spyOn(backendModule.backend, 'excerptAdd')
+    renderReader('/reader/4')
+    await screen.findByRole('button', { name: '书签' })
+    await act(async () => { sel('价') })
+    await user.click(within(await screen.findByRole('toolbar', { name: '选区操作' })).getByRole('button', { name: '存为书摘' }))
+    expect(await screen.findByText('选中的文字太短了')).toBeInTheDocument()
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  function renderReveal(reveal: { href: string; text: string; cfi: string | null }) {
+    return render(
+      <MemoryRouter initialEntries={[{ pathname: '/reader/4', state: { reveal } }]}>
+        <Routes>
+          <Route path="/reader/:blockId" element={<ReaderPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('从卡片「在书中查看」进来:起点用 cfi,首次定位后再翻过去并闪烁高亮,不写回阅读位置', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const setPos = vi.spyOn(backendModule.backend, 'readerPositionSet')
+      const cfi = 'epubcfi(/6/8!/4/2,/1:0,/1:12)'
+      renderReveal({ href: 'chap2.xhtml', text: '价格上限', cfi })
+      await screen.findByRole('button', { name: '书签' })
+      await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith(cfi))
+      await act(async () => {
+        handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } })
+      })
+      await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith(cfi, {}, undefined, 'bl-flash', expect.objectContaining({ fill: expect.any(String) })))
+      expect(h.rendition.display.mock.calls.filter(c => c[0] === cfi).length).toBeGreaterThanOrEqual(2)
+      await act(async () => {
+        handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:30)', href: 'chap2.xhtml' } })
+        vi.advanceTimersByTime(3000)
+      })
+      expect(setPos).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('AI 书摘没有 cfi:在章节里按原文找到区间再闪;找不到就停在章节并提示', async () => {
+    const found = 'epubcfi(/6/8!/4/2,/1:2,/1:6)'
+    const search = vi.fn((q: string) => (q.startsWith('价格') ? [{ cfi: found }] : []))
+    const bookAny = h.book as unknown as Record<string, unknown>
+    bookAny.spine = { get: () => ({ load: async () => undefined, search }) }
+    bookAny.load = vi.fn()
+    try {
+      renderReveal({ href: 'chap2.xhtml', text: '价格上限会造成短缺。', cfi: null })
+      await screen.findByRole('button', { name: '书签' })
+      await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith('chap2.xhtml'))
+      await act(async () => {
+        handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } })
+      })
+      await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith(found))
+      expect(search).toHaveBeenCalledWith('价格上限会造成短缺。')
+      await waitFor(() => expect(h.rendition.annotations.highlight).toHaveBeenCalledWith(found, {}, undefined, 'bl-flash', expect.any(Object)))
+      cleanup()
+      search.mockReturnValue([])
+      renderReveal({ href: 'chap2.xhtml', text: '书里没有的一句话。', cfi: null })
+      await screen.findByRole('button', { name: '书签' })
+      await act(async () => {
+        handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } })
+      })
+      expect(await screen.findByText('没在这一章找到原句的准确位置')).toBeInTheDocument()
+    } finally {
+      delete bookAny.spine
+      delete bookAny.load
+    }
   })
 })

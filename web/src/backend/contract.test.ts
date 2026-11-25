@@ -169,6 +169,15 @@ describe('Tauri wire contract fixture', () => {
       { method: 'mobileServerStatus', command: 'mobile_server_status', payloadKeys: [] },
       { method: 'mobileServerSet', command: 'mobile_server_set', payloadKeys: ['enabled', 'port', 'bind'] },
       { method: 'mobileServerRotateToken', command: 'mobile_server_rotate_token', payloadKeys: [] },
+      // BL-034:书摘卡片
+      { method: 'excerptLibrary', command: 'excerpt_library', payloadKeys: [] },
+      { method: 'excerptJobs', command: 'excerpt_jobs', payloadKeys: [] },
+      { method: 'excerptGenerate', command: 'excerpt_generate', payloadKeys: ['bookId', 'regenerate'] },
+      { method: 'excerptAdd', command: 'excerpt_add', payloadKeys: ['bookId', 'excerpt'] },
+      { method: 'excerptUpdate', command: 'excerpt_update', payloadKeys: ['id', 'text'] },
+      { method: 'excerptRemove', command: 'excerpt_remove', payloadKeys: ['id'] },
+      { method: 'excerptRestore', command: 'excerpt_restore', payloadKeys: ['id'] },
+      { method: 'setBookAuthor', command: 'library_set_author', payloadKeys: ['bookId', 'author'] },
     ])
     // Mac M4–M7 已接线地图组/会话组/导入与阅读器/统计;completeTask 有意保留 unsupported(判定只经 session_confirm_verdict)
     expect(tauriWireContract.unsupportedCapabilities).toEqual(['completeTask'])
@@ -517,5 +526,68 @@ describe('MockBackend 阅读时长(BL-025)', () => {
     await expect(b.readingTimeAdd(1, '2026/09/21', 10)).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(b.readingTimeAdd(1, today, 0)).rejects.toMatchObject({ code: 'invalid_request' })
     await expect(b.readingTimeAdd(1, today, 3601)).rejects.toMatchObject({ code: 'invalid_request' })
+  })
+})
+
+describe('MockBackend 书摘(BL-034,与 core::excerpt 同语义)', () => {
+  const settle = async (b: MockBackend) => {
+    for (let i = 0; i < 20; i++) {
+      const jobs = await b.excerptJobs()
+      if (jobs.every(j => j.stage === 'done' || j.stage === 'failed')) return jobs
+    }
+    throw new Error('作业没有完成')
+  }
+  it('入队 → 轮询推进 → 卡片落库;进行中再入队原样返回、重新整理 conflict', async () => {
+    const b = new MockBackend()
+    const job = await b.excerptGenerate(1, false)
+    expect(job).toMatchObject({ bookId: 1, run: 1, stage: 'queued' })
+    expect((await b.excerptGenerate(1, false)).stage).toBe('queued')
+    await expect(b.excerptGenerate(1, true)).rejects.toMatchObject({ code: 'conflict' })
+    const [done] = await settle(b)
+    expect(done.stage).toBe('done')
+    const lib = await b.excerptLibrary()
+    expect(lib.excerpts.length).toBe(done.added)
+    expect(lib.books.find(x => x.bookId === 1)).toMatchObject({ hasText: true, aiCount: done.added, userCount: 0, readerBlockId: 1 })
+  })
+  it('存入去重、删过的恢复;改字与恢复原文;删除与撤销;更正作者', async () => {
+    const b = new MockBackend()
+    const first = await b.excerptAdd(1, { text: '  稀缺是经济学的起点。 ', spineHref: 'ch1.xhtml', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)' })
+    expect(first).toMatchObject({ created: true, author: '哈尔·范里安' })
+    expect(first.excerpt).toMatchObject({ text: '稀缺是经济学的起点。', source: 'user', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)' })
+    const again = await b.excerptAdd(1, { text: '稀缺是经济学的起点', spineHref: 'ch1.xhtml', cfi: null })
+    expect(again).toMatchObject({ created: false })
+    expect(again.excerpt.id).toBe(first.excerpt.id)
+    const edited = await b.excerptUpdate(first.excerpt.id, '稀缺是起点。')
+    expect(edited.edited).toBe(true)
+    expect((await b.excerptUpdate(first.excerpt.id, null))).toMatchObject({ edited: false, text: '稀缺是经济学的起点。' })
+    await b.excerptRemove(first.excerpt.id)
+    expect((await b.excerptLibrary()).excerpts).toHaveLength(0)
+    const revived = await b.excerptAdd(1, { text: '稀缺是经济学的起点。', spineHref: 'ch1.xhtml', cfi: null })
+    expect(revived).toMatchObject({ created: true })
+    expect(revived.excerpt.id).toBe(first.excerpt.id)
+    await expect(b.excerptAdd(1, { text: '短', spineHref: 'ch1.xhtml', cfi: null })).rejects.toMatchObject({ code: 'invalid_request' })
+    expect((await b.setBookAuthor(1, ' 曼昆 ')).author).toBe('曼昆')
+    await expect(b.setBookAuthor(1, '   ')).rejects.toMatchObject({ code: 'invalid_request' })
+  })
+  it('重新整理替换没改过的 AI 卡片,保留改过的与手动存的', async () => {
+    const b = new MockBackend()
+    await b.excerptGenerate(1, false)
+    await settle(b)
+    const lib = await b.excerptLibrary()
+    const keep = lib.excerpts[0]
+    await b.excerptUpdate(keep.id, '改过的一句话。')
+    const mine = (await b.excerptAdd(1, { text: '我自己存的一句。', spineHref: 'ch1.xhtml', cfi: null })).excerpt
+    await b.excerptGenerate(1, true)
+    await settle(b)
+    const after = await b.excerptLibrary()
+    const ids = after.excerpts.map(e => e.id)
+    expect(ids).toContain(keep.id)
+    expect(ids).toContain(mine.id)
+    expect(ids).not.toContain(lib.excerpts[1].id)
+  })
+  it('没有正文的书不能整理', async () => {
+    const b = new MockBackend()
+    const { bookId } = await b.importEpub(new File(['x'], 'x.epub'), 'textbook')
+    await expect(b.excerptGenerate(bookId, false)).rejects.toMatchObject({ code: 'invalid_request' })
   })
 })

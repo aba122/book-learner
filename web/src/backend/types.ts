@@ -1,5 +1,6 @@
 import type {
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
+  Excerpt, ExcerptAdded, ExcerptJob, ExcerptLibrary, NewExcerpt,
 } from '../types'
 
 /** 后端所在:Mac 窗口内原生 IPC / 手机经 HTTP(BL-032)/ 浏览器演示 */
@@ -109,6 +110,21 @@ export interface Backend {
   mobileServerSet(enabled: boolean, port: number, bind: MobileBind): Promise<MobileServerStatus>
   /** 换新令牌:旧令牌与它换来的配对立即失效;返回的令牌只出现这一次 */
   mobileServerRotateToken(): Promise<MobileToken>
+  /** 书摘(BL-034):全部 active 卡片 + 每本书的统计与作业 */
+  excerptLibrary(): Promise<ExcerptLibrary>
+  /** 作业状态(书摘页有作业进行时轮询) */
+  excerptJobs(): Promise<ExcerptJob[]>
+  /** 入队整理(后台逐本跑):失败的续跑;regenerate = 重新整理(替换 AI 整理且没改过的卡片;进行中 → conflict) */
+  excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob>
+  /** 阅读器存入:同一段文字已在书摘里 → created=false;删过的恢复 */
+  excerptAdd(bookId: number, excerpt: NewExcerpt): Promise<ExcerptAdded>
+  /** 改字;text = null 恢复原文 */
+  excerptUpdate(id: number, text: string | null): Promise<Excerpt>
+  /** 删除(可撤销) */
+  excerptRemove(id: number): Promise<void>
+  excerptRestore(id: number): Promise<Excerpt>
+  /** 更正作者(书摘按作者归类;书架也跟着变) */
+  setBookAuthor(bookId: number, author: string): Promise<Book>
   readerMarkUpdate(id: number, note: string | null, color: string | null): Promise<ReaderMark>
   readerMarkRemove(id: number): Promise<void>
   readerPositionSet(bookId: number, spineHref: string, cfi: string): Promise<ReaderMark>

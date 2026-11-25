@@ -246,6 +246,24 @@ describe('书架页', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
   })
 
+  it('BL-034:地图作业完成后才入队整理书摘;入队失败不挡跳转', async () => {
+    const user = userEvent.setup()
+    let resolveJob!: (v: KnowledgeBlock[]) => void
+    vi.spyOn(backendModule.backend, 'runMapJob').mockImplementation(async () => new Promise<KnowledgeBlock[]>(res => { resolveJob = res }))
+    const generate = vi.spyOn(backendModule.backend, 'excerptGenerate').mockRejectedValue(new BackendError({ code: 'ai_unavailable', message: 'AI 暂时没有回应,请重试', retryable: true }))
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '存在主义心理治疗.epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '人文·社科' }))
+    expect(await screen.findByText('正在生成知识地图…')).toBeInTheDocument()
+    expect(generate).not.toHaveBeenCalled()
+    resolveJob([])
+    await waitFor(() => expect(generate).toHaveBeenCalledWith(2, false))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
+    await waitFor(() => expect(logged).toHaveBeenCalledWith('[excerpts] enqueue failed:', 'AI 暂时没有回应,请重试'))
+  })
+
   it('选到 PDF 不导入:提示 Calibre 转换命令,换成 EPUB 后继续', async () => {
     const user = userEvent.setup()
     const importEpub = vi.spyOn(backendModule.backend, 'importEpub')

@@ -16,7 +16,7 @@ describe('App 外壳', () => {
 
   it('侧栏渲染五项导航', async () => {
     render(<App />)
-    for (const label of ['今日学习', '书架', '知识地图', '统计', '设置']) {
+    for (const label of ['今日学习', '书架', '书摘', '知识地图', '统计', '设置']) {
       expect(await screen.findByRole('link', { name: label })).toBeInTheDocument()
     }
   })
@@ -124,13 +124,13 @@ describe('App 外壳 · 手机布局(BL-032 M3)', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('手机上没有侧栏,底部标签栏 5 项可导航;工具栏不给「显示侧栏」', async () => {
+  it('手机上没有侧栏,底部标签栏 6 项可导航(BL-034 加书摘);工具栏不给「显示侧栏」', async () => {
     const user = userEvent.setup()
     if (!useSession.getState().sidebarCollapsed) useSession.getState().toggleSidebar()
     render(<App />)
     const tabs = await screen.findByRole('navigation', { name: '主导航' })
     expect(screen.queryByRole('complementary', { name: '侧栏' })).toBeNull()
-    expect([...tabs.querySelectorAll('a')].map(a => a.getAttribute('aria-label'))).toEqual(['今日学习', '书架', '知识地图', '统计', '设置'])
+    expect([...tabs.querySelectorAll('a')].map(a => a.getAttribute('aria-label'))).toEqual(['今日学习', '书架', '书摘', '知识地图', '统计', '设置'])
     expect(screen.getByRole('link', { name: '今日学习' })).toHaveAttribute('aria-current', 'page')
     await user.click(screen.getByRole('link', { name: '书架' }))
     expect(await screen.findByRole('heading', { level: 1, name: '书架' })).toBeInTheDocument()

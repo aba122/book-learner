@@ -1,11 +1,12 @@
 import ePub, { type Book, type Rendition } from 'epubjs'
 import type { NavItem } from 'epubjs'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
-import { READER_PAGE_CURL_LIFT, READER_PAGE_CURL_MS, READER_PAGE_SNAPSHOT_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
+import { READER_FLASH_MS, READER_PAGE_CURL_LIFT, READER_PAGE_CURL_MS, READER_PAGE_SNAPSHOT_MAX_MS, READER_SELECTION_POLL_MS } from '../../config'
 import { attachPointerLayer } from './pointerLayer'
 import { createCurlOverlay, snapshotVisiblePage, type CurlOverlay } from './pageCurlOverlay'
 import { prefersReducedMotion } from '../../lib/motion'
-import { DEFAULT_TYPOGRAPHY, blockUnderlineStroke, highlightFill, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
+import { DEFAULT_TYPOGRAPHY, blockUnderlineStroke, flashFill, highlightFill, rangeCfiFromPoints, readerThemes, type SectionLike, type ViewLike } from './readerThemes'
+import { locateTextCfi } from './locateText'
 
 export interface EpubHandle {
   next: () => void
@@ -16,6 +17,11 @@ export interface EpubHandle {
   currentLocation: () => { cfi: string; href: string } | null
   /** 清掉正文里的选区(高亮已建/工具条取消后;不清的话下一次单击只会被当成取消选区) */
   clearSelection: () => void
+  /**
+   * 「在书中查看」(BL-034):有 cfi 直接去;没有就在 href 章节里按原文找;找到后翻过去并闪一下高亮。
+   * 返回 exact(定位到原句)/ chapter(只打开了章节)
+   */
+  reveal: (target: { href: string; text: string; cfi: string | null }) => Promise<'exact' | 'chapter'>
 }
 
 export type ReaderTheme = 'paper' | 'sepia' | 'night'
@@ -354,7 +360,40 @@ const EpubView = forwardRef<
   })
   useEffect(() => () => { curlRef.current?.destroy() }, [])
 
+  // 落点闪烁:已有同区间的用户高亮就不叠(epub.js 注解按 区间+类型 存,叠加会顶掉用户高亮)
+  const flash = (cfi: string) => {
+    const rendition = rendRef.current
+    if (!rendition || appliedHighlights.current.has(cfi)) return
+    try {
+      rendition.annotations.highlight(cfi, {}, undefined, 'bl-flash', { fill: flashFill(), 'fill-opacity': '1' })
+      window.setTimeout(() => {
+        try {
+          if (!appliedHighlights.current.has(cfi)) rendRef.current?.annotations.remove(cfi, 'highlight')
+        } catch {
+          /* 已翻走/已销毁 */
+        }
+      }, READER_FLASH_MS)
+    } catch {
+      /* 区间不在当前视图时不闪 */
+    }
+  }
+  const reveal = async (target: { href: string; text: string; cfi: string | null }): Promise<'exact' | 'chapter'> => {
+    const rendition = rendRef.current
+    const book = bookRef.current
+    if (!rendition || !book) return 'chapter'
+    const cfi = target.cfi ?? (target.text ? await locateTextCfi(book, target.href, target.text) : null)
+    if (rendRef.current !== rendition) return 'chapter'
+    try {
+      await rendition.display(cfi ?? target.href)
+    } catch {
+      /* 定位失败停在原处 */
+    }
+    if (cfi) flash(cfi)
+    return cfi ? 'exact' : 'chapter'
+  }
+
   useImperativeHandle(ref, () => ({
+    reveal,
     next: () => turn('next'),
     prev: () => turn('prev'),
     display: target => void rendRef.current?.display(target),
