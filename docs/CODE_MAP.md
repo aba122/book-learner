@@ -301,7 +301,7 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 - epub.js CFI 必须锚定文本节点。
 
 **调试版 / 门禁环境**
-- 经 `bl-run.sh` 启动的调试版会继承它导出的 `https_proxy=http://127.0.0.1:7897`;Mac 上代理没开时,调试版调起的 codex 连不上 OpenAI,会话收到 prompt 后一直没有回复、挂到超时(2026-11-25 BL-034 真机误判过一次「xhigh 太慢」)。启动调试版前 `env -u https_proxy -u HTTPS_PROXY …`;从 Finder 启动的正式版走 launchd 环境,没有这些变量。
+- 经 `bl-run.sh` 启动的调试版会继承它导出的 `https_proxy=http://127.0.0.1:7897`;Mac 上代理没开时,调试版调起的 codex 连不上 OpenAI,会话收到 prompt 后一直没有回复、挂到超时(2026-11-25 BL-034 真机误判过一次「xhigh 太慢」)。启动调试版前 `env -u https_proxy -u HTTPS_PROXY …`。从 Dock/Finder 打开的正式版走 launchd 环境,没有这些变量;但 `open -a` 会把调用它的 shell 的环境传给 app,`install-release.sh` 曾因此把代理变量带进正式版(2026-11-25 装机,`ps eww <pid>` 可查),现在重开前先 `env -u` 掉,带着时脚本会告警。
 
 **流程 / 脚本**
 - 假绿:管道后要立刻读 `pipestatus`;改动脚本别挂在 `&&` 链尾;每任务核对用例数变化;分支 rebase 后 `--force-with-lease`;同名 tmux 会话先杀;传给 `bl-run.sh` 的脚本用 `<name>-cmd.sh`;python 里禁止 `open(p,'w').write(open(p).read())`;只按 pid 文件结束进程。

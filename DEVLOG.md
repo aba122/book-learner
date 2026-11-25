@@ -819,4 +819,4 @@
 - **调试环境的坑(已写进 CODE_MAP §9)**:调试版经 `bl-run.sh` 启动会继承它导出的 `https_proxy=127.0.0.1:7897`;当天 Mac 代理没开,codex 会话收到 prompt 后一直不回、挂到超时。起初误判成「用户把 codex 改成 xhigh 太慢」并加了 medium 覆盖;去掉代理变量对照(同一片 1.3 千字:xhigh 26 s、medium 22 s,xhigh 选句明显更精炼)后撤回,书摘沿用全局配置,保留 420 s 超时。真机还见过 codex 把同一段 JSON 输出两遍,解析改为取第一个完整值。
 - 顺带修一个旧的偶发失败:Mock 的「换新令牌」用 `Date.now() % 16` 当种子,约 1/16 的概率换出同一个令牌,设置页「换新令牌要确认且令牌变化」用例偶发红(PR #75 的 pull_request 轮撞上了);改为每次递增种子。
 - 测试:core excerpt 22 + db 1 + models 1(core 245 单测 + 集成 29);壳层 foundation 往返 1 + wire 8 条;web authors 6、excerpts 10、reader +4、library +1、primitives +1、contract +4、tauri +1、App 改 1。门禁:core fmt/test/clippy;web 506/2、oxlint 0、build;CI 三任务绿(mac 任务 macos-15)。
-
+- **装机(11-25 19:11,git `2ee2d13`)**:Mac 代理没开,main 用 git bundle 送进 Mac 仓库后跑 `install-release.sh`(壳层测试全过,release 构建 36 s)。装完用 `ps eww` 查到正式版进程带着 `https_proxy=127.0.0.1:7897`:脚本为拉 GitHub 导出了代理变量,`open -a` 把它传给了 app(此前以为正式版总走 launchd 环境)。有序退出后用 `env -u …` 重开,同样环境下 codex 直连 13 s 回复。脚本改为重开前去掉代理变量,带着时告警。
