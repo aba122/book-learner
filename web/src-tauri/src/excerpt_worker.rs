@@ -103,12 +103,9 @@ pub fn run_one(state: &AppState, connection: &Connection, book_id: i64) {
     let (provider, policy) = match state.ai_provider() {
         Ok(pair) => pair,
         Err(error) => {
-            if let Err(db_error) = excerpt::fail_job_with(
-                connection,
-                book_id,
-                &error.message,
-                error.internal_cause(),
-            ) {
+            if let Err(db_error) =
+                excerpt::fail_job_with(connection, book_id, &error.message, error.internal_cause())
+            {
                 tracing::warn!(book_id, %db_error, "书摘作业标记失败时出错");
             }
             tracing::warn!(

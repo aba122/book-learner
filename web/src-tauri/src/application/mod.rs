@@ -31,7 +31,12 @@ fn book_dto(state: &AppState, book: book_learner_core::models::Book) -> BookDto 
 pub fn list_books(state: &AppState) -> Result<Vec<BookDto>, IpcError> {
     state
         .with_connection(book_learner_core::models::list_books)
-        .map(|books| books.into_iter().map(|book| book_dto(state, book)).collect())
+        .map(|books| {
+            books
+                .into_iter()
+                .map(|book| book_dto(state, book))
+                .collect()
+        })
 }
 
 /// 更正作者(BL-034;书摘按作者归类)

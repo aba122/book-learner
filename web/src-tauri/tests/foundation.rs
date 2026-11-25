@@ -3418,16 +3418,31 @@ fn excerpt_commands_and_worker_round_trip() {
     assert!(added.created);
     assert_eq!(added.excerpt.chapter_title, "第一章");
     let id = added.excerpt.id;
-    let edited = commands::excerpt_update_inner(&state, id, Some("价格越高需求量越少。".into())).unwrap();
+    let edited =
+        commands::excerpt_update_inner(&state, id, Some("价格越高需求量越少。".into())).unwrap();
     assert!(edited.edited);
     let back = commands::excerpt_update_inner(&state, id, None).unwrap();
     assert!(!back.edited);
     commands::excerpt_remove_inner(&state, id).unwrap();
-    assert_eq!(commands::excerpt_library_inner(&state).unwrap().excerpts.len(), 1);
-    commands::excerpt_restore_inner(&state, id).unwrap();
-    assert_eq!(commands::excerpt_library_inner(&state).unwrap().excerpts.len(), 2);
     assert_eq!(
-        commands::excerpt_remove_inner(&state, 999).unwrap_err().code,
+        commands::excerpt_library_inner(&state)
+            .unwrap()
+            .excerpts
+            .len(),
+        1
+    );
+    commands::excerpt_restore_inner(&state, id).unwrap();
+    assert_eq!(
+        commands::excerpt_library_inner(&state)
+            .unwrap()
+            .excerpts
+            .len(),
+        2
+    );
+    assert_eq!(
+        commands::excerpt_remove_inner(&state, 999)
+            .unwrap_err()
+            .code,
         ErrorCode::NotFound
     );
     // 重新整理时作业还在跑 → conflict;更正作者
