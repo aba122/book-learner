@@ -36,8 +36,11 @@ fi
 rm -rf "$APP" && cp -R "$SRC" "$APP" || { echo "copy failed"; exit 1 }
 # 清掉门禁遗留的临时安装副本(只删本脚本族创建的目录)
 rm -rf /private/tmp/bl-t6-inst.*(N) 2>/dev/null   # (N):zsh 无匹配时不报错
-open -a "$APP" && sleep 4
+# 重开时去掉上面为拉 GitHub 导出的代理变量:open -a 会把本 shell 的环境传给 app(2026-11-25 装机实测),
+# 代理没开时 app 调起的 codex 会挂到超时;去掉后与从 Dock/Finder 打开一样
+env -u https_proxy -u HTTPS_PROXY -u http_proxy -u HTTP_PROXY -u all_proxy -u ALL_PROXY -u no_proxy -u NO_PROXY open -a "$APP" && sleep 4
 pgrep -f "$APP" >/dev/null && echo "new app running" || echo "WARN: app not running after open"
+ps eww -p "$(pgrep -f "$APP" | head -1)" 2>/dev/null | grep -i -E ' (https?|all)_proxy=' >/dev/null && echo "WARN: app 进程带着代理变量,代理没开时 codex 会连不上"
 echo "== installed: $(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist" 2>/dev/null) git=$(git rev-parse --short HEAD) built=$(stat -f %Sm -t '%F %T' "$APP/Contents/MacOS/book-learner")"
 echo "logs: ~/Library/Application Support/book-learner/logs/"
 echo "INSTALL-RELEASE-DONE"
