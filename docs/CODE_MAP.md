@@ -142,7 +142,7 @@ select * from setting;
 
 **自动化桥 `automation.rs`**(debug + `BOOK_LEARNER_AUTOMATION_SOCK`):unix socket,一行 JSON:`{"js":...,"timeout_ms"}` 在 WebView eval 并经 `automation_report` 回传;`{"tray_title":true}`;`{"quit":true}`(走有序退出)。
 
-**线程**:`reminder`(30 s 轮询,长连接,`setting` 表 `notified:<kind>:<date>` 幂等;晚间窗口才查队列)、`pomodoro-ticker`(1 s,锁外落库 `study_minutes`)、`excerpt-worker`(BL-034:启动 15 s 后开始,长连接,逐本跑 `excerpt::next_job` 直到没有;空闲时等 `ExcerptWorker::poke` 或 60 s;provider 用 `ai_provider_with_args(codex_args())`——codex 推理强度压到 medium;不登记 `JobRegistry`,退出不等它,断点在库里)。
+**线程**:`reminder`(30 s 轮询,长连接,`setting` 表 `notified:<kind>:<date>` 幂等;晚间窗口才查队列)、`pomodoro-ticker`(1 s,锁外落库 `study_minutes`)、`excerpt-worker`(BL-034:启动 15 s 后开始,长连接,逐本跑 `excerpt::next_job` 直到没有;空闲时等 `ExcerptWorker::poke` 或 60 s;provider 同其它 AI 功能(`ai_provider()`);不登记 `JobRegistry`,退出不等它,断点在库里)。
 
 **数据目录**(release `~/Library/Application Support/book-learner/`):`app.db(.replaced-<ts>)`、`memory/`、`books/<book_id>.epub`、`import/`、`models/`、`snapshots/app-YYYY-MM-DD.db`、`restore-pending.json`。`capabilities/default.json` 只有 `core:default` + `notification:default`(无 dialog/fs/shell 权限:文件选择走 rfd,`open` 走 `std::process::Command`)。
 
@@ -243,7 +243,7 @@ select * from setting;
 
 **ai_request 命名空间**:`turn:{session}:{clientTurnId}`、`eval:{session}:{requestId}`、`extra:{session}:{requestId}`、`final:{session}:{requestId}`、`map:{jobId}:ch{idx}[:p{k}]`、`map:{jobId}:merge`、`excerpt:{book}:r{run}:p{k}`、`excerpt:{book}:r{run}:pick`(BL-034);客户端 id ≤ 64 且不含 `:`。
 
-**超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、书摘每片/精选 420(推理强度 medium)、`--version` 10。注意:用户 `~/.codex/config.toml` 的 `model_reasoning_effort` 会作用到所有沿用全局配置的调用,xhigh 时单次常超过 2–5 分钟(2026-11-25 实测)。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
+**超时(秒)**:回合 120、评估 120、附加 finish 120、终评报告 180、地图每章 300、书摘每片/精选 420、`--version` 10。**队列**:重考 ≤ 3/日(est 10)→ 到期复习(est 5)→ 主攻书新块配额(est 30);已暂停/学完书的复习照常。**落后检测**:近两个有新块任务的过去日期都未完成 → `required = ceil(剩余块/剩余天)`,≤ cap 自动改配额,否则弹决定。**会话上限**:快问学生回合 6、附加 3(方法论 4)、终评 8(框架阶段 3、至少作答 3 次才能出报告)。
 
 **投影 kind → 文件**:`init_book`(`_map.md/_weakpoints.md/blocks/` + INDEX 行)、`block_eval`(`blocks/<id:04>-<slug>.md`,仅新块判定)、`sync_weakpoints`、`sync_map`、`sync_reading`(`_reading.md`,问书提炼,op_id 带消息水位 `reading:<book>:t<topic>:m<id>`)、`sync_lineage`(`_lineage.md`,脉络图,op_id `lineage:<book>:h<hash>`)、`sync_weread`(`_weread.md`,微信读书划线/想法,op_id `weread:<book>:h<hash>`,同步后壳层 `replay_projection_after`)、`extra_archive`(`_applications.md/_methodology.md/_notes.md`)、`report_archive`(`_report.md`)、`git_commit`、`git_push`(push 通道)。md 内 `<!-- entry:… -->` 标记保证幂等。
 
@@ -299,6 +299,9 @@ CI(`.github/workflows/ci.yml`):`core`(ubuntu)、`web`(ubuntu,node 22,pnpm 11.24.
 **导入 / EPUB**
 - zip 未开 deflate 读不到 OPF(书名变文件名)——已修;单章 HTML 的书所有锚点整章回退,费曼注入整章原文(≤ 60 KiB);Calibre 转出的 EPUB 同样整章回退、章节名为拆分文件名。
 - epub.js CFI 必须锚定文本节点。
+
+**调试版 / 门禁环境**
+- 经 `bl-run.sh` 启动的调试版会继承它导出的 `https_proxy=http://127.0.0.1:7897`;Mac 上代理没开时,调试版调起的 codex 连不上 OpenAI,会话收到 prompt 后一直没有回复、挂到超时(2026-11-25 BL-034 真机误判过一次「xhigh 太慢」)。启动调试版前 `env -u https_proxy -u HTTPS_PROXY …`;从 Finder 启动的正式版走 launchd 环境,没有这些变量。
 
 **流程 / 脚本**
 - 假绿:管道后要立刻读 `pipestatus`;改动脚本别挂在 `&&` 链尾;每任务核对用例数变化;分支 rebase 后 `--force-with-lease`;同名 tmux 会话先杀;传给 `bl-run.sh` 的脚本用 `<name>-cmd.sh`;python 里禁止 `open(p,'w').write(open(p).read())`;只按 pid 文件结束进程。

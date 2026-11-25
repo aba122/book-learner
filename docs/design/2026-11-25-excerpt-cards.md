@@ -83,7 +83,7 @@ CREATE TABLE excerpt_job(
 6. **落库**(单事务):第 1 轮直接插入;重新整理(第 n>1 轮)先删掉本书 `source='ai' AND status='active' AND edited=0` 的卡片再插入;插入时跳过与现有卡片(含墓碑)`norm_key` 相同的。
 7. **失败**:任一步失败 → `stage='failed'`,`error` 存给用户看的中文原因(超时 / 找不到 codex / AI 没有回应 / 输出无法解析),`error_detail` 存原始错误;「重试」= 同一轮续跑(已完成的片从 `ai_request` 重放,不再调 AI)。spine 变了(片数不同)则开新一轮。
 
-**推理强度与超时**:整理线程给 codex 传 `-c model_reasoning_effort=medium`(`excerpt::EXCERPT_REASONING_EFFORT`)。11-25 真机实测:用户全局配置为 `xhigh`(当天改的)时,连 1274 字的导言片都超过 300 s 被杀;同类请求 medium 约 13 s。挑句子不需要深推理,其它功能沿用全局配置。每次调用超时 420 s。规模估算(medium):每片 1–3 分钟,10 万字的书约 7 片 + 精选,约 10–20 分钟;50 万字约 20 片,约 30–60 分钟。
+**超时与推理强度**:每次调用 420 s(一片最长 80 KiB,比地图每章 300 s 多留余量);推理强度沿用用户的 codex 全局配置。11-25 真机对照(同一片 1.3 千字、同一工作目录):xhigh 26 s、medium 22 s,xhigh 挑出的句子明显更精炼,所以不另行压低。规模估算:每片 0.5–3 分钟,10 万字的书约 7 片 + 精选,约 5–20 分钟;50 万字约 20 片,约 20–60 分钟。
 
 **入队语义 `enqueue(book, regenerate)`**:
 

@@ -27,11 +27,9 @@ pub const AI_TEXT_MAX_CHARS: usize = 400;
 pub const USER_TEXT_MAX_CHARS: usize = 1200;
 /// 阶段 B prompt 里每条候选原文最多显示的字数
 pub const PICK_PROMPT_TEXT_CHARS: usize = 240;
-/// 每次 AI 调用超时。推理强度压到 medium 后一片(≤ 80 KiB)通常 1–3 分钟,留余量
+/// 每次 AI 调用超时。沿用用户的 codex 全局配置(2026-11-25 为 xhigh:1.3 千字的片约 26 s);
+/// 一片最长 80 KiB,比地图每章的 300 s 多留余量
 pub const EXCERPT_TIMEOUT_SECS: u64 = 420;
-/// 书摘作业给 codex 的推理强度(壳层整理线程以 `-c model_reasoning_effort=<值>` 传入)。
-/// 挑句子不需要深推理;用户全局配置为 xhigh 时(2026-11-25 实测)连 1 千字的片都超过 300 s,4 本书要跑几个小时
-pub const EXCERPT_REASONING_EFFORT: &str = "medium";
 /// 主题标签最多字数
 pub const TAG_MAX_CHARS: usize = 8;
 /// 作者名最多字数(更正作者)

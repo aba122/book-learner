@@ -98,20 +98,9 @@ pub fn drain(state: &AppState, connection: &Connection) {
     }
 }
 
-/// 书摘调用 codex 的额外参数:推理强度压到 medium(用户全局 xhigh 时一片就超过 300 s)
-pub fn codex_args() -> Vec<String> {
-    vec![
-        "-c".into(),
-        format!(
-            "model_reasoning_effort={}",
-            excerpt::EXCERPT_REASONING_EFFORT
-        ),
-    ]
-}
-
 /// 跑一本书的作业;codex 不可用时把作业标失败(原因写给用户看),否则它会一直排在队首
 pub fn run_one(state: &AppState, connection: &Connection, book_id: i64) {
-    let (provider, policy) = match state.ai_provider_with_args(codex_args()) {
+    let (provider, policy) = match state.ai_provider() {
         Ok(pair) => pair,
         Err(error) => {
             if let Err(db_error) =
