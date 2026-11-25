@@ -14,7 +14,7 @@ export interface ExcerptCardActions {
 
 /**
  * 书摘卡片「纸笺」(BL-034,用户 11-25 在三种小样里选定):暖白纸面、细边、宋体正文,
- * 左上一枚作者色大引号;≤ 34 字的短句放大;底部虚线下是「《书》· 章节」与作者色标签。
+ * 左上一枚作者色大引号;≤ 34 字的短句放大;底部虚线下是章节名(没有章节名时写书名)与作者色标签。
  * 桌面悬停/聚焦时右上出现 复制 · 在书中查看 · 编辑 · 删除;触摸屏(无悬停)改为常驻「⋯」动作单。
  */
 export default function ExcerptCard({
@@ -33,7 +33,8 @@ export default function ExcerptCard({
 }) {
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const short = [...excerpt.text.replace(/\s/g, '')].length <= EXCERPT_SHORT_CHARS
-  const source = excerpt.chapterTitle ? `《${bookTitle}》· ${excerpt.chapterTitle}` : `《${bookTitle}》`
+  // 卡片都排在所属书的分组下面,底部只写章节(长书名会把章节挤成省略号,11-25 真机);没有章节名才写书名
+  const source = excerpt.chapterTitle || `《${bookTitle}》`
   const items: MenuEntry[] = [
     { label: '复制', icon: 'doc-on-doc', onSelect: actions.onCopy },
     { label: '在书中查看', icon: 'book-open', onSelect: actions.onReveal },

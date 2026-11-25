@@ -118,6 +118,18 @@ describe('书摘页(BL-034)', () => {
     expect(screen.getByText('没有找到含「不存在的词」的书摘')).toBeInTheDocument()
   })
 
+  it('卡片底部只写章节名;没有章节名时写书名', async () => {
+    await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: null })
+    await mock.excerptGenerate(1, false)
+    for (let i = 0; i < 8; i++) await mock.excerptJobs()
+    renderPage()
+    const cards = await screen.findAllByTestId('excerpt-card')
+    const footers = cards.map(c => c.querySelector('footer')?.textContent ?? '')
+    expect(footers.some(f => f.startsWith('需求曲线与需求定律'))).toBe(true)
+    expect(footers.some(f => f.startsWith('《微观经济学》'))).toBe(true)
+    expect(footers.every(f => !f.includes('》·'))).toBe(true)
+  })
+
   it('删除后可撤销', async () => {
     const user = userEvent.setup()
     await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: null })
