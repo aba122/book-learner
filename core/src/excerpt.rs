@@ -27,8 +27,11 @@ pub const AI_TEXT_MAX_CHARS: usize = 400;
 pub const USER_TEXT_MAX_CHARS: usize = 1200;
 /// 阶段 B prompt 里每条候选原文最多显示的字数
 pub const PICK_PROMPT_TEXT_CHARS: usize = 240;
-/// 每次 AI 调用超时(同地图每章)
-pub const EXCERPT_TIMEOUT_SECS: u64 = 300;
+/// 每次 AI 调用超时。推理强度压到 medium 后一片(≤ 80 KiB)通常 1–3 分钟,留余量
+pub const EXCERPT_TIMEOUT_SECS: u64 = 420;
+/// 书摘作业给 codex 的推理强度(壳层整理线程以 `-c model_reasoning_effort=<值>` 传入)。
+/// 挑句子不需要深推理;用户全局配置为 xhigh 时(2026-11-25 实测)连 1 千字的片都超过 300 s,4 本书要跑几个小时
+pub const EXCERPT_REASONING_EFFORT: &str = "medium";
 /// 主题标签最多字数
 pub const TAG_MAX_CHARS: usize = 8;
 /// 作者名最多字数(更正作者)
@@ -430,12 +433,20 @@ fn strip_fence(text: &str) -> &str {
         .trim()
 }
 
-/// 解析 JSON;模型偶尔在 JSON 前后多说一句,退而截取第一个 `open` 到最后一个 `close`
+/// 解析 JSON;模型偶尔在 JSON 前后多说一句、或把同一段 JSON 输出两遍(2026-11-25 真机见过 `[..][..]`):
+/// 先整段解析,再从第一个 `open` 起取第一个完整 JSON 值,最后退而截取第一个 `open` 到最后一个 `close`
 fn parse_json_loose(text: &str, open: char, close: char) -> Result<serde_json::Value> {
     let t = strip_fence(text);
     match serde_json::from_str::<serde_json::Value>(t) {
         Ok(v) => Ok(v),
         Err(first) => {
+            if let Some(a) = t.find(open) {
+                let mut values =
+                    serde_json::Deserializer::from_str(&t[a..]).into_iter::<serde_json::Value>();
+                if let Some(Ok(v)) = values.next() {
+                    return Ok(v);
+                }
+            }
             let (Some(a), Some(b)) = (t.find(open), t.rfind(close)) else {
                 return Err(CoreError::EvalParse(format!("excerpt json: {first}")));
             };
@@ -1533,6 +1544,25 @@ mod tests {
     fn run(conn: &Connection, provider: &dyn AiProvider, book: i64) -> crate::Result<ExcerptJob> {
         let dir = std::env::temp_dir();
         run_job(conn, provider, &dir, &policy(), book, &mut |_| {})
+    }
+
+    #[test]
+    fn loose_json_takes_first_value_when_output_is_duplicated_or_wrapped() {
+        let dup = r#"[{"text":"其实地上本没有路"}][{"text":"其实地上本没有路"}]"#;
+        let v = parse_json_loose(dup, '[', ']').unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        let wrapped = "好的,下面是结果:\n[{\"text\":\"一句\"}]\n希望有帮助";
+        assert_eq!(
+            parse_json_loose(wrapped, '[', ']').unwrap()[0]["text"],
+            "一句"
+        );
+        let picks = parse_picks(
+            r#"{"picks":["c1"]}{"picks":["c1"]}"#,
+            &HashSet::from(["c1"]),
+        )
+        .unwrap();
+        assert_eq!(picks.len(), 1);
+        assert!(parse_json_loose("没有 JSON", '[', ']').is_err());
     }
 
     #[test]

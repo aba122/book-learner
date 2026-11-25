@@ -301,6 +301,15 @@ impl AppState {
     /// AI provider 与策略:注入优先;否则 codex CLI,`bin` 取 `setting.codexBin`(绝对路径)或按
     /// [`resolve_codex_bin`] 的固定顺序解析 `codex`。`codexBin` 不是 `AppSettings` 字段,直接读表。
     pub fn ai_provider(&self) -> Result<(SharedProvider, AiPolicy), IpcError> {
+        self.ai_provider_with_args(Vec::new())
+    }
+
+    /// 同 [`Self::ai_provider`],codex 命令行额外带 `extra_args`(书摘整理线程用它把推理强度压到
+    /// `excerpt::EXCERPT_REASONING_EFFORT`,BL-034);注入的 provider(测试)原样返回。
+    pub fn ai_provider_with_args(
+        &self,
+        extra_args: Vec<String>,
+    ) -> Result<(SharedProvider, AiPolicy), IpcError> {
         if let Some(provider) = &self.provider_override {
             return Ok((Arc::clone(provider), AiPolicy::default()));
         }
@@ -323,10 +332,7 @@ impl AppState {
             ensure_dir_on_path(directory);
         }
         Ok((
-            Arc::new(CodexCliProvider {
-                bin,
-                extra_args: vec![],
-            }),
+            Arc::new(CodexCliProvider { bin, extra_args }),
             AiPolicy::default(),
         ))
     }
