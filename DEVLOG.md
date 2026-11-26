@@ -827,3 +827,12 @@
 - **BL-033(10-19 开发发现)**:问书话题 1 的问答全文 168,584 字节,`distill_topic` 原样塞进 prompt,超过 100 KB 上限,每次启动补跑都失败(到 11-26 已试 19 次)。新增 `fit_distill_transcript`:放得下原样;放不下先把每条截短(助手回复 600 字、提问 1000 字、引文 200 字,注明「后略」);仍放不下就从最早的问答起省略,并注明省了几条。预算是 100 KB 减 8 KiB,因为纠错重试会往 system 里追加说明。
 - **真机(Mac,正式数据的副本 + 调试版 `4633c1d` + 真 codex)**:用 `import-e2e.mjs` 在导入向导里选原文件 → 日志「EPUB 的 mimetype 不在首位,照常导入 index=77」→ 入库书名「龙与少年游」、作者「江南」(取自 OPF,不带 z-library 后缀),71 个章节、15.4 万字。知识地图逐章生成,每章约 46 s,这本书章节多而短,全书约 55 分钟。调试版启动时补跑话题 1 的提炼,一次成功(distilled_up_to 46 → 86)。
 - 测试:core `bl033_long_topic_distill_prompt_fits_under_the_limit`(短话题逐字不变、20 轮截短、90 轮省略);壳层 `bl035_epub_with_mimetype_not_first_or_missing_is_imported`(mimetype 排末位、缺失都能导入且书名取 OPF,内容不对仍拒收;原来「首条目不是 mimetype 就拒收」的用例删去);web library「BL-035 壳层校验拒收」。门禁:core 246 单测 + 集成、clippy、fmt;web 507/2、tsc、oxlint 0、build;壳层在 Mac 上 `cargo test` 全过。新增 `docs/smoke/scripts/import-e2e.mjs`(Playwright 驱动真实导入向导)。
+
+## 2026-11-26 · BL-036 知识地图可选:导入时可暂不生成,书架补生成,阅读器按书打开
+
+- **需求(用户 11-26)**:听说《龙与少年游》71 章生成地图要 54 分钟后,用户说「知识地图不一定导入的每本书都装,可以让用户自主选择」。原来导入向导选完类型一路跑到地图,生成期间对话框不可关;阅读器只能按知识块打开(`/reader/:blockId`),没有地图的书读不了(段永平那本一直如此),书摘「在书中查看」只能提示原因。
+- **做法(只改前端)**:导入向导拆成两段——`importOp`(导入 → 抽章节 → `storeSpine`)后停在「要生成知识地图吗?」(`MapChoice`:章数、字数、预计用时 = 每章 45 秒 + 合并 2 分钟,标题用书里的书名);「生成知识地图」= `mapOp`(`mapJob.generateMap`:地图作业 → 书摘入队 → 锚点回填,与原来一样);「暂不生成」或在这一步关掉 → 只入队书摘,书留在书架并弹提示。书架 `hasMap`:没地图的书标「未生成地图」,点卡片/「阅读」→ `/read/:bookId`,「更多操作 → 生成知识地图」= `MapGenerateDialog`(`epubUrl` → 抽章节数章节 → 同一说明 → staged 书先 `storeSpine` → `generateMap` → 地图页)。阅读器 `ReaderPageContent` 支持 `blockId=null`:只取书、epub 地址与标记,书名作标题,书签用目录标题,问书不挂块。书摘页 `readerPath`:有知识块按块,没有按书。core/壳层不动(导出、问书、脉络图本来就能处理没有块的书)。
+- **真机(Mac,正式数据副本 + 调试版 + 真 codex,`optional-map-e2e.mjs`)**:①导入《龙与少年游》,选择框「《龙与少年游》· 人文·社科 | 71 章 · 15.4 万字 · 生成地图约 55 分钟」→ 暂不生成 → 书架「未生成地图」→「阅读」→ `/read/5` 正文渲染,书摘随即在后台开始整理;②段永平那本书摘「在书中查看」→ `/read/4`,原句精确定位;③示例书(3 章)暂不生成后在书架补生成,175 s 出 12 个知识块,锚点 18 段全部 exact(按 URL 打开 EPUB 回填也正常)。服务端日志 0 ERROR。第一次真机后发现选择框显示的是 z-library 文件名,改为取书行书名后重跑一遍全过。
+- **坑**:Mac 仓库正检出着 `feat/optional-map` 时,`git fetch <bundle> feat/optional-map:refs/heads/feat/optional-map` 会被拒(refusing to fetch into checked-out branch),脚本却继续构建旧提交——改成先 fetch 到 FETCH_HEAD 再 `checkout -B`。
+- 测试:library「知识地图可选(BL-036)」×5 + 原导入用例补选择步骤,reader「按书打开(BL-036)」×3,excerpts「没生成知识地图的书按书打开」;web 516/2 绿,CI 三项绿。
+
