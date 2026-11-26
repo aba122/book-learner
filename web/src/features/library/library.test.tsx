@@ -338,6 +338,27 @@ describe('书架页', () => {
     expect(storeSpine).not.toHaveBeenCalled()
   })
 
+  it('BL-035 壳层校验拒收:不显示「请求内容无效」,说清是文件的问题,只提供关闭', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(backendModule.backend, 'importEpub').mockRejectedValue(new BackendError({
+      code: 'invalid_request',
+      message: '请求内容无效',
+      retryable: false,
+    }))
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '龙与少年游 (江南) (z-library.sk, 1lib.sk, z-lib.sk).epub', { type: 'application/epub+zip' }))
+    await user.click(screen.getByRole('button', { name: '人文·社科' }))
+
+    const dialog = screen.getByRole('dialog', { name: '导入书籍' })
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert).toHaveTextContent('这个文件导入不了:它不是有效的 EPUB,或者文件已损坏、超过 200 MB')
+    expect(alert).not.toHaveTextContent('请求内容无效')
+    expect(within(dialog).getByText(/龙与少年游/)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '关闭' })).toBeEnabled()
+  })
+
   it('原生不支持导入时保留所选文件和类型,只提供关闭', async () => {
     const user = userEvent.setup()
     vi.spyOn(backendModule.backend, 'importEpub').mockRejectedValue(new BackendError({

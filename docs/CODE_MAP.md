@@ -19,7 +19,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 症状(用户看到的) | 首先查 | 代码入口 |
 |---|---|---|
 | 书架删除书失败/删后记忆库目录还在 | `projection_outbox` `remove_book` 行;删前快照在 `snapshots/` | `core/src/library.rs` `delete_book`;`core/src/memory.rs` `remove_book`;壳层 `application::delete_book` |
-| 导入向导「导入未完成 · 请求内容无效」 | 文件不是 EPUB(PDF 直选)/zip 结构异常;`import.rs` 校验 | `web/src-tauri/src/import.rs` `validate_epub` / `finalize`;向导 `web/src/features/library/ImportWizard.tsx` |
+| 导入向导「导入未完成 · 这个文件导入不了」(BL-035 前显示「请求内容无效」) | 文件不是 EPUB(PDF 直选)/zip 结构异常/超过 200 MB;`import.rs` 校验(具体原因看日志 `internal_cause`) | `web/src-tauri/src/import.rs` `validate_epub` / `finalize`;向导 `web/src/features/library/ImportWizard.tsx` |
 | 导入停在「正在生成知识地图」或报「AI 暂时没有回应」 | `ai_request` 表最新一行的 `error`(codex 退出码/超时/解析失败);`map_job.stage/error` | `core/src/mapgen.rs` `run_map_job`;codex 启动 `core/src/ai.rs`;PATH 问题见 §9 |
 | 地图页空/块数为 0 | `book.import_state`(ready/extracted/mapped)、`knowledge_block` 行数、`map_job` | `core/src/map.rs` `apply_draft_map`;`web/src/features/map/MapPage.tsx` |
 | 「确认定稿」报冲突 | `book.map_revision` 与前端 `expectedRevision` 不一致(多窗口/重试) | `core/src/map.rs` `confirm_map` |
@@ -134,7 +134,7 @@ select * from setting;
 
 **错误映射 `error.rs`**:`ErrorCode` = invalid_request / not_found / conflict / db_unavailable(可重试)/ io_failure(可重试)/ ai_unavailable(可重试;`CoreError::Ai|EvalParse`)/ not_implemented / internal。`internal_cause` 只进日志不过 IPC。前端 `tauri.ts` 的 `IPC_ERRORS` 文案与之一致。
 
-**导入 `import.rs`**:暂存 `import/<opId>/part-NNNNNN` → `assemble`(分块须连续)→ `validate_epub`(zip 魔数、条目 ≤ 5000、路径安全、首条目 `mimetype`=`application/epub+zip`、有 `container.xml`)→ `epub_metadata`(读 OPF `dc:title/dc:creator`;**zip 须开 deflate**)→ 插书行(`slug=import-<opId>`,`import_state='staged'`)→ rename 到 `books/<book_id>.epub`。总量上限 200 MiB。
+**导入 `import.rs`**:暂存 `import/<opId>/part-NNNNNN` → `assemble`(分块须连续)→ `validate_epub`(zip 魔数、条目 ≤ 5000、路径安全、`mimetype` 有则须为 `application/epub+zip`、位置不限(BL-035:z-library 的书常排最后或缺失)、有 `container.xml`)→ `epub_metadata`(读 OPF `dc:title/dc:creator`;**zip 须开 deflate**)→ 插书行(`slug=import-<opId>`,`import_state='staged'`)→ rename 到 `books/<book_id>.epub`。总量上限 200 MiB。
 
 **语音 `voice.rs`**:`models/` 目录,`ggml-*.bin` 白名单,导入 ≥ 20 MiB 复制 + rename,首个自动选中;`transcribe` 按选中模型懒加载、`OnceLock<Mutex>` 串行;录音 ≤ 120 s;无模型 → invalid_request 且不加载 whisper;feature `voice` 默认开(需 cmake)。
 
@@ -230,7 +230,7 @@ select * from setting;
 | `ai.rs` | `CodexCliProvider`:`codex exec --skip-git-repo-check -C <memory/> --sandbox read-only|workspace-write --output-last-message <tmp> <prompt>`;prompt ≤ 100 KiB(argv)、输出 ≤ 1 MiB、进程组超时杀 | — |
 | `projection.rs` | outbox `enqueue/enqueue_in`、`run_pending`(main 通道保序,失败即停)、`run_push_lane`(退避 60 s×2ⁿ,上限 6 h) | projection_outbox |
 | `memory.rs` | md 原子写(临时文件 + fsync + rename)、slug 白名单、git commit/push/remote、`profile_*` | 文件系统 |
-| `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
+| `reading_chat.rs` | 问书:`reading_topic`/`reading_message`,`send_message`(两事务包 codex,历史渲染进 system)、`end_topic`、`chapter_window`;`distill_topic`(话题→`Distilled` JSON,`reading_distill:<topic>:m<id>`;问答记录经 `fit_distill_transcript` 装进 100 KB − 8 KiB,BL-033)、`topics_needing_distill`、`understanding_lines`/`reading_notes_for_block`(反哺 FixedContext) | reading_topic, reading_message |
 | `weread.rs` | 微信读书同步(BL-030):`Gateway` trait + `HttpGateway`(ureq,`POST i.weread.qq.com/api/agent/gateway`,Bearer Key,`api_name`+`skill_version`+平铺参数;`check_errcode` 把 errcode≠0 归为 Auth/Gateway)、`plan`(读库:每本 `progress_fetched_for`、要拉的月份——首次回补 11 个月,每月 1–3 日补上月)→ `fetch`(只网络:书架 → 变化的进度 ≤60 本 → overall + 各月;书架失败 `fatal`)→ `apply`(一个事务:书架 upsert/标 removed、进度、`weread_reading_day` 按北京时间分桶、`auto_link` 唯一候选、account 状态);`connect`(先 `validate_key`,失败不落库)、`books/link/book_for_local/reading_days/status/set_auto_sync/disconnect`;`Status::last_error` 承载失败原因(壳层会把异常消息替换成固定文案)。第二批:`fetch` 对 `plan.linked`(已关联在架书)拉 `/book/bookmarklist` + 分页 `/review/list/mine`,`apply_marks/apply_thoughts` upsert(消失标 removed、保留 `local_mark_id`),`enqueue_notes_projection`(`weread:<local>:h<hash>:sync_weread`);`notes_for_local/notes_for_weread`、`locate`(一个事务:建 source=weread 高亮或把想法追加进批注 + 写状态)、`render_markdown`(`_weread.md`/导出正文)、`notes_for_block`(块锚点章节里的已定位划线 → FixedContext) | weread_account、weread_book、weread_reading_day、weread_mark、weread_thought |
 | `lineage.rs` | 脉络图(按进度合成图,每书一张):`progress_seq`(position→spine idx)、`is_content_chapter`(剔封面/版权/目录/分部页与 <200 字页)、`generate`(已读正文章/块标题作骨架 → `run_ai_json` `lineage:<book>:s<seq>:r<n>`(n=同前缀已有行数,否则同进度重生成会重放旧结果),非事务)、`get`(带 current_seq 与两端章节标题)、`save`(清洗后保留 up_to_seq)、`update`(只喂新读章节,`merge_preserving` 保留 userEdited 节点与其旧边)、`revise`(指令 + 可聚焦节点,改动节点标 userEdited)、`node_source`(章节/块/节选)、`render_markdown`;`clean_graph`(空标题/重 id/悬空自环边/截 40;AI 无边时串链);所有写库经 `upsert` 入队 `sync_lineage`(op_id 带内容哈希) | lineage_graph |
 | `stats.rs` / `export.rs` / `backup.rs` / `reader_marks.rs` / `pomodoro.rs` / `notify.rs` / `settings.rs` | 统计 / Obsidian 导出(只读)/ `VACUUM INTO` 快照与恢复标记 / 标记 / 番茄钟状态机 / 提醒判定 / 五个设置键 | — |

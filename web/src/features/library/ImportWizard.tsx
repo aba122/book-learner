@@ -43,6 +43,23 @@ async function extractChapters(file: File, onProgress: (label: string) => void):
 }
 
 /**
+ * 壳层导入校验失败(不是 EPUB、压缩包损坏、超过 200 MB)经 IPC 只剩固定文案「请求内容无效」(F8:不透传内部原因),
+ * 向导里换成看得懂的说法(BL-035)
+ */
+const IMPORT_REJECTED = '这个文件导入不了:它不是有效的 EPUB,或者文件已损坏、超过 200 MB'
+
+async function importFile(file: File, type: BookType): Promise<number> {
+  try {
+    return (await backend.importEpub(file, type)).bookId
+  } catch (error) {
+    if (error instanceof BackendError && error.code === 'invalid_request' && error.message === '请求内容无效') {
+      throw new BackendError({ code: 'invalid_request', message: IMPORT_REJECTED, retryable: false })
+    }
+    throw error
+  }
+}
+
+/**
  * 导入向导(视觉改版第二批):Dialog 原语(忙态不可关);拖放区可键盘触发;
  * 三种书型是大行按钮;忙态用不定进度条 + 进度文案(文案钉在测试里,不改)。
  */
@@ -62,7 +79,7 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       let { bookId, chapters } = captured
       if (bookId === undefined) {
         setProgress('正在导入书籍…')
-        bookId = (await backend.importEpub(captured.file, captured.type)).bookId
+        bookId = await importFile(captured.file, captured.type)
         setAttempt({ ...captured, bookId })
       }
       if (chapters === undefined) {
