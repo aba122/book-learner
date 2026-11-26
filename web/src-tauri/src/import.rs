@@ -157,8 +157,8 @@ impl ImportStore {
         Ok(assembled)
     }
 
-    /// EPUB 结构校验:zip 魔数、条目数上限、无遍历/绝对路径条目、首条目 `mimetype` 为
-    /// `application/epub+zip`、存在 `META-INF/container.xml`。不解压正文。
+    /// EPUB 结构校验:zip 魔数、条目数上限、无遍历/绝对路径条目、`mimetype` 条目(有的话)为
+    /// `application/epub+zip`(不再要求排第一,BL-035)、存在 `META-INF/container.xml`。不解压正文。
     pub fn validate_epub(path: &Path) -> Result<(), IpcError> {
         let file = File::open(path).map_err(io_error)?;
         let mut magic = [0u8; 4];
@@ -189,27 +189,33 @@ impl ImportStore {
                 ));
             }
         }
-        {
-            let first = archive
-                .by_index(0)
-                .map_err(|error| invalid("EPUB 结构异常", format!("entry 0: {error}")))?;
-            if first.name() != "mimetype" {
-                return Err(invalid(
-                    "EPUB 结构异常",
-                    format!("first entry is {:?}, not mimetype", first.name()),
-                ));
+        // OCF 规范要 mimetype 排第一个且不压缩(方便按魔数嗅探);z-library 等重打包的书常把它挪到后面
+        // 甚至省掉,epub.js / Apple Books / Calibre 都照常打开(BL-035:《龙与少年游》排在第 78 项,
+        // 原来按「首条目」拒收,向导只显示「请求内容无效」)。位置不再要求;有这个条目就校验内容,
+        // 防止把别的 zip 当 EPUB;是不是 EPUB 由下面的 container.xml 判定。
+        match archive.index_for_name("mimetype") {
+            Some(index) => {
+                let entry = archive.by_index(index).map_err(|error| {
+                    invalid("EPUB 结构异常", format!("mimetype entry {index}: {error}"))
+                })?;
+                let mut mimetype = String::new();
+                entry
+                    .take(64)
+                    .read_to_string(&mut mimetype)
+                    .map_err(|error| invalid("EPUB 结构异常", format!("mimetype: {error}")))?;
+                let mimetype =
+                    mimetype.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+                if mimetype != EPUB_MIMETYPE {
+                    return Err(invalid(
+                        "EPUB 结构异常",
+                        format!("mimetype is {mimetype:?}"),
+                    ));
+                }
+                if index != 0 {
+                    tracing::info!(index, "EPUB 的 mimetype 不在首位,照常导入(BL-035)");
+                }
             }
-            let mut mimetype = String::new();
-            first
-                .take(64)
-                .read_to_string(&mut mimetype)
-                .map_err(|error| invalid("EPUB 结构异常", format!("mimetype: {error}")))?;
-            if mimetype.trim() != EPUB_MIMETYPE {
-                return Err(invalid(
-                    "EPUB 结构异常",
-                    format!("mimetype is {:?}", mimetype.trim()),
-                ));
-            }
+            None => tracing::info!("EPUB 没有 mimetype 条目,照常导入(BL-035)"),
         }
         if archive.index_for_name("META-INF/container.xml").is_none() {
             return Err(invalid("EPUB 结构异常", "META-INF/container.xml missing"));
@@ -853,13 +859,6 @@ mod tests {
                 ]),
             ),
             (
-                "mimetype-not-first",
-                zip_bytes(&[
-                    ("META-INF/container.xml", b"x"),
-                    ("mimetype", EPUB_MIMETYPE.as_bytes()),
-                ]),
-            ),
-            (
                 "traversal",
                 zip_bytes(&[
                     ("mimetype", EPUB_MIMETYPE.as_bytes()),
@@ -888,6 +887,61 @@ mod tests {
             .query_row("SELECT count(*) FROM book", [], |row| row.get(0))
             .unwrap();
         assert_eq!(books, 0);
+    }
+
+    #[test]
+    fn bl035_epub_with_mimetype_not_first_or_missing_is_imported() {
+        // z-library 重打包的书:container.xml 排第一、mimetype 排最后(《龙与少年游》在第 78 项);也有干脆没有 mimetype 的
+        let dir = tempfile::tempdir().unwrap();
+        let (store, conn) = store(dir.path());
+        let container: &[u8] = b"<?xml version=\"1.0\"?><container version=\"1.0\"><rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>";
+        let opf = "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"2.0\">\
+                   <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>龙与少年游</dc:title>\
+                   <dc:creator opf:role=\"aut\">江南</dc:creator></metadata><manifest/><spine/></package>";
+        let last = zip_bytes_with(
+            &[
+                ("META-INF/container.xml", container),
+                ("OEBPS/content.opf", opf.as_bytes()),
+                ("OEBPS/Text/Section0001.html", b"<html>x</html>"),
+                ("mimetype", EPUB_MIMETYPE.as_bytes()),
+            ],
+            CompressionMethod::Deflated,
+        );
+        let missing = zip_bytes_with(
+            &[
+                ("META-INF/container.xml", container),
+                ("OEBPS/content.opf", opf.as_bytes()),
+            ],
+            CompressionMethod::Deflated,
+        );
+        for (op_id, bytes) in [("op-last", last), ("op-missing", missing)] {
+            store.stage_chunk(op_id, 0, &bytes).unwrap();
+            let book_id = store
+                .finalize(
+                    &conn,
+                    op_id,
+                    BookType::Humanities,
+                    "龙与少年游 (江南) (z-library.sk, 1lib.sk, z-lib.sk)",
+                )
+                .unwrap_or_else(|error| panic!("{op_id}: {error:?}"));
+            let book = models::get_book(&conn, book_id).unwrap();
+            assert_eq!(book.title, "龙与少年游", "{op_id}:书名取 OPF,不是文件名");
+            assert_eq!(book.author, "江南", "{op_id}");
+            assert!(store.book_path(book_id).is_file(), "{op_id}");
+        }
+        // 内容不对的 mimetype 不论排第几都拒收(防止把别的 zip 当 EPUB)
+        let wrong = zip_bytes(&[
+            ("META-INF/container.xml", b"x"),
+            ("mimetype", b"application/zip"),
+        ]);
+        store.stage_chunk("op-wrong", 0, &wrong).unwrap();
+        assert_eq!(
+            store
+                .finalize(&conn, "op-wrong", BookType::Humanities, "x")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
     }
 
     #[test]

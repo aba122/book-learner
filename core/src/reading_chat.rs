@@ -1,6 +1,6 @@
 //! 阅读辅助对话「问书」(spec 2026-09-16):按书存话题/消息;每条用户消息一次 codex exec
 //! (无状态,历史回合渲染进 system);话题提炼(第二批)把问答压成结构化条目,反哺 FixedContext。
-use crate::ai::{AiProvider, CompletionRequest, Role};
+use crate::ai::{AiProvider, CompletionRequest, Role, MAX_PROMPT_BYTES};
 use crate::orchestrate::{run_ai_json, run_ai_request, validate_client_id, AiPolicy};
 use crate::{prompts, CoreError, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
@@ -19,6 +19,12 @@ pub const READING_NOTES_PER_BLOCK: usize = 10;
 pub const READING_FINAL_STATE_MAX: usize = 20;
 pub const READING_TURN_TIMEOUT_SECS: u64 = 120;
 pub const READING_DISTILL_TIMEOUT_SECS: u64 = 120;
+/// 提炼 prompt(system)上限:比 `MAX_PROMPT_BYTES` 少 8 KiB,留给纠错重试追加的说明(BL-033)
+const DISTILL_PROMPT_BUDGET: usize = MAX_PROMPT_BYTES - 8 * 1024;
+/// 问答记录放不下时每条保留的字数:提炼看的是用户问了什么、懂没懂,助手的长解释与大段引文只留开头
+const DISTILL_SHORT_ASSISTANT_CHARS: usize = 600;
+const DISTILL_SHORT_USER_CHARS: usize = 1000;
+const DISTILL_SHORT_QUOTE_CHARS: usize = 200;
 /// 前端也截,这里兜底
 pub const READING_QUOTE_MAX_CHARS: usize = 8000;
 pub const READING_TEXT_MAX_CHARS: usize = 4000;
@@ -339,32 +345,32 @@ pub fn distill_topic(
             r.get(0)
         })?;
     let chapters = crate::mapgen::list_spine(conn, topic.book_id)?;
-    let mut transcript = String::new();
-    for m in list_messages(conn, topic_id)?
+    let turns: Vec<DistillTurn> = list_messages(conn, topic_id)?
         .into_iter()
         .filter(|m| m.status == "done")
-    {
-        let who = if m.role == "assistant" {
-            "助手"
-        } else {
-            "用户"
-        };
-        let chapter = chapters
-            .iter()
-            .find(|c| c.href == m.spine_href)
-            .map(|c| c.title.clone())
-            .unwrap_or_else(|| m.spine_href.clone());
-        let block = m
-            .block_id
-            .map(|b| format!(" · 块 #{b}"))
-            .unwrap_or_default();
-        transcript.push_str(&format!("[{who} · {chapter}{block}]\n"));
-        if !m.quote.is_empty() {
-            transcript.push_str(&format!("引用:「{}」\n", m.quote));
-        }
-        transcript.push_str(&m.text);
-        transcript.push_str("\n\n");
-    }
+        .map(|m| {
+            let assistant = m.role == "assistant";
+            let who = if assistant { "助手" } else { "用户" };
+            let chapter = chapters
+                .iter()
+                .find(|c| c.href == m.spine_href)
+                .map(|c| c.title.clone())
+                .unwrap_or_else(|| m.spine_href.clone());
+            let block = m
+                .block_id
+                .map(|b| format!(" · 块 #{b}"))
+                .unwrap_or_default();
+            DistillTurn {
+                header: format!("[{who} · {chapter}{block}]"),
+                quote: m.quote,
+                text: m.text,
+                assistant,
+            }
+        })
+        .collect();
+    let budget = DISTILL_PROMPT_BUDGET
+        .saturating_sub(prompts::reading_distill_prompt(&book_title, "").len());
+    let transcript = fit_distill_transcript(&turns, budget);
     let req = CompletionRequest {
         system: prompts::reading_distill_prompt(&book_title, &transcript),
         messages: vec![],
@@ -403,6 +409,73 @@ pub fn distill_topic(
     )?;
     tx.commit()?;
     Ok(true)
+}
+
+/// 提炼用的一条问答(章节名、块号已解析进 header)
+struct DistillTurn {
+    header: String,
+    quote: String,
+    text: String,
+    assistant: bool,
+}
+
+impl DistillTurn {
+    /// `short`:助手回复、用户提问、引文各只留开头(超出处注明「后略」)
+    fn render(&self, short: bool) -> String {
+        let (quote, text) = if short {
+            let text_max = if self.assistant {
+                DISTILL_SHORT_ASSISTANT_CHARS
+            } else {
+                DISTILL_SHORT_USER_CHARS
+            };
+            (
+                clip_chars(&self.quote, DISTILL_SHORT_QUOTE_CHARS),
+                clip_chars(&self.text, text_max),
+            )
+        } else {
+            (self.quote.clone(), self.text.clone())
+        };
+        let mut out = format!("{}\n", self.header);
+        if !quote.is_empty() {
+            out.push_str(&format!("引用:「{quote}」\n"));
+        }
+        out.push_str(&text);
+        out.push_str("\n\n");
+        out
+    }
+}
+
+fn clip_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out = truncate_chars(s, max);
+    out.push_str("…(后略)");
+    out
+}
+
+/// 问答记录装进 `budget` 字节(BL-033:长话题整段塞进 prompt 超过 100 KB,每次启动补跑都失败)。
+/// 放得下原样;放不下先把每条截短;仍放不下从最早的问答起省略并注明条数。
+fn fit_distill_transcript(turns: &[DistillTurn], budget: usize) -> String {
+    let full: String = turns.iter().map(|t| t.render(false)).collect();
+    if full.len() <= budget {
+        return full;
+    }
+    let short: Vec<String> = turns.iter().map(|t| t.render(true)).collect();
+    if short.iter().map(String::len).sum::<usize>() <= budget {
+        return short.concat();
+    }
+    const NOTE_RESERVE: usize = 128;
+    let mut used = 0;
+    let mut first = short.len();
+    while first > 0 && used + short[first - 1].len() + NOTE_RESERVE <= budget {
+        first -= 1;
+        used += short[first].len();
+    }
+    format!(
+        "(前面还有 {first} 条较早的问答,篇幅所限从略)\n\n{}",
+        short[first..].concat()
+    )
 }
 
 /// 该书各话题已提炼的结果(按 distilled_at 新→旧),附提炼日期
@@ -964,6 +1037,80 @@ mod tests {
         assert_ne!(empty, r.topic_id);
         assert!(!distill_topic(&conn, &p, Path::new("."), &policy(), empty).unwrap());
         assert!(topics_needing_distill(&conn).unwrap().is_empty());
+    }
+
+    /// 问答给一段很长的解释,记下提炼 prompt(BL-033)
+    struct LongReplies {
+        reply: String,
+        distill_systems: Mutex<Vec<String>>,
+    }
+    impl AiProvider for LongReplies {
+        fn complete(&self, req: &CompletionRequest) -> crate::Result<String> {
+            if req.request_id.starts_with("reading_distill:") {
+                self.distill_systems
+                    .lock()
+                    .unwrap()
+                    .push(req.system.clone());
+                return Ok(DISTILL_JSON.into());
+            }
+            Ok(self.reply.clone())
+        }
+    }
+
+    #[test]
+    fn bl033_long_topic_distill_prompt_fits_under_the_limit() {
+        // 短话题:问答记录与原来逐字相同
+        let (conn, book) = setup();
+        let p = LongReplies {
+            reply: "短答".into(),
+            distill_systems: Mutex::new(vec![]),
+        };
+        let r = send(&conn, &p, book, None, "s1", "问");
+        assert!(distill_topic(&conn, &p, Path::new("."), &policy(), r.topic_id).unwrap());
+        let system = p.distill_systems.lock().unwrap().pop().unwrap();
+        assert!(
+            system.ends_with("[用户 · 第一章]\n引用:「需求定律」\n问\n\n[助手 · 第一章]\n短答\n\n"),
+            "{system}"
+        );
+        // 长话题:每条回复 4500 字(约 13 KB)。20 轮全文约 270 KB,截短后全放得下;90 轮还要省略最早的
+        for (rounds, omitted) in [(20usize, false), (90, true)] {
+            let (conn, book) = setup();
+            let p = LongReplies {
+                reply: "这是解释。".repeat(900),
+                distill_systems: Mutex::new(vec![]),
+            };
+            let mut topic = None;
+            for i in 0..rounds {
+                let r = send(
+                    &conn,
+                    &p,
+                    book,
+                    topic,
+                    &format!("m{i}"),
+                    &format!("第{i}个问题"),
+                );
+                topic = Some(r.topic_id);
+            }
+            let topic = topic.unwrap();
+            assert!(
+                distill_topic(&conn, &p, Path::new("."), &policy(), topic).unwrap(),
+                "{rounds} 轮"
+            );
+            let system = p.distill_systems.lock().unwrap().pop().unwrap();
+            assert!(
+                system.len() <= DISTILL_PROMPT_BUDGET,
+                "{rounds} 轮:{} 字节",
+                system.len()
+            );
+            assert!(
+                system.contains(&format!("第{}个问题\n", rounds - 1)),
+                "最新的问题要在"
+            );
+            assert!(system.contains("…(后略)"), "助手长回复要截短");
+            assert_eq!(system.contains("篇幅所限从略"), omitted, "{rounds} 轮");
+            assert_eq!(system.contains("第0个问题\n"), !omitted, "{rounds} 轮");
+            assert!(!get_topic(&conn, topic).unwrap().needs_distill);
+        }
     }
 
     #[test]
