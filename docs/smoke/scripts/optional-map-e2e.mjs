@@ -42,6 +42,8 @@ async function importWithoutMap(file, type) {
   await dialog.getByText('要生成知识地图吗?').or(dialog.getByRole('alert')).first().waitFor({ timeout: 5 * 60 * 1000 })
   if (await dialog.getByRole('alert').count()) throw new Error('import failed: ' + (await dialog.getByRole('alert').first().innerText()))
   const estimate = (await dialog.getByTestId('map-estimate').innerText()).trim()
+  const subtitle = (await dialog.getByText(/》· /).first().innerText()).trim()
+  console.log(`[choice] ${subtitle} | ${estimate}`)
   await page.screenshot({ path: `${OUT}/choice-${type}.png` })
   await dialog.getByRole('button', { name: '暂不生成' }).click()
   await dialog.waitFor({ state: 'hidden' })

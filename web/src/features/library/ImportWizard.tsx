@@ -28,7 +28,12 @@ interface ImportAttempt {
   chapters?: SpineChapter[]
   /** 章节已写入(storeSpine 完成):向导停在「要生成知识地图吗?」(BL-036) */
   stored?: boolean
+  /** 书里的书名(壳层导入时取自 OPF);拿不到就用文件名 */
+  title?: string
 }
+
+/** 选择这一步与失败时显示的书名:优先书里的书名(z-library 的文件名带一长串后缀) */
+const bookName = (attempt: ImportAttempt) => attempt.title ?? attempt.file.name.replace(/\.epub$/i, '')
 
 /**
  * 壳层导入校验失败(不是 EPUB、压缩包损坏、超过 200 MB)经 IPC 只剩固定文案「请求内容无效」(F8:不透传内部原因),
@@ -61,7 +66,7 @@ export default function ImportWizard({
   open: boolean
   onClose: () => void
   /** 章节已入库、没有生成地图就离开了向导(暂不生成 / 在选择这一步关掉 / 地图失败后关闭) */
-  onImportedWithoutMap?: (bookId: number) => void
+  onImportedWithoutMap?: (bookId: number, title: string | undefined) => void
 }) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
@@ -85,7 +90,8 @@ export default function ImportWizard({
       setAttempt({ ...captured, bookId, chapters })
     }
     await backend.storeSpine(bookId, chapters)
-    setAttempt({ ...captured, bookId, chapters, stored: true })
+    const title = captured.title ?? (await backend.listBooks().catch(() => [])).find(b => b.id === bookId)?.title
+    setAttempt({ ...captured, bookId, chapters, stored: true, title })
   })
   // 第二段(选了「生成知识地图」):地图作业(进度)→ 书摘入队 → 锚点回填 → 跳地图页
   const mapOp = useBackendOperation(
@@ -100,6 +106,7 @@ export default function ImportWizard({
   const close = () => {
     if (busy) return
     const leftWithoutMap = attempt?.stored && attempt.bookId !== undefined ? attempt.bookId : null
+    const leftTitle = attempt?.title
     importOp.clearError('import')
     mapOp.clearError('map')
     setFile(null)
@@ -108,7 +115,7 @@ export default function ImportWizard({
     setAttempt(null)
     if (leftWithoutMap !== null) {
       enqueueExcerpts(leftWithoutMap)
-      onImportedWithoutMap?.(leftWithoutMap)
+      onImportedWithoutMap?.(leftWithoutMap, leftTitle)
     }
     onClose()
   }
@@ -141,7 +148,7 @@ export default function ImportWizard({
             : '这是哪一类书?'
   const description =
     (stage === 'failed' || stage === 'choose') && attempt
-      ? `《${attempt.file.name.replace(/\.epub$/i, '')}》· ${TYPES.find(t => t.type === attempt.type)?.label}`
+      ? `《${bookName(attempt)}》· ${TYPES.find(t => t.type === attempt.type)?.label}`
       : stage === 'pick'
         ? '选择一本书导入书架;知识地图可以导入时生成,也可以以后再生成'
         : stage === 'type' && file

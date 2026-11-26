@@ -181,20 +181,12 @@ export default function LibraryPage() {
   })
 
   /** 导入时选了「暂不生成」(BL-036):书已在书架上,提示能直接读、以后在哪里生成 */
-  const onImportedWithoutMap = (bookId: number) => {
-    void backend
-      .listBooks()
-      .then(all => {
-        const book = all.find(b => b.id === bookId)
-        toast({
-          message: book ? `已导入《${book.title}》` : '已导入',
-          description: '没有生成知识地图。可以直接阅读;想学的时候,在这本书的「更多操作」里生成。',
-          action: { label: '阅读', onSelect: () => navigate(`/read/${bookId}`) },
-        })
-      })
-      .catch(() => {
-        /* 提示拿不到书名就不弹;书架照常刷新 */
-      })
+  const onImportedWithoutMap = (bookId: number, title: string | undefined) => {
+    toast({
+      message: title ? `已导入《${title}》` : '已导入',
+      description: '没有生成知识地图。可以直接阅读;想学的时候,在这本书的「更多操作」里生成。',
+      action: { label: '阅读', onSelect: () => navigate(`/read/${bookId}`) },
+    })
   }
 
   const confirmSwitch = () => {

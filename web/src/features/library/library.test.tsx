@@ -451,11 +451,18 @@ describe('知识地图可选(BL-036)', () => {
     const user = userEvent.setup()
     const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
     const generate = vi.spyOn(backendModule.backend, 'excerptGenerate')
+    // 壳层导入时书名取自 OPF:模拟 z-library 文件名带后缀、书行是干净书名
+    const listBooks = backendModule.backend.listBooks.bind(backendModule.backend)
+    vi.spyOn(backendModule.backend, 'listBooks').mockImplementation(async () =>
+      (await listBooks()).map(b => (b.id === 2 ? { ...b, title: '龙与少年游' } : b)))
     renderLibrary()
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
-    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '龙与少年游.epub', { type: 'application/epub+zip' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '龙与少年游 (江南) (z-library.sk, 1lib.sk, z-lib.sk).epub', { type: 'application/epub+zip' }))
     await user.click(await screen.findByRole('button', { name: '人文·社科' }))
     expect(await screen.findByText('要生成知识地图吗?')).toBeInTheDocument()
+    // 选择这一步显示书里的书名,不是文件名
+    expect(screen.getByText('《龙与少年游》· 人文·社科')).toBeInTheDocument()
+    expect(screen.queryByText(/z-library/)).toBeNull()
     await user.click(screen.getByRole('button', { name: '暂不生成' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入书籍' })).toBeNull())
     expect(runMapJob).not.toHaveBeenCalled()
