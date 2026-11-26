@@ -75,7 +75,8 @@ function stripFragment(href: string): string {
   return href.split('#')[0]
 }
 
-function findTocTitle(toc: NavItem[], href: string): string | null {
+/** 按 spine href 找目录标题(阅读器按书打开时给书签起名也用它) */
+export function findTocTitle(toc: NavItem[], href: string): string | null {
   for (const item of toc) {
     const itemHref = stripFragment(item.href ?? '')
     if (itemHref === href || itemHref.endsWith(`/${href}`) || href.endsWith(`/${itemHref}`)) {

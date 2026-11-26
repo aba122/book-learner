@@ -2,6 +2,7 @@ import type { NavItem } from 'epubjs'
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
+import { BackendError } from '../../backend/errors'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
 import Checkbox from '../../components/Checkbox'
@@ -27,6 +28,7 @@ import ReadingChatPanel from './ReadingChatPanel'
 import LineagePanel from './lineage/LineagePanel'
 import { isModalOpen } from '../../lib/modalStack'
 import { authorInfo } from '../excerpts/authors'
+import { findTocTitle } from '../../epub/extract'
 import type { RevealTarget } from '../excerpts/ExcerptsPage'
 
 const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[] = [
@@ -36,8 +38,13 @@ const THEME_OPTIONS: { name: ReaderTheme; label: string; swatchClass: string }[]
 ]
 
 interface ReaderContent {
-  block: KnowledgeBlock
-  source: { href: string; text: string }
+  /** 按书打开(/read/:bookId,BL-036)时为 null */
+  block: KnowledgeBlock | null
+  bookId: number
+  /** 按书打开时工具栏显示书名;按块打开显示「模块 · 块名」 */
+  bookTitle: string
+  /** 块原文;按书打开时为 null */
+  source: { href: string; text: string } | null
   url: string
   /** 首次取到的标记(含上次阅读位置);之后按本地操作维护 */
   readerMarksInit: ReaderMark[]
@@ -162,14 +169,20 @@ const NAV_BTN = 'absolute top-1/2 z-20 flex size-9 -translate-y-1/2 cursor-point
  * 阅读器(视觉改版第二批):工具栏带(返回 · 标题 · 目录/书签/标记/阅读设置 · 放大/收起侧栏),
  * 目录与阅读设置是锚定浮层;右栏是平铺检视列(分段控件切 学习模式/问书/脉络图);
  * 路由参数变化即重挂载:旧 blockId 的晚到结果随旧实例卸载而作废。
+ * 两个入口:`/reader/:blockId` 按知识块打开(学习、费曼回读、有地图的书);
+ * `/read/:bookId` 按书打开(BL-036:没生成知识地图的书也能读,起点 = 上次阅读位置,没有就从书首)。
  */
 export default function ReaderPage() {
-  const { blockId: blockIdParam } = useParams()
+  const { blockId: blockIdParam, bookId: bookIdParam } = useParams()
+  if (bookIdParam !== undefined) {
+    const routeBookId = Number(bookIdParam)
+    return <ReaderPageContent key={`book-${routeBookId}`} blockId={null} routeBookId={routeBookId} />
+  }
   const blockId = Number(blockIdParam)
-  return <ReaderPageContent key={blockId} blockId={blockId} />
+  return <ReaderPageContent key={blockId} blockId={blockId} routeBookId={null} />
 }
 
-function ReaderPageContent({ blockId }: { blockId: number }) {
+function ReaderPageContent({ blockId, routeBookId }: { blockId: number | null; routeBookId: number | null }) {
   const [searchParams] = useSearchParams()
   const taskId = searchParams.get('task')
   const backTaskId = searchParams.get('back')
@@ -227,8 +240,16 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   /** BL-018:防抖待写的最后阅读位置;卸载/切书时补写,避免丢最后一页 */
   const pendingPos = useRef<{ href: string; cfi: string } | null>(null)
 
-  // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布
+  // 内容管线:块 → (原文 ‖ epub 地址),全部成功后才原子发布;按书打开时只取书、epub 地址与标记
   const content = useAsyncResource(useCallback(async (isCurrent: () => boolean): Promise<ReaderContent> => {
+    if (blockId === null) {
+      const book = (await backend.listBooks()).find(b => b.id === routeBookId)
+      if (!isCurrent()) throw new StaleResult()
+      if (!book) throw new BackendError({ code: 'not_found', message: '找不到这本书,可能已经删除了', retryable: false })
+      const [url, readerMarksInit] = await Promise.all([backend.epubUrl(book.id), backend.readerMarkList(book.id)])
+      if (!isCurrent()) throw new StaleResult()
+      return { block: null, bookId: book.id, bookTitle: book.title, source: null, url, readerMarksInit, segments: [], anchorHrefs: [] }
+    }
     const block = await backend.getBlock(blockId)
     if (!isCurrent()) throw new StaleResult()
     const [source, url, readerMarksInit, anchors] = await Promise.all([
@@ -242,8 +263,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
       .filter(a => a.precision === 'exact')
       .map(a => ({ spineHref: a.spineHref, cfiStart: a.cfiStart, cfiEnd: a.cfiEnd }))
     const anchorHrefs = [...new Set(anchors.map(a => a.spineHref))]
-    return { block, source, url, readerMarksInit, segments, anchorHrefs }
-  }, [blockId]))
+    return { block, bookId: block.bookId, bookTitle: '', source, url, readerMarksInit, segments, anchorHrefs }
+  }, [blockId, routeBookId]))
   const block = content.data?.block ?? null
   const source = content.data?.source ?? null
   const url = content.data?.url ?? null
@@ -290,7 +311,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   }, [selection, copySelection])
 
   const learning = taskId !== null
-  const ready = block !== null && source !== null && url !== null
+  const ready = content.data !== null
   const goBack = () => (backTaskId ? navigate(`/feynman/${backTaskId}`) : navigate(-1))
   // 标记清单:内容管线里首次取到,之后按本地操作维护(不重拉整本书)
   const initialMarks = content.data?.readerMarksInit ?? []
@@ -300,7 +321,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
   const blockStart = content.data?.segments[0]?.cfiStart ?? source?.href
   const initialHref = reveal ? (reveal.cfi ?? reveal.href) : backTaskId ? blockStart : (position?.cfiStart ?? (learning ? blockStart : source?.href))
   const highlights = currentMarks.filter(m => m.kind === 'highlight' && m.cfiEnd).map(m => ({ cfiRange: m.cfiEnd as string, color: m.color }))
-  const bookId = block?.bookId ?? null
+  const bookId = content.data?.bookId ?? null
   // 阅读时长(BL-025):书打开后开始计;可见且有操作才算
   useReadingClock(bookId, ready)
 
@@ -324,7 +345,8 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
     const loc = epubRef.current?.currentLocation()
     if (!loc || bookId === null) return
     addMarkOp.clearError('add')
-    void addMarkOp.run('add', { kind: 'bookmark', spineHref: loc.href, cfiStart: loc.cfi, text: block ? `${block.moduleName} · ${block.title}` : loc.href })
+    const text = block ? `${block.moduleName} · ${block.title}` : (findTocTitle(toc, loc.href) ?? (content.data?.bookTitle || loc.href))
+    void addMarkOp.run('add', { kind: 'bookmark', spineHref: loc.href, cfiStart: loc.cfi, text })
   }
   // 存为书摘(BL-034):存进这本书作者的卡片库;同一段文字重复存不会重复建卡
   const saveExcerpt = () => {
@@ -419,7 +441,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
         )}
         <div data-tauri-drag-region className="min-w-0 flex-1 px-2 text-center">
           <span className="block truncate font-serif text-body font-semibold text-label-1">
-            {block ? `${block.moduleName} · ${block.title}` : '阅读'}
+            {block ? `${block.moduleName} · ${block.title}` : content.data?.bookTitle || '阅读'}
           </span>
         </div>
         {ready && (
@@ -564,7 +586,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
         </div>
 
         {/* 右栏:平铺检视列。有任务 → 学习模式/问书/脉络图;无任务 → 问书/脉络图 */}
-        {ready && (
+        {ready && bookId !== null && (
           <div className="flex shrink-0 items-stretch">
             {!panelOpen && (
               <button
@@ -595,7 +617,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                   )}
                   <IconButton icon="sidebar-right" label="收起侧栏" onClick={() => setPanelOpen(false)} />
                 </div>
-                {learning && (
+                {learning && block && (
                   <div id="reader-learn-panel" role="tabpanel" aria-label="学习模式" hidden={sideTab !== 'learn'} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" data-testid="learn-panel">
                     <h2 className="font-serif text-title3 font-semibold text-label-1">{block.title}</h2>
                     <p className="text-footnote text-label-3">
@@ -616,9 +638,9 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 )}
                 <div id="reader-chat-panel" role="tabpanel" aria-label="问书" hidden={sideTab !== 'chat'} className="flex min-h-0 flex-1 flex-col p-3" data-testid="chat-panel">
                   <ReadingChatPanel
-                    bookId={block.bookId}
-                    currentHref={currentHref || position?.spineHref || source.href}
-                    blockIdForHref={href => (content.data?.anchorHrefs.includes(href) ? blockId : null)}
+                    bookId={bookId}
+                    currentHref={currentHref || position?.spineHref || source?.href || ''}
+                    blockIdForHref={href => (blockId !== null && content.data?.anchorHrefs.includes(href) ? blockId : null)}
                     quoteDraft={quoteDraft}
                     onQuoteConsumed={() => setQuoteDraft(null)}
                   />
@@ -626,7 +648,7 @@ function ReaderPageContent({ blockId }: { blockId: number }) {
                 {/* 脉络图(plan 2026-09-19):按进度合成图;收起只隐藏、不卸载,保留手改草稿 */}
                 <div id="reader-lineage-panel" role="tabpanel" aria-label="脉络图" hidden={sideTab !== 'lineage'} className="flex min-h-0 flex-1 flex-col p-3" data-testid="lineage-panel">
                   <LineagePanel
-                    bookId={block.bookId}
+                    bookId={bookId}
                     onGoto={href => epubRef.current?.display(href)}
                     onAsk={text => {
                       setQuoteDraft(text)

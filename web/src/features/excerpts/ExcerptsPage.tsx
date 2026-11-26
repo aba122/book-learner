@@ -415,14 +415,14 @@ export default function ExcerptsPage() {
       toast({ message: '没能复制,系统不允许访问剪贴板' })
     }
   }
+  // 有知识块 → 按块打开阅读器(与之前一样);没有地图的书按书打开(BL-036)
+  const readerPath = (bookId: number) => {
+    const blockId = data?.library.books.find(b => b.bookId === bookId)?.readerBlockId
+    return blockId ? `/reader/${blockId}` : `/read/${bookId}`
+  }
   const reveal = (e: Excerpt) => {
-    const stats = data?.library.books.find(b => b.bookId === e.bookId)
-    if (!stats?.readerBlockId) {
-      toast({ message: '这本书还没有知识地图,阅读器打不开', description: '在书架里打开它、生成知识地图后,就能从卡片翻回原文' })
-      return
-    }
     const target: RevealTarget = { href: e.spineHref, text: e.originalText, cfi: e.cfi }
-    navigate(`/reader/${stats.readerBlockId}`, { state: { reveal: target } })
+    navigate(readerPath(e.bookId), { state: { reveal: target } })
   }
   const remove = (e: Excerpt) => {
     const cur = dataRef.current
@@ -551,7 +551,7 @@ export default function ExcerptsPage() {
             onGenerate={() => void generate(entry.book.id, false)}
             onRegenerate={() => setRegenerating(entry)}
             onSetAuthor={() => setAuthorBook(entry.book)}
-            onOpenReader={entry.stats?.readerBlockId ? () => navigate(`/reader/${entry.stats!.readerBlockId}`) : null}
+            onOpenReader={() => navigate(readerPath(entry.book.id))}
           />
         ))}
       </div>

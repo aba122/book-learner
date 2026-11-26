@@ -8,6 +8,7 @@ import * as errorModule from '../../backend/errors'
 import { MockBackend } from '../../backend/mock'
 import type { Backend } from '../../backend/types'
 import * as extractModule from '../../epub/extract'
+import { clearToasts } from '../../lib/toastStore'
 import type { Book, KnowledgeBlock, MapProgress, SpineChapter } from '../../types'
 import LibraryPage from './LibraryPage'
 
@@ -71,6 +72,11 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+/** BL-036:抽完章节后的「要生成知识地图吗?」——选生成 */
+async function chooseGenerateMap(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: '生成知识地图' }))
+}
+
 /** 视觉改版第二批:卡片操作收进「更多操作」菜单 */
 async function openMenu(user: ReturnType<typeof userEvent.setup>, title: string) {
   await user.click(screen.getByRole('button', { name: `《${title}》的更多操作` }))
@@ -104,6 +110,8 @@ describe('单主攻书补完(M2 T8)', () => {
   it('点击已学完的书直接看地图,不弹切换确认', async () => {
     const user = userEvent.setup()
     const { bookId } = await backendModule.backend.importEpub(new File(['x'], '旧书.epub'), 'humanities')
+    await backendModule.backend.storeSpine(bookId, [{ idx: 0, href: 'c.xhtml', title: '一', text: '正文' }])
+    await backendModule.backend.runMapJob(bookId, 'job-old')
     await backendModule.backend.finishBook(bookId)
     renderLibrary()
     await user.click(await screen.findByText('旧书'))
@@ -196,11 +204,11 @@ describe('书架页', () => {
     expect(await screen.findByText('书架还空着——导入一本 EPUB 开始。')).toBeInTheDocument()
   })
 
-  it('导入未完成的书显示徽标,也可删除', async () => {
+  it('没生成知识地图的书显示「未生成地图」(BL-036),也可删除', async () => {
     const user = userEvent.setup()
     await backendModule.backend.importEpub(new File(['epub'], '半途.epub', { type: 'application/epub+zip' }), 'textbook')
     renderLibrary()
-    expect(await screen.findByText('导入未完成')).toBeInTheDocument()
+    expect(await screen.findByText('未生成地图')).toBeInTheDocument()
     await openMenu(user, '半途')
     await user.click(screen.getByRole('menuitem', { name: '删除《半途》' }))
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
@@ -228,9 +236,15 @@ describe('书架页', () => {
     await user.upload(screen.getByLabelText(/选择 EPUB 文件/), selected)
     await user.click(await screen.findByRole('button', { name: '教材' }))
 
+    // BL-036:抽完章节先问要不要生成(章数、字数、预计用时),选了才跑地图
+    expect(await screen.findByText('要生成知识地图吗?')).toBeInTheDocument()
+    expect(screen.getByTestId('map-estimate')).toHaveTextContent('3 章 · 15 字 · 生成地图约 5 分钟')
+    expect(storeSpine).toHaveBeenCalledWith(2, CHAPTERS)
+    expect(runMapJob).not.toHaveBeenCalled()
+    await chooseGenerateMap(user)
+
     expect(await screen.findByText('正在生成知识地图…')).toBeInTheDocument()
     expect(vi.mocked(extractModule.extractSpine)).toHaveBeenCalledTimes(1)
-    expect(storeSpine).toHaveBeenCalledWith(2, CHAPTERS)
     expect(runMapJob).toHaveBeenCalledTimes(1)
     expect(runMapJob.mock.calls[0][0]).toBe(2)
     expect(runMapJob.mock.calls[0][1]).toMatch(ID_RE)
@@ -256,6 +270,7 @@ describe('书架页', () => {
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
     await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '存在主义心理治疗.epub', { type: 'application/epub+zip' }))
     await user.click(await screen.findByRole('button', { name: '人文·社科' }))
+    await chooseGenerateMap(user)
     expect(await screen.findByText('正在生成知识地图…')).toBeInTheDocument()
     expect(generate).not.toHaveBeenCalled()
     resolveJob([])
@@ -286,6 +301,7 @@ describe('书架页', () => {
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
     await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '锚点.epub', { type: 'application/epub+zip' }))
     await user.click(await screen.findByRole('button', { name: '教材' }))
+    await chooseGenerateMap(user)
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toMatch(/^\/map\/\d+$/))
     const bookId = Number(screen.getByTestId('loc').textContent!.split('/').pop())
     const blocks = await backendModule.backend.listBlocks(bookId)
@@ -308,6 +324,7 @@ describe('书架页', () => {
     await user.click(await screen.findByRole('button', { name: '导入书籍' }))
     await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '重试.epub', { type: 'application/epub+zip' }))
     await user.click(screen.getByRole('button', { name: '教材' }))
+    await chooseGenerateMap(user)
 
     const dialog = screen.getByRole('dialog', { name: '导入书籍' })
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('地图作业中断')
@@ -397,6 +414,7 @@ describe('书架页', () => {
     await user.click(screen.getByRole('button', { name: '方法论' }))
 
     await user.click(await screen.findByRole('button', { name: '重试' }))
+    await chooseGenerateMap(user)
 
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/42'))
     expect(importEpub).toHaveBeenCalledTimes(2)
@@ -423,6 +441,110 @@ describe('书架页', () => {
     expect(importEpub).toHaveBeenCalledTimes(1)
     attempt.reject(new BackendError({ code: 'offline', message: '稍后重试', retryable: true }))
     expect(await screen.findByRole('alert')).toHaveTextContent('稍后重试')
+  })
+})
+
+describe('知识地图可选(BL-036)', () => {
+  afterEach(() => clearToasts())
+
+  it('导入时选「暂不生成」:不跑地图,书摘照常入队;书留在书架上「未生成地图」,点「阅读」按书打开', async () => {
+    const user = userEvent.setup()
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
+    const generate = vi.spyOn(backendModule.backend, 'excerptGenerate')
+    // 壳层导入时书名取自 OPF:模拟 z-library 文件名带后缀、书行是干净书名
+    const listBooks = backendModule.backend.listBooks.bind(backendModule.backend)
+    vi.spyOn(backendModule.backend, 'listBooks').mockImplementation(async () =>
+      (await listBooks()).map(b => (b.id === 2 ? { ...b, title: '龙与少年游' } : b)))
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '龙与少年游 (江南) (z-library.sk, 1lib.sk, z-lib.sk).epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '人文·社科' }))
+    expect(await screen.findByText('要生成知识地图吗?')).toBeInTheDocument()
+    // 选择这一步显示书里的书名,不是文件名
+    expect(screen.getByText('《龙与少年游》· 人文·社科')).toBeInTheDocument()
+    expect(screen.queryByText(/z-library/)).toBeNull()
+    await user.click(screen.getByRole('button', { name: '暂不生成' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入书籍' })).toBeNull())
+    expect(runMapJob).not.toHaveBeenCalled()
+    expect(generate).toHaveBeenCalledWith(2, false)
+    expect(await screen.findByText('已导入《龙与少年游》')).toBeInTheDocument()
+    const card = await screen.findByRole('article', { name: '龙与少年游' })
+    expect(within(card).getByText('未生成地图')).toBeInTheDocument()
+    expect(within(card).queryByText('计划冻结 · 复习照常')).toBeNull()
+    await user.click(within(card).getByRole('button', { name: '阅读' }))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/read/2'))
+  })
+
+  it('在「要生成知识地图吗?」这一步直接关掉,等同暂不生成', async () => {
+    const user = userEvent.setup()
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
+    const generate = vi.spyOn(backendModule.backend, 'excerptGenerate')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '随手翻.epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '教材' }))
+    expect(await screen.findByText('要生成知识地图吗?')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入书籍' })).toBeNull())
+    expect(runMapJob).not.toHaveBeenCalled()
+    expect(generate).toHaveBeenCalledWith(2, false)
+    expect(await screen.findByRole('article', { name: '随手翻' })).toHaveTextContent('未生成地图')
+  })
+
+  it('没有地图的书:点卡片按书打开阅读器,不弹切换主攻书', async () => {
+    const user = userEvent.setup()
+    const { bookId } = await backendModule.backend.importEpub(new File(['x'], '只读.epub'), 'humanities')
+    await backendModule.backend.storeSpine(bookId, CHAPTERS)
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '打开《只读》' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('loc')).toHaveTextContent(`/read/${bookId}`)
+  })
+
+  it('「更多操作」→「生成知识地图」:先读章节、说明用时,确认后跑地图(已抽取的书不重写章节),完成跳地图页', async () => {
+    const user = userEvent.setup()
+    const { bookId } = await backendModule.backend.importEpub(new File(['x'], '补生成.epub'), 'textbook')
+    await backendModule.backend.storeSpine(bookId, CHAPTERS)
+    const storeSpine = vi.spyOn(backendModule.backend, 'storeSpine')
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
+    const generate = vi.spyOn(backendModule.backend, 'excerptGenerate')
+    renderLibrary()
+    await screen.findByText('补生成')
+    await openMenu(user, '补生成')
+    expect(screen.queryByRole('menuitem', { name: '标记为已学完' })).toBeNull()
+    await user.click(screen.getByRole('menuitem', { name: '生成知识地图' }))
+    const dialog = await screen.findByRole('dialog', { name: '生成知识地图' })
+    expect(await within(dialog).findByTestId('map-estimate')).toHaveTextContent('3 章 · 15 字 · 生成地图约 5 分钟')
+    expect(vi.mocked(extractModule.openEpub)).toHaveBeenCalledWith('/fixtures/sample.epub')
+    expect(runMapJob).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: '生成知识地图' }))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/map/${bookId}`))
+    expect(runMapJob).toHaveBeenCalledTimes(1)
+    expect(runMapJob.mock.calls[0][0]).toBe(bookId)
+    expect(runMapJob.mock.calls[0][1]).toMatch(ID_RE)
+    expect(storeSpine).not.toHaveBeenCalled()
+    expect(generate).toHaveBeenCalledWith(bookId, false)
+  })
+
+  it('章节没写入过的 staged 书补生成:先写入抽出的章节再跑地图;地图失败可重试,沿用同一作业 id', async () => {
+    const user = userEvent.setup()
+    const { bookId } = await backendModule.backend.importEpub(new File(['x'], '半途.epub'), 'textbook')
+    const storeSpine = vi.spyOn(backendModule.backend, 'storeSpine')
+    const runMapJob = vi.spyOn(backendModule.backend, 'runMapJob')
+      .mockRejectedValueOnce(new BackendError({ code: 'ai_unavailable', message: 'AI 暂时没有回应,请重试', retryable: true }))
+    renderLibrary()
+    await screen.findByText('半途')
+    await openMenu(user, '半途')
+    await user.click(screen.getByRole('menuitem', { name: '生成知识地图' }))
+    const dialog = await screen.findByRole('dialog', { name: '生成知识地图' })
+    await within(dialog).findByTestId('map-estimate')
+    await user.click(within(dialog).getByRole('button', { name: '生成知识地图' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('AI 暂时没有回应')
+    expect(storeSpine).toHaveBeenCalledWith(bookId, CHAPTERS)
+    await user.click(within(dialog).getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/map/${bookId}`))
+    expect(runMapJob).toHaveBeenCalledTimes(2)
+    expect(runMapJob.mock.calls[1][1]).toBe(runMapJob.mock.calls[0][1])
   })
 })
 

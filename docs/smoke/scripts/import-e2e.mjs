@@ -1,5 +1,6 @@
 // 导入端到端(BL-035):在 Mac 上用 Playwright 驱动本机 Chrome(无头)访问调试版攻书的 HTTP 服务,
-// 走一遍真实的导入向导:选文件 → 选类型 → 上传分块 / 校验 / 抽章节 / 生成知识地图(真 codex)→ 跳到地图页。
+// 走一遍真实的导入向导:选文件 → 选类型 → 上传分块 / 校验 / 抽章节 →「要生成知识地图吗?」选生成(BL-036)→ 生成知识地图(真 codex)→ 跳到地图页。
+// 选「暂不生成」的路径见 optional-map-e2e.mjs。
 // 前提:调试版已用数据副本启动,mobile-server.json = 7350 + 令牌 'e2e0'×16(见 ~/Developer/bl-logs/batch-app-cmd.sh)。
 // 用法(Mac):cp 到 web/ 下 → `PATH=/opt/homebrew/bin:$PATH node import-e2e.mjs <epub 路径> [类型按钮名,默认 人文·社科]`;
 //       截图在 ~/Developer/bl-logs/import-shots/。成功打印 `IMPORT-OK book=<id>`,失败打印 `IMPORT-FAILED <提示>` 并退出 1。
@@ -32,6 +33,12 @@ await page.getByLabel(/选择 EPUB 文件/).setInputFiles(FILE)
 await page.getByRole('button', { name: TYPE }).click()
 const started = Date.now()
 const dialog = page.getByRole('dialog')
+// BL-036:抽完章节先问要不要生成地图;导入失败则直接出 alert(下面的循环会接住)
+await dialog.getByText('要生成知识地图吗?').or(dialog.getByRole('alert')).first().waitFor({ timeout: 5 * 60 * 1000 })
+if (!(await dialog.getByRole('alert').count())) {
+  console.log(`[${Math.round((Date.now() - started) / 1000)}s] ${(await dialog.getByTestId('map-estimate').innerText()).trim()}`)
+  await dialog.getByRole('button', { name: '生成知识地图' }).click()
+}
 
 // 进度文案每 15 s 打一次;成功 = 跳到 /map/<id>,失败 = 对话框里出现 alert
 let last = ''

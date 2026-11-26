@@ -301,7 +301,7 @@ function MapPageContent({ bookId }: { bookId: number }) {
               <Skeleton lines={8} />
             </div>
           ) : blocks.length === 0 ? (
-            <EmptyState icon="map" title="这本书还没有知识块" body="地图生成可能被中断,请回到书架重新导入一次。" />
+            <EmptyState icon="map" title="这本书还没有知识地图" body="导入时可以不生成。回到书架,在这本书的「更多操作」里生成;不生成也能直接阅读。" />
           ) : (
             <div className="flex flex-col gap-6">
               {groups.map(group => (

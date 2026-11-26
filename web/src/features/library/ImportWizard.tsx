@@ -7,12 +7,11 @@ import Button from '../../components/Button'
 import Dialog from '../../components/Dialog'
 import Icon from '../../components/icons/Icon'
 import ProgressBar from '../../components/ProgressBar'
-import { anchorBlocks } from '../../epub/anchorBlocks'
-import { extractSpine, openEpub } from '../../epub/extract'
 import { newClientId } from '../../lib/ids'
 import { useBackendOperation } from '../../lib/useBackendOperation'
 import type { BookType, SpineChapter } from '../../types'
-import { progressLabel } from './importProgress'
+import MapChoice from './MapChoice'
+import { enqueueExcerpts, extractChapters, generateMap } from './mapJob'
 
 const TYPES: { type: BookType; label: string; desc: string }[] = [
   { type: 'textbook', label: '教材', desc: '概念层层递进,依赖严格,逐块攻克后向前推进' },
@@ -27,20 +26,14 @@ interface ImportAttempt {
   jobId: string
   bookId?: number
   chapters?: SpineChapter[]
+  /** 章节已写入(storeSpine 完成):向导停在「要生成知识地图吗?」(BL-036) */
+  stored?: boolean
+  /** 书里的书名(壳层导入时取自 OPF);拿不到就用文件名 */
+  title?: string
 }
 
-/** EPUB 抽取在 JS 侧(ADR-0004):解析失败是内容问题,不可重试 */
-async function extractChapters(file: File, onProgress: (label: string) => void): Promise<SpineChapter[]> {
-  let book: Awaited<ReturnType<typeof openEpub>> | null = null
-  try {
-    book = await openEpub(await file.arrayBuffer())
-    return await extractSpine(book, p => onProgress(`正在抽取章节文本 ${p.done}/${p.total}:${p.title}`))
-  } catch {
-    throw new BackendError({ code: 'invalid_request', message: '无法解析这个 EPUB 文件', retryable: false })
-  } finally {
-    book?.destroy()
-  }
-}
+/** 选择这一步与失败时显示的书名:优先书里的书名(z-library 的文件名带一长串后缀) */
+const bookName = (attempt: ImportAttempt) => attempt.title ?? attempt.file.name.replace(/\.epub$/i, '')
 
 /**
  * 壳层导入校验失败(不是 EPUB、压缩包损坏、超过 200 MB)经 IPC 只剩固定文案「请求内容无效」(F8:不透传内部原因),
@@ -62,89 +55,102 @@ async function importFile(file: File, type: BookType): Promise<number> {
 /**
  * 导入向导(视觉改版第二批):Dialog 原语(忙态不可关);拖放区可键盘触发;
  * 三种书型是大行按钮;忙态用不定进度条 + 进度文案(文案钉在测试里,不改)。
+ * 知识地图可选(BL-036):抽完章节先问「要生成知识地图吗?」(章数、字数、预计用时);
+ * 「暂不生成」或在这一步关掉 → 书留在书架上(能阅读、问书、整理书摘),书摘照常入队,以后可在书架补生成。
  */
-export default function ImportWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function ImportWizard({
+  open,
+  onClose,
+  onImportedWithoutMap,
+}: {
+  open: boolean
+  onClose: () => void
+  /** 章节已入库、没有生成地图就离开了向导(暂不生成 / 在选择这一步关掉 / 地图失败后关闭) */
+  onImportedWithoutMap?: (bookId: number, title: string | undefined) => void
+}) {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   /** 选到 PDF:不导入,提示先用 Calibre 转成 EPUB(PDF 原生导入见 IMPLEMENTATION_PLAN 范围外) */
   const [pdfName, setPdfName] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
-  const importedBookId = useRef<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  // 导入 → 抽取 spine → storeSpine → 地图作业(进度)为一个操作;每步成果记进 attempt,失败重试只重跑未完成的步骤
-  const importOp = useBackendOperation(
-    async (captured: ImportAttempt) => {
-      let { bookId, chapters } = captured
-      if (bookId === undefined) {
-        setProgress('正在导入书籍…')
-        bookId = await importFile(captured.file, captured.type)
-        setAttempt({ ...captured, bookId })
-      }
-      if (chapters === undefined) {
-        setProgress('正在抽取章节文本…')
-        chapters = await extractChapters(captured.file, setProgress)
-        setAttempt({ ...captured, bookId, chapters })
-      }
-      await backend.storeSpine(bookId, chapters)
-      setProgress('正在生成知识地图…')
-      const blocks = await backend.runMapJob(bookId, captured.jobId, p => setProgress(progressLabel(p)))
-      // 书摘(BL-034):地图好了就让后台线程整理这本书的书摘(约 50 条);入队失败不影响导入,书摘页可再点「整理」
-      backend
-        .excerptGenerate(bookId, false)
-        .catch(error => console.error('[excerpts] enqueue failed:', error instanceof Error ? error.message : String(error)))
-      // 锚点回填(BL-001):把每块的小节标题解析成精确 CFI 写回;失败只退回整章,不阻塞导入
-      setProgress(`正在定位原文 0/${blocks.length}`)
-      let book: Awaited<ReturnType<typeof openEpub>> | null = null
-      try {
-        book = await openEpub(await captured.file.arrayBuffer())
-        const report = await anchorBlocks(book, blocks, backend, p => setProgress(`正在定位原文 ${p.done}/${p.total}`))
-        if (report.failed > 0) console.error('[anchors] backfill incomplete:', report)
-      } catch (error) {
-        console.error('[anchors] backfill skipped:', error instanceof Error ? error.message : String(error))
-      } finally {
-        book?.destroy()
-      }
-      importedBookId.current = bookId
-    },
-    {
-      onCommitted: async () => {
-        if (importedBookId.current !== null) navigate(`/map/${importedBookId.current}`)
-      },
-    },
+  // 第一段:导入 → 抽取 spine → storeSpine;每步成果记进 attempt,失败重试只重跑未完成的步骤
+  const importOp = useBackendOperation(async (captured: ImportAttempt) => {
+    let { bookId, chapters } = captured
+    if (bookId === undefined) {
+      setProgress('正在导入书籍…')
+      bookId = await importFile(captured.file, captured.type)
+      setAttempt({ ...captured, bookId })
+    }
+    if (chapters === undefined) {
+      setProgress('正在抽取章节文本…')
+      chapters = await extractChapters(() => captured.file.arrayBuffer(), setProgress)
+      setAttempt({ ...captured, bookId, chapters })
+    }
+    await backend.storeSpine(bookId, chapters)
+    const title = captured.title ?? (await backend.listBooks().catch(() => [])).find(b => b.id === bookId)?.title
+    setAttempt({ ...captured, bookId, chapters, stored: true, title })
+  })
+  // 第二段(选了「生成知识地图」):地图作业(进度)→ 书摘入队 → 锚点回填 → 跳地图页
+  const mapOp = useBackendOperation(
+    (captured: ImportAttempt) => generateMap(captured.bookId!, captured.jobId, () => captured.file.arrayBuffer(), setProgress),
+    { onCommitted: async (_key, captured) => navigate(`/map/${captured.bookId}`) },
   )
-  const busy = importOp.pending.has('import')
-  const failure = importOp.errors.get('import')
+  const importing = importOp.pending.has('import')
+  const busy = importing || mapOp.pending.has('map')
+  const importFailure = importOp.errors.get('import')
+  const failure = importFailure ?? mapOp.errors.get('map')
 
   const close = () => {
     if (busy) return
+    const leftWithoutMap = attempt?.stored && attempt.bookId !== undefined ? attempt.bookId : null
+    const leftTitle = attempt?.title
     importOp.clearError('import')
+    mapOp.clearError('map')
     setFile(null)
     setPdfName(null)
     setProgress(null)
     setAttempt(null)
+    if (leftWithoutMap !== null) {
+      enqueueExcerpts(leftWithoutMap)
+      onImportedWithoutMap?.(leftWithoutMap, leftTitle)
+    }
     onClose()
   }
 
-  const runAttempt = (captured: ImportAttempt) => {
+  const runImport = (captured: ImportAttempt) => {
     importOp.clearError('import')
     setAttempt(captured)
     void importOp.run('import', captured)
   }
+  const runMap = (captured: ImportAttempt) => {
+    mapOp.clearError('map')
+    void mapOp.run('map', captured)
+  }
 
   const chooseType = (type: BookType) => {
     if (!file) return
-    runAttempt({ file, type, jobId: newClientId() })
+    runImport({ file, type, jobId: newClientId() })
   }
 
-  const stage = busy ? 'busy' : failure && attempt ? 'failed' : !file ? 'pick' : 'type'
-  const title = stage === 'busy' ? '导入书籍' : stage === 'failed' ? '导入未完成' : stage === 'pick' ? '导入 EPUB' : '这是哪一类书?'
+  const stage = busy ? 'busy' : failure && attempt ? 'failed' : attempt?.stored ? 'choose' : !file ? 'pick' : 'type'
+  const title =
+    stage === 'busy'
+      ? '导入书籍'
+      : stage === 'failed'
+        ? importFailure ? '导入未完成' : '知识地图没有生成'
+        : stage === 'choose'
+          ? '要生成知识地图吗?'
+          : stage === 'pick'
+            ? '导入 EPUB'
+            : '这是哪一类书?'
   const description =
-    stage === 'failed' && attempt
-      ? `《${attempt.file.name.replace(/\.epub$/i, '')}》· ${TYPES.find(t => t.type === attempt.type)?.label}`
+    (stage === 'failed' || stage === 'choose') && attempt
+      ? `《${bookName(attempt)}》· ${TYPES.find(t => t.type === attempt.type)?.label}`
       : stage === 'pick'
-        ? '选择一本书,交给 AI 拆分知识地图'
+        ? '选择一本书导入书架;知识地图可以导入时生成,也可以以后再生成'
         : stage === 'type' && file
           ? `《${file.name.replace(/\.epub$/i, '')}》——类型决定拆块与讲授的模板`
           : undefined
@@ -162,6 +168,11 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
       footer={
         stage === 'failed' ? (
           <Button onClick={close}>关闭</Button>
+        ) : stage === 'choose' && attempt ? (
+          <>
+            <Button onClick={close}>暂不生成</Button>
+            <Button variant="primary" onClick={() => runMap(attempt)}>生成知识地图</Button>
+          </>
         ) : stage === 'pick' ? (
           <Button onClick={close}>取消</Button>
         ) : stage === 'type' ? (
@@ -176,10 +187,14 @@ export default function ImportWizard({ open, onClose }: { open: boolean; onClose
         <div className="py-4" aria-busy="true">
           <ProgressBar label="导入进度" value={null} />
           <p className="mt-4 font-serif text-title3 text-label-1">{progress ?? '正在处理…'}</p>
-          <p className="mt-1 text-callout text-label-3">AI 正在通读目录并拆分知识块,请稍候</p>
+          <p className="mt-1 text-callout text-label-3">
+            {importing ? '正在读取这本书,稍候就好' : 'AI 正在逐章拆分知识块,生成期间请保持攻书开着'}
+          </p>
         </div>
       ) : stage === 'failed' && failure && attempt ? (
-        <AsyncError error={failure} onRetry={() => runAttempt(attempt)} />
+        <AsyncError error={failure} onRetry={() => (importFailure ? runImport(attempt) : runMap(attempt))} />
+      ) : stage === 'choose' && attempt?.chapters ? (
+        <MapChoice chapters={attempt.chapters} />
       ) : stage === 'pick' ? (
         <>
           <label
