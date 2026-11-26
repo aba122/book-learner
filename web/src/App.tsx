@@ -206,6 +206,7 @@ export default function App() {
             <Route path="/excerpts" element={<ExcerptsPage />} />
             <Route path="/map/:bookId" element={<MapPage />} />
             <Route path="/reader/:blockId" element={<ReaderPage />} />
+            <Route path="/read/:bookId" element={<ReaderPage />} />
             <Route path="/feynman/:taskId" element={<FeynmanPage />} />
             <Route path="/final/:bookId" element={<FinalExamPage />} />
             <Route path="/stats" element={<StatsPage />} />

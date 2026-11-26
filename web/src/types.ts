@@ -317,7 +317,7 @@ export interface ExcerptBookStats {
   bookId: number
   /** 已存正文才能整理 */
   hasText: boolean
-  /** 打开阅读器用的块;null = 没生成知识地图,阅读器打不开 */
+  /** 打开阅读器用的块;null = 没生成知识地图,阅读器按书打开(/read/:bookId,BL-036) */
   readerBlockId: number | null
   aiCount: number; userCount: number
   job: ExcerptJob | null

@@ -21,6 +21,7 @@ import { useSession } from '../../store'
 import type { Book, BookStatus, WereadBook, WereadNotes, WereadStatus } from '../../types'
 import ExportDialog from './ExportDialog'
 import ImportWizard from './ImportWizard'
+import MapGenerateDialog from './MapGenerateDialog'
 import WereadShelf, { type ImportProgress } from './WereadShelf'
 import { openEpub } from '../../epub/extract'
 import { epubSearchSections, locateWereadNotes } from './wereadLocate'
@@ -32,6 +33,8 @@ const STATUS_LABEL: Record<BookStatus, string> = {
   paused: '已暂停',
   finished: '已学完',
 }
+/** 有没有知识地图(BL-036:导入时可以不生成;staged/extracted = 没有,只能阅读、问书、整理书摘) */
+const hasMap = (book: Book) => book.importState === 'mapped' || book.importState === 'ready'
 /** 非主攻书的说明:计划冻结不产新块,到期复习照常汇入今日队列(PRODUCT_SPEC §5) */
 const STATUS_NOTE: Partial<Record<BookStatus, string>> = {
   paused: '计划冻结 · 复习照常',
@@ -50,6 +53,8 @@ export default function LibraryPage() {
   const [finishTarget, setFinishTarget] = useState<Book | null>(null)
   const [exportTarget, setExportTarget] = useState<Book | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null)
+  /** 「生成知识地图」(BL-036) */
+  const [mapTarget, setMapTarget] = useState<Book | null>(null)
   /** 「更多操作」菜单:按钮点击锚定按钮,右键锚定坐标 */
   const [menu, setMenu] = useState<{ book: Book; anchor: MenuAnchor } | null>(null)
 
@@ -153,21 +158,44 @@ export default function LibraryPage() {
     void deleteOp.run('delete', deleteTarget)
   }
 
-  // 主攻书与已学完的书直接看地图;暂停的书需确认切换
+  // 没有地图的书直接打开阅读器(BL-036);主攻书与已学完的书直接看地图;暂停的书需确认切换
   const open = (book: Book) => {
-    if (book.status === 'active' || book.status === 'finished') navigate(`/map/${book.id}`)
+    if (!hasMap(book)) navigate(`/read/${book.id}`)
+    else if (book.status === 'active' || book.status === 'finished') navigate(`/map/${book.id}`)
     else {
       switchOp.clearError('switch')
       setSwitchTarget(book)
     }
   }
 
-  // 「阅读」:直接打开阅读器读这本书(不带任务),右栏默认「问书」;定位到该书第一个知识块
+  // 「阅读」:直接打开阅读器读这本书(不带任务),右栏默认「问书」;有地图的书定位到第一个知识块,
+  // 没有地图(或一个块都没有)按书打开(BL-036)
   const readOp = useBackendOperation(async (book: Book) => {
+    if (!hasMap(book)) {
+      navigate(`/read/${book.id}`)
+      return
+    }
     const blocks = await backend.listBlocks(book.id)
     const first = [...blocks].sort((a, z) => a.seq - z.seq)[0]
-    if (first) navigate(`/reader/${first.id}`)
+    navigate(first ? `/reader/${first.id}` : `/read/${book.id}`)
   })
+
+  /** 导入时选了「暂不生成」(BL-036):书已在书架上,提示能直接读、以后在哪里生成 */
+  const onImportedWithoutMap = (bookId: number) => {
+    void backend
+      .listBooks()
+      .then(all => {
+        const book = all.find(b => b.id === bookId)
+        toast({
+          message: book ? `已导入《${book.title}》` : '已导入',
+          description: '没有生成知识地图。可以直接阅读;想学的时候,在这本书的「更多操作」里生成。',
+          action: { label: '阅读', onSelect: () => navigate(`/read/${bookId}`) },
+        })
+      })
+      .catch(() => {
+        /* 提示拿不到书名就不弹;书架照常刷新 */
+      })
+  }
 
   const confirmSwitch = () => {
     if (!switchTarget) return
@@ -182,8 +210,9 @@ export default function LibraryPage() {
   }
 
   const menuItems = (book: Book): MenuEntry[] => [
+    ...(!hasMap(book) ? [{ label: '生成知识地图', icon: 'map' as const, onSelect: () => setMapTarget(book) }] : []),
     { label: '导出到 Obsidian', icon: 'square-arrow-up', onSelect: () => setExportTarget(book) },
-    ...(book.status !== 'finished'
+    ...(hasMap(book) && book.status !== 'finished'
       ? [{ label: '标记为已学完', icon: 'checkmark-seal' as const, onSelect: () => { finishOp.clearError('finish'); setFinishTarget(book) } }]
       : []),
     { separator: true as const },
@@ -230,7 +259,7 @@ export default function LibraryPage() {
             <EmptyState
               icon="book-closed"
               title="书架还空着——导入一本 EPUB 开始。"
-              body="导入后 AI 会先拆出知识地图,再一块一块地攻克。"
+              body="导入后就能阅读;想系统地学,让 AI 拆出知识地图,再一块一块地攻克。"
               action={
                 <Button size="sm" onClick={() => setWizardOpen(true)}>
                   导入 EPUB
@@ -260,8 +289,8 @@ export default function LibraryPage() {
                         <div className="truncate font-serif text-headline text-label-1">{book.title}</div>
                         <div className="truncate text-subhead text-label-2">{book.author}</div>
                       </div>
-                      {book.importState === 'staged' || book.importState === 'extracted' ? (
-                        <Tag tone="weak" className="shrink-0">导入未完成</Tag>
+                      {!hasMap(book) ? (
+                        <Tag tone="neutral" className="shrink-0">未生成地图</Tag>
                       ) : (
                         <Tag tone={book.status === 'active' ? 'new' : 'neutral'} className="shrink-0">
                           {STATUS_LABEL[book.status]}
@@ -270,17 +299,13 @@ export default function LibraryPage() {
                     </div>
                   </button>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    {book.importState === 'mapped' || book.importState === 'ready' ? (
-                      <Button
-                        size="sm"
-                        disabled={readOp.pending.size > 0}
-                        onClick={() => { readOp.clearError('read'); void readOp.run('read', book) }}
-                      >
-                        阅读
-                      </Button>
-                    ) : (
-                      <span />
-                    )}
+                    <Button
+                      size="sm"
+                      disabled={readOp.pending.size > 0}
+                      onClick={() => { readOp.clearError('read'); void readOp.run('read', book) }}
+                    >
+                      阅读
+                    </Button>
                     <IconButton
                       icon="ellipsis-circle"
                       label={`《${book.title}》的更多操作`}
@@ -289,7 +314,7 @@ export default function LibraryPage() {
                       onClick={e => setMenu({ book, anchor: e.currentTarget })}
                     />
                   </div>
-                  {STATUS_NOTE[book.status] && <p className="mt-1 text-footnote text-label-3">{STATUS_NOTE[book.status]}</p>}
+                  {hasMap(book) && STATUS_NOTE[book.status] && <p className="mt-1 text-footnote text-label-3">{STATUS_NOTE[book.status]}</p>}
                   {wereadByLocal.has(book.id) && (
                     <p className="mt-1 text-footnote text-label-3 tabular-nums" data-testid="weread-badge">
                       微信读书 · {wereadByLocal.get(book.id)!.finishReading ? '读完' : `${wereadByLocal.get(book.id)!.progress}%`}
@@ -330,7 +355,16 @@ export default function LibraryPage() {
         items={menu ? menuItems(menu.book) : []}
       />
       <ToastHost />
-      <ImportWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <ImportWizard
+        open={wizardOpen}
+        onClose={() => {
+          setWizardOpen(false)
+          // 向导里可能已经建了书行(暂不生成 / 中途失败),关掉就刷新书架
+          void books.reload()
+        }}
+        onImportedWithoutMap={onImportedWithoutMap}
+      />
+      {mapTarget && <MapGenerateDialog book={mapTarget} onClose={() => setMapTarget(null)} />}
       <Confirm
         open={switchTarget !== null}
         title="切换主攻书?"

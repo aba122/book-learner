@@ -77,6 +77,7 @@ function renderReader(entry: string) {
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/reader/:blockId" element={<ReaderPage />} />
+        <Route path="/read/:bookId" element={<ReaderPage />} />
         <Route path="*" element={null} />
       </Routes>
       <Probe />
@@ -511,6 +512,41 @@ describe('阅读器 · 标记/排版/位置(M3 T4)', () => {
     const calls = h.rendition.annotations.underline.mock.calls
     expect(calls.length).toBeLessThanOrEqual(1)
     if (calls.length === 1) expect(calls[0][0]).toBe('epubcfi(/6/8!/4/2,/1:0,/6/1:0)')
+  })
+})
+
+describe('按书打开(BL-036:没生成知识地图的书也能读)', () => {
+  it('/read/:bookId:标题是书名,从书首开始;没有学习模式,问书与脉络图照常', async () => {
+    const getBlock = vi.spyOn(backendModule.backend, 'getBlock')
+    renderReader('/read/1')
+    expect(await screen.findByText('微观经济学')).toBeInTheDocument()
+    await waitFor(() => expect(h.book.renderTo).toHaveBeenCalled())
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith(undefined))
+    expect(getBlock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('tab', { name: '学习模式' })).toBeNull()
+    expect(screen.getByRole('tab', { name: '问书' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '脉络图' })).toBeInTheDocument()
+    expect(screen.getByTestId('chat-panel')).toBeInTheDocument()
+  })
+
+  it('有上次阅读位置就从那里开始;书签用当前章节的目录标题命名,问书不挂知识块', async () => {
+    const user = userEvent.setup()
+    await backendModule.backend.readerPositionSet(1, 'chap2.xhtml', 'epubcfi(/6/8!/4/2/1:0)')
+    const add = vi.spyOn(backendModule.backend, 'readerMarkAdd')
+    renderReader('/read/1')
+    await screen.findByRole('button', { name: '书签' })
+    await waitFor(() => expect(h.rendition.display).toHaveBeenCalledWith('epubcfi(/6/8!/4/2/1:0)'))
+    await act(async () => { handler('relocated')?.({ start: { cfi: 'epubcfi(/6/8!/4/2/1:0)', href: 'chap2.xhtml' } }) })
+    await user.click(screen.getByRole('button', { name: '书签' }))
+    await waitFor(() => expect(add).toHaveBeenCalledTimes(1))
+    expect(add.mock.calls[0][0]).toBe(1)
+    expect(add.mock.calls[0][1]).toMatchObject({ kind: 'bookmark', spineHref: 'chap2.xhtml', text: '第二章 消费者选择' })
+  })
+
+  it('书不存在:显示错误,不初始化 epub.js', async () => {
+    renderReader('/read/999')
+    expect(await screen.findByRole('alert')).toHaveTextContent('找不到这本书')
+    expect(h.ePub).not.toHaveBeenCalled()
   })
 })
 

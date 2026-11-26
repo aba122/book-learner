@@ -6,7 +6,7 @@ import type { Excerpt } from '../../types'
 
 export interface ExcerptCardActions {
   onCopy: () => void
-  /** 阅读器打不开(书还没有知识地图)时由页面提示原因 */
+  /** 打开阅读器定位到原文(没有知识地图的书按书打开,BL-036) */
   onReveal: () => void
   onEdit: () => void
   onRemove: () => void

@@ -162,20 +162,30 @@ describe('书摘页(BL-034)', () => {
     expect(screen.getByTestId('excerpt-card')).not.toHaveTextContent('已改')
   })
 
-  it('在书中查看:有知识块 → 带原文跳阅读器;没有 → 提示原因', async () => {
+  it('在书中查看:有知识块 → 按块打开阅读器,带原文', async () => {
     const user = userEvent.setup()
     await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)' })
     await seedYalom()
     renderPage()
     const regions = await screen.findAllByRole('region')
-    const yalom = regions.find(r => r.getAttribute('aria-label') === '《存在主义心理治疗》的书摘')!
-    await user.click(within(yalom).getByRole('button', { name: '在书中查看' }))
-    expect(await screen.findByText('这本书还没有知识地图,阅读器打不开')).toBeInTheDocument()
     const micro = regions.find(r => r.getAttribute('aria-label') === '《微观经济学》的书摘')!
     await user.click(within(micro).getByRole('button', { name: '在书中查看' }))
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/reader/1'))
     expect(screen.getByTestId('loc')).toHaveTextContent('"cfi":"epubcfi(/6/2!/4/2,/1:0,/1:5)"')
     expect(screen.getByTestId('loc')).toHaveTextContent('"text":"需求定律说价格越高,需求量越少。"')
+  })
+
+  it('在书中查看:没生成知识地图的书按书打开阅读器(BL-036),同样带原文', async () => {
+    const user = userEvent.setup()
+    const yalomId = await seedYalom()
+    renderPage()
+    const regions = await screen.findAllByRole('region')
+    const yalom = regions.find(r => r.getAttribute('aria-label') === '《存在主义心理治疗》的书摘')!
+    await user.click(within(yalom).getByRole('button', { name: '在书中查看' }))
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/read/${yalomId}`))
+    expect(screen.getByTestId('loc')).toHaveTextContent('"href":"Text/c1.xhtml"')
+    expect(screen.getByTestId('loc')).toHaveTextContent('"text":"死亡是存在的终极关怀之一。"')
+    expect(screen.queryByText('这本书还没有知识地图,阅读器打不开')).toBeNull()
   })
 
   it('失败的作业显示原因与重试;重新整理先确认', async () => {
