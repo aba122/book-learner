@@ -2,7 +2,7 @@ import { backend } from '../../backend'
 import { BackendError } from '../../backend/errors'
 import { anchorBlocks } from '../../epub/anchorBlocks'
 import { extractSpine, openEpub } from '../../epub/extract'
-import type { SpineChapter } from '../../types'
+import type { ExcerptFocus, SpineChapter } from '../../types'
 import { progressLabel } from './importProgress'
 
 /**
@@ -50,10 +50,10 @@ export async function extractChapters(
   }
 }
 
-/** 书摘(BL-034)入队:失败不影响导入与地图,书摘页可再点「整理」 */
-export function enqueueExcerpts(bookId: number): void {
+/** 书摘(BL-034)入队:失败不影响导入与地图,书摘页可再点「整理」。`focus`(BL-037)只对第一次整理生效 */
+export function enqueueExcerpts(bookId: number, focus?: ExcerptFocus): void {
   backend
-    .excerptGenerate(bookId, false)
+    .excerptGenerate(bookId, false, focus)
     .catch(error => console.error('[excerpts] enqueue failed:', error instanceof Error ? error.message : String(error)))
 }
 
@@ -66,10 +66,11 @@ export async function generateMap(
   jobId: string,
   epubSource: () => Promise<ArrayBuffer | string>,
   onProgress: (label: string) => void,
+  excerptFocus?: ExcerptFocus,
 ): Promise<void> {
   onProgress('正在生成知识地图…')
   const blocks = await backend.runMapJob(bookId, jobId, p => onProgress(progressLabel(p)))
-  enqueueExcerpts(bookId)
+  enqueueExcerpts(bookId, excerptFocus)
   onProgress(`正在定位原文 0/${blocks.length}`)
   let book: Awaited<ReturnType<typeof openEpub>> | null = null
   try {

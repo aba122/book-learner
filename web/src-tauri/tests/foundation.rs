@@ -2730,7 +2730,7 @@ fn real_tauri_ipc_surface_matches_the_shared_wire_contract() {
             "lineage_node_source" => json!({"bookId": first, "nodeId": "a"}),
             // BL-034:书摘(first 已有 spine;入队不跑 AI,后台线程在测试里不起)
             "excerpt_library" | "excerpt_jobs" => json!({}),
-            "excerpt_generate" => json!({"bookId": first, "regenerate": false}),
+            "excerpt_generate" => json!({"bookId": first, "regenerate": false, "focus": "writing"}),
             "excerpt_add" => json!({"bookId": first, "excerpt": {
                 "text": "需求定律说价格越高需求量越少。", "spineHref": "ch0.xhtml",
                 "cfi": "epubcfi(/6/2!/4/2,/1:0,/1:5)"
@@ -3385,11 +3385,12 @@ fn excerpt_commands_and_worker_round_trip() {
         })
         .unwrap();
     // 没有正文的书不能整理
-    let err = commands::excerpt_generate_inner(&state, second, false).unwrap_err();
+    let err = commands::excerpt_generate_inner(&state, second, false, None).unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidRequest, "{err:?}");
     // 入队不调 AI;后台线程(这里直接调 drain)跑完作业
-    let job = commands::excerpt_generate_inner(&state, first, false).unwrap();
+    let job = commands::excerpt_generate_inner(&state, first, false, None).unwrap();
     assert_eq!(job.stage, "queued");
+    assert_eq!(job.focus, "ideas", "不传方式按抓观点(BL-037)");
     assert_eq!(mock.calls(), 0);
     let worker_conn = state.open_connection().unwrap();
     book_learner_app::excerpt_worker::drain(&state, &worker_conn);
@@ -3446,8 +3447,18 @@ fn excerpt_commands_and_worker_round_trip() {
         ErrorCode::NotFound
     );
     // 重新整理时作业还在跑 → conflict;更正作者
-    commands::excerpt_generate_inner(&state, first, true).unwrap();
-    let err = commands::excerpt_generate_inner(&state, first, true).unwrap_err();
+    // 重新整理换成学写法(BL-037):新一轮记下方式;不认识的方式 → invalid_request
+    let err =
+        commands::excerpt_generate_inner(&state, first, true, Some("poetry".into())).unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidRequest, "{err:?}");
+    let job =
+        commands::excerpt_generate_inner(&state, first, true, Some("writing".into())).unwrap();
+    assert_eq!(
+        (job.stage.as_str(), job.focus.as_str()),
+        ("queued", "writing")
+    );
+    let err =
+        commands::excerpt_generate_inner(&state, first, true, Some("ideas".into())).unwrap_err();
     assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
     let book = commands::library_set_author_inner(&state, first, " 曼昆 ".into()).unwrap();
     assert_eq!(book.author, "曼昆");

@@ -1,4 +1,4 @@
-import type {
+import type { ExcerptFocus,
   AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, Replan, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, Transcript, TurnResult, VerdictOutcome, VoiceModel, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
   Excerpt, ExcerptAdded, ExcerptJob, ExcerptLibrary, NewExcerpt,
 } from '../types'
@@ -115,7 +115,8 @@ export interface Backend {
   /** 作业状态(书摘页有作业进行时轮询) */
   excerptJobs(): Promise<ExcerptJob[]>
   /** 入队整理(后台逐本跑):失败的续跑;regenerate = 重新整理(替换 AI 整理且没改过的卡片;进行中 → conflict) */
-  excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob>
+  /** `focus`(BL-037,缺省抓观点)只在开新一轮时生效:第一次整理、重新整理;续跑与进行中沿用作业原来的方式 */
+  excerptGenerate(bookId: number, regenerate: boolean, focus?: ExcerptFocus): Promise<ExcerptJob>
   /** 阅读器存入:同一段文字已在书摘里 → created=false;删过的恢复 */
   excerptAdd(bookId: number, excerpt: NewExcerpt): Promise<ExcerptAdded>
   /** 改字;text = null 恢复原文 */

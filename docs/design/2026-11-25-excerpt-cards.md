@@ -85,7 +85,9 @@ CREATE TABLE excerpt_job(
 
 **超时与推理强度**:每次调用 420 s(一片最长 80 KiB,比地图每章 300 s 多留余量);推理强度沿用用户的 codex 全局配置。11-25 真机对照(同一片 1.3 千字、同一工作目录):xhigh 26 s、medium 22 s,xhigh 挑出的句子明显更精炼,所以不另行压低。规模估算:每片 0.5–3 分钟,10 万字的书约 7 片 + 精选,约 5–20 分钟;50 万字约 20 片,约 20–60 分钟。
 
-**入队语义 `enqueue(book, regenerate)`**:
+**整理方式(BL-037,2026-11-27,schema v15 `excerpt_job.focus`)**:每轮整理记下按什么挑。`ideas` 抓观点——阶段 A 挑作者的结论与核心论点、关键定义与判断、支撑论点的重要论述(再按书型细化:教材偏定义原理、方法论偏原则、人文偏核心判断),标签是主题词;阶段 B 以「最重要的结论」为先、覆盖全书。`writing` 学写法——阶段 A 把书当文学作品读,挑景物/人物/心理描写、比喻通感等修辞、叙述节奏与留白、传神对话、开头收尾、语言风格,只看写法不看观点与情节,标签是写法类别(景物描写、比喻、心理描写、对话、细节、节奏……);阶段 B 要求手法多样、同一手法不扎堆,写景写人的好段可以多一些。用户选定卡片上**只放原文**,AI 的入选理由不入库不显示。旧作业(v15 之前)一律视为 `ideas`。方式在导入向导「要生成知识地图吗?」那一步选,书摘页「整理这本书 / 重新整理」的对话框里选或改。
+
+**入队语义 `enqueue(book, regenerate, focus)`**(`focus` 只在开新一轮时写入;续跑、进行中、已完成不重整都沿用作业原来的方式):
 
 | 现状 | regenerate=false | regenerate=true |
 |---|---|---|
@@ -105,7 +107,7 @@ CREATE TABLE excerpt_job(
 |---|---|---|
 | `excerpt_library` | — | `{books: ExcerptBook[], excerpts: Excerpt[]}`(只含 active;每本书带计数、作业、`readerBlockId`) |
 | `excerpt_jobs` | — | `ExcerptJob[]`(轮询用,轻量) |
-| `excerpt_generate` | `bookId, regenerate` | `ExcerptJob`(入队并唤醒线程) |
+| `excerpt_generate` | `bookId, regenerate, focus`(`ideas`/`writing`,缺省 ideas;BL-037) | `ExcerptJob`(入队并唤醒线程;带 `focus`) |
 | `excerpt_add` | `bookId, excerpt{text, spineHref, cfi}` | `{excerpt, created, author}`(章节标题与位置由 core 按 spine 补) |
 | `excerpt_update` | `id, text` | `Excerpt`(`text=null` 表示恢复原文) |
 | `excerpt_remove` | `id` | — |

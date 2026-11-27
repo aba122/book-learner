@@ -284,6 +284,8 @@ export interface MobileToken { token: string; pairUrl: string }
 // ---- 书摘(BL-034,core excerpt;设计 docs/design/2026-11-25-excerpt-cards.md)----
 export type ExcerptSource = 'ai' | 'user'
 export type ExcerptJobStage = 'queued' | 'reading' | 'selecting' | 'done' | 'failed'
+/** 书摘整理方式(BL-037):ideas = 抓观点(结论、核心论点、重要段落);writing = 学写法(描写、修辞、叙述等写得好的段落) */
+export type ExcerptFocus = 'ideas' | 'writing'
 export interface Excerpt {
   id: number; bookId: number
   /** ai = 导入后 AI 整理;user = 阅读时存入 */
@@ -312,6 +314,8 @@ export interface ExcerptJob {
   /** 给用户看的失败原因 */
   error: string | null
   queuedAt: string; updatedAt: string; finishedAt: string | null
+  /** 这一轮按什么挑(BL-037);续跑沿用,重新整理时换成新选的 */
+  focus: ExcerptFocus
 }
 export interface ExcerptBookStats {
   bookId: number

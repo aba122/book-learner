@@ -59,6 +59,33 @@ pub struct Excerpt {
     pub updated_at: String,
 }
 
+/// 书摘整理方式(BL-037):每轮整理记在 `excerpt_job.focus`。
+/// `Ideas` 抓观点:结论、核心论点、重要段落;`Writing` 学写法:描写、修辞、叙述等写得好的段落(标签用写法类别)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExcerptFocus {
+    Ideas,
+    Writing,
+}
+
+impl ExcerptFocus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ideas => "ideas",
+            Self::Writing => "writing",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "ideas" => Ok(Self::Ideas),
+            "writing" => Ok(Self::Writing),
+            other => Err(CoreError::InvalidInput(format!(
+                "unknown excerpt focus {other:?}"
+            ))),
+        }
+    }
+}
+
 /// 整理作业(每书一行)。stage:queued → reading → selecting → done | failed
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,6 +103,8 @@ pub struct ExcerptJob {
     pub queued_at: String,
     pub updated_at: String,
     pub finished_at: Option<String>,
+    /// 这一轮按什么挑(BL-037):`ideas` | `writing`;续跑沿用,重新整理时换成新选的
+    pub focus: String,
 }
 
 impl ExcerptJob {
@@ -733,7 +762,7 @@ fn picks_cap(target: usize) -> usize {
 // ---------------------------------------------------------------------------
 
 const JOB_COLS: &str =
-    "book_id,run,stage,next_piece,total_pieces,target,added,error,queued_at,updated_at,finished_at";
+    "book_id,run,stage,next_piece,total_pieces,target,added,error,queued_at,updated_at,finished_at,focus";
 
 fn job_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExcerptJob> {
     Ok(ExcerptJob {
@@ -748,6 +777,7 @@ fn job_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExcerptJob> {
         queued_at: r.get(8)?,
         updated_at: r.get(9)?,
         finished_at: r.get(10)?,
+        focus: r.get(11)?,
     })
 }
 
@@ -801,7 +831,13 @@ fn has_text(conn: &Connection, book_id: i64) -> Result<bool> {
 
 /// 入队(语义见设计 §4 表):没有作业 → 新建;进行中 → 原样(regenerate 时 conflict);
 /// failed → 同一轮续跑(regenerate 时开新一轮);done → 原样(regenerate 时开新一轮)
-pub fn enqueue(conn: &Connection, book_id: i64, regenerate: bool) -> Result<ExcerptJob> {
+/// `focus`(BL-037)只在开新一轮时生效(第一次整理、重新整理);进行中、失败续跑、已完成不重整时沿用作业原来的方式。
+pub fn enqueue(
+    conn: &Connection,
+    book_id: i64,
+    regenerate: bool,
+    focus: ExcerptFocus,
+) -> Result<ExcerptJob> {
     book_meta(conn, book_id)?;
     if !has_text(conn, book_id)? {
         return Err(CoreError::InvalidInput(
@@ -820,8 +856,8 @@ pub fn enqueue(conn: &Connection, book_id: i64, regenerate: bool) -> Result<Exce
     match existing {
         None => {
             tx.execute(
-                "INSERT INTO excerpt_job(book_id,run,stage,queued_at,updated_at) VALUES(?1,1,'queued',?2,?2)",
-                rusqlite::params![book_id, ts],
+                "INSERT INTO excerpt_job(book_id,run,stage,queued_at,updated_at,focus) VALUES(?1,1,'queued',?2,?2,?3)",
+                rusqlite::params![book_id, ts, focus.as_str()],
             )?;
         }
         Some(job) if job.is_active() => {
@@ -844,9 +880,9 @@ pub fn enqueue(conn: &Connection, book_id: i64, regenerate: bool) -> Result<Exce
         Some(job) => {
             tx.execute(
                 "UPDATE excerpt_job SET run=?2, stage='queued', next_piece=0, total_pieces=0, target=0, \
-                 candidates_json='[]', added=0, error=NULL, error_detail=NULL, queued_at=?3, updated_at=?3, finished_at=NULL \
-                 WHERE book_id=?1",
-                rusqlite::params![book_id, job.run + 1, ts],
+                 candidates_json='[]', added=0, error=NULL, error_detail=NULL, queued_at=?3, updated_at=?3, finished_at=NULL, \
+                 focus=?4 WHERE book_id=?1",
+                rusqlite::params![book_id, job.run + 1, ts, focus.as_str()],
             )?;
         }
     }
@@ -965,6 +1001,7 @@ fn run_active(
 ) -> Result<()> {
     let book_id = job.book_id;
     let (title, author, ty) = book_meta(conn, book_id)?;
+    let focus = ExcerptFocus::parse(&job.focus)?;
     let chapters = list_spine(conn, book_id)?;
     let pieces = plan_pieces(&chapters);
     let content_chars: usize = pieces.iter().map(|p| p.chars).sum();
@@ -1022,6 +1059,7 @@ fn run_active(
                     &title,
                     &author,
                     ty,
+                    focus,
                     &piece.title,
                     &piece.part,
                     max_items,
@@ -1059,7 +1097,7 @@ fn run_active(
         vec![]
     } else {
         select(
-            conn, provider, workdir, policy, job, &title, &author, &pool, target,
+            conn, provider, workdir, policy, job, &title, &author, focus, &pool, target,
         )?
     };
     finish(conn, job, &pool, &picks)
@@ -1074,11 +1112,12 @@ fn select(
     job: &ExcerptJob,
     title: &str,
     author: &str,
+    focus: ExcerptFocus,
     pool: &[Candidate],
     target: usize,
 ) -> Result<Vec<Pick>> {
     // 候选太多超出 prompt 上限时,按自评分从低到高剔除(同分先剔后面的;其余保持原顺序)
-    let base = crate::prompts::excerpt_pick_prompt(title, author, target, "").len();
+    let base = crate::prompts::excerpt_pick_prompt(title, author, target, focus, "").len();
     let line_bytes: Vec<usize> = pool
         .iter()
         .map(|c| candidate_lines(std::slice::from_ref(c)).len() + 1)
@@ -1110,7 +1149,7 @@ fn select(
         .collect();
     let owned: Vec<Candidate> = shown.iter().map(|c| (*c).clone()).collect();
     let system =
-        crate::prompts::excerpt_pick_prompt(title, author, target, &candidate_lines(&owned));
+        crate::prompts::excerpt_pick_prompt(title, author, target, focus, &candidate_lines(&owned));
     if system.len() > MAX_PROMPT_BYTES {
         return Err(CoreError::InvalidInput(format!(
             "prompt exceeds {MAX_PROMPT_BYTES} bytes: {}",
@@ -1638,7 +1677,7 @@ mod tests {
     #[test]
     fn job_reads_pieces_checks_verbatim_selects_and_stores_original_text() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         assert_eq!(next_job(&conn).unwrap(), Some(book));
         let provider = Scripted::new(good_reply);
         let mut seen = vec![];
@@ -1683,9 +1722,87 @@ mod tests {
     }
 
     #[test]
+    fn bl037_focus_is_recorded_per_run_and_drives_both_prompts() {
+        let (conn, book) = setup();
+        let job = enqueue(&conn, book, false, ExcerptFocus::Writing).unwrap();
+        assert_eq!(job.focus, "writing");
+        // 学写法:挑段与精选两段 prompt 都换成写法标准,标签用写法类别
+        let writing = Scripted::new(|req, n| {
+            if req.request_id.ends_with(":pick") {
+                assert!(
+                    req.system.contains("用来学习这本书的写法"),
+                    "{}",
+                    req.system
+                );
+                assert!(req.system.contains("手法多样"));
+                assert!(req.system.contains("标签是写法类别"));
+            } else {
+                assert!(req.system.contains("按文学作品来读"), "{}", req.system);
+                assert!(req.system.contains("写法类别"));
+                assert!(!req.system.contains("结论与核心论点"));
+            }
+            good_reply(req, n)
+        });
+        assert_eq!(run(&conn, &writing, book).unwrap().stage, "done");
+        // 不重整时再入队:已完成的作业原样返回,方式不变
+        assert_eq!(
+            enqueue(&conn, book, false, ExcerptFocus::Ideas)
+                .unwrap()
+                .focus,
+            "writing"
+        );
+        // 重新整理换成抓观点:开新一轮并记下新方式,prompt 换回观点标准
+        let job = enqueue(&conn, book, true, ExcerptFocus::Ideas).unwrap();
+        assert_eq!((job.run, job.focus.as_str()), (2, "ideas"));
+        let ideas = Scripted::new(|req, n| {
+            if req.request_id.ends_with(":pick") {
+                assert!(req.system.contains("结论和重要论述"), "{}", req.system);
+                assert!(req.system.contains("标签是主题词"));
+            } else {
+                assert!(req.system.contains("结论与核心论点"), "{}", req.system);
+                assert!(req.system.contains("主题词"));
+                assert!(!req.system.contains("按文学作品来读"));
+            }
+            good_reply(req, n)
+        });
+        let done = run(&conn, &ideas, book).unwrap();
+        assert_eq!(
+            (done.stage.as_str(), done.focus.as_str()),
+            ("done", "ideas")
+        );
+        assert!(
+            ideas.calls().iter().all(|id| id.contains(":r2:")),
+            "新一轮的请求 id"
+        );
+    }
+
+    #[test]
+    fn bl037_retry_after_failure_keeps_the_runs_focus() {
+        let (conn, book) = setup();
+        enqueue(&conn, book, false, ExcerptFocus::Writing).unwrap();
+        let down = Scripted::new(|_, _| Err(CoreError::Ai("timeout after 300s".into())));
+        assert!(run(&conn, &down, book).is_err());
+        assert_eq!(get_job(&conn, book).unwrap().unwrap().stage, "failed");
+        // 「重试」是续跑:沿用这一轮的写法方式,调用方传的方式不生效
+        let job = enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
+        assert_eq!(
+            (job.stage.as_str(), job.focus.as_str(), job.run),
+            ("queued", "writing", 1)
+        );
+        assert!(matches!(
+            ExcerptFocus::parse("poetry"),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert_eq!(
+            ExcerptFocus::parse("writing").unwrap(),
+            ExcerptFocus::Writing
+        );
+    }
+
+    #[test]
     fn failure_marks_job_and_retry_resumes_without_recalling_done_pieces() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let flaky = Scripted::new(|req, _| {
             if req.request_id.ends_with(":p1") {
                 Err(CoreError::Ai("timeout after 300s".into()))
@@ -1704,7 +1821,7 @@ mod tests {
         );
         assert_eq!(next_job(&conn).unwrap(), None, "失败的作业不自动重跑");
 
-        let job = enqueue(&conn, book, false).unwrap();
+        let job = enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         assert_eq!((job.stage.as_str(), job.run), ("queued", 1));
         let healthy = Scripted::new(good_reply);
         let job = run(&conn, &healthy, book).unwrap();
@@ -1723,7 +1840,7 @@ mod tests {
     #[test]
     fn unmatched_piece_gets_one_correction_then_is_skipped() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let provider = Scripted::new(|req, _| {
             if req.request_id.ends_with(":pick") {
                 Ok(r#"{"picks":["c1"]}"#.into())
@@ -1747,7 +1864,7 @@ mod tests {
     #[test]
     fn unusable_pick_output_falls_back_to_round_robin_by_score() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let provider = Scripted::new(|req, _| {
             if req.request_id.ends_with(":pick") {
                 Ok(r#"{"picks":[{"id":"c99"}]}"#.into())
@@ -1763,7 +1880,7 @@ mod tests {
     #[test]
     fn regenerate_replaces_untouched_ai_cards_and_never_revives_removed_ones() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         run(&conn, &Scripted::new(good_reply), book).unwrap();
         let lib = library(&conn).unwrap();
         let (a, b, c) = (lib.excerpts[0].id, lib.excerpts[1].id, lib.excerpts[2].id);
@@ -1781,14 +1898,16 @@ mod tests {
         .unwrap();
 
         // 正在整理时不能重新整理
-        let job = enqueue(&conn, book, true).unwrap();
+        let job = enqueue(&conn, book, true, ExcerptFocus::Ideas).unwrap();
         assert_eq!((job.run, job.stage.as_str()), (2, "queued"));
         assert!(matches!(
-            enqueue(&conn, book, true),
+            enqueue(&conn, book, true, ExcerptFocus::Ideas),
             Err(CoreError::Conflict(_))
         ));
         assert_eq!(
-            enqueue(&conn, book, false).unwrap().run,
+            enqueue(&conn, book, false, ExcerptFocus::Ideas)
+                .unwrap()
+                .run,
             2,
             "进行中再入队原样返回"
         );
@@ -1819,7 +1938,7 @@ mod tests {
     #[test]
     fn spine_change_starts_a_new_run_instead_of_replaying_old_pieces() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let fail_pick = Scripted::new(|req, _| {
             if req.request_id.ends_with(":pick") {
                 Err(CoreError::Ai("down".into()))
@@ -1837,7 +1956,7 @@ mod tests {
             text: padded("福利国家的兴衰。"),
         });
         store_spine(&conn, book, &chapters).unwrap();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let provider = Scripted::new(|req, _| {
             if req.system.contains("第三章") {
                 Ok("[]".into())
@@ -1856,11 +1975,11 @@ mod tests {
         let book =
             crate::models::insert_book(&conn, "空书", "", BookType::Textbook, "empty").unwrap();
         assert!(matches!(
-            enqueue(&conn, book, false),
+            enqueue(&conn, book, false, ExcerptFocus::Ideas),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            enqueue(&conn, 999, false),
+            enqueue(&conn, 999, false, ExcerptFocus::Ideas),
             Err(CoreError::NotFound(_))
         ));
     }
@@ -1881,7 +2000,7 @@ mod tests {
             }],
         )
         .unwrap();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let provider = Scripted::new(|_, _| panic!("不应调用 AI"));
         let job = run(&conn, &provider, book).unwrap();
         assert_eq!((job.stage.as_str(), job.added), ("done", 0));
@@ -2028,7 +2147,7 @@ mod tests {
             [book],
         )
         .unwrap();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let lib = library(&conn).unwrap();
         let first_block: i64 = conn
             .query_row(
@@ -2049,7 +2168,7 @@ mod tests {
     #[test]
     fn deleting_book_cascades_excerpts_and_job() {
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         add(
             &conn,
             book,
@@ -2087,10 +2206,16 @@ mod tests {
                 score: if i == 7 { 1.0 } else { 4.0 },
             })
             .collect();
-        let full = crate::prompts::excerpt_pick_prompt("书", "", 50, &candidate_lines(&pool));
+        let full = crate::prompts::excerpt_pick_prompt(
+            "书",
+            "",
+            50,
+            ExcerptFocus::Ideas,
+            &candidate_lines(&pool),
+        );
         assert!(full.len() > MAX_PROMPT_BYTES, "构造的候选必须超长");
         let (conn, book) = setup();
-        enqueue(&conn, book, false).unwrap();
+        enqueue(&conn, book, false, ExcerptFocus::Ideas).unwrap();
         let job = get_job(&conn, book).unwrap().unwrap();
         let seen: Mutex<Option<String>> = Mutex::new(None);
         struct Capture<'a>(&'a Mutex<Option<String>>);
@@ -2109,6 +2234,7 @@ mod tests {
             &job,
             "书",
             "",
+            ExcerptFocus::Ideas,
             &pool,
             50,
         )

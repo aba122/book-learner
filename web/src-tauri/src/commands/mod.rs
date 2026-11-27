@@ -174,7 +174,7 @@ pub const WIRE_COMMANDS: &[(&str, &[&str])] = &[
     // BL-034:书摘卡片(作业由后台线程跑,excerpt_jobs 供书摘页轮询)
     ("excerpt_library", &[]),
     ("excerpt_jobs", &[]),
-    ("excerpt_generate", &["bookId", "regenerate"]),
+    ("excerpt_generate", &["bookId", "regenerate", "focus"]),
     ("excerpt_add", &["bookId", "excerpt"]),
     ("excerpt_update", &["id", "text"]),
     ("excerpt_remove", &["id"]),
@@ -2019,9 +2019,10 @@ pub fn excerpt_generate_inner(
     state: &AppState,
     book_id: i64,
     regenerate: bool,
+    focus: Option<String>,
 ) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
     run_command(state, "excerpt_generate", || {
-        application::excerpt_generate(state, book_id, regenerate)
+        application::excerpt_generate(state, book_id, regenerate, focus)
     })
 }
 
@@ -2091,8 +2092,9 @@ pub async fn excerpt_generate<R: tauri::Runtime>(
     state: State<'_, AppState>,
     book_id: i64,
     regenerate: bool,
+    focus: Option<String>,
 ) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
-    let job = excerpt_generate_inner(&state, book_id, regenerate)?;
+    let job = excerpt_generate_inner(&state, book_id, regenerate, focus)?;
     app.state::<crate::excerpt_worker::ExcerptWorker>().poke();
     Ok(job)
 }

@@ -2,7 +2,7 @@ import { APP_DEFAULTS, KIND_ORDER, OPENER_TURN_ID, TASK_EST_MINUTES } from '../c
 import { CLIENT_ID_RE } from '../lib/ids'
 import { addCalendarDays, localCalendarDate } from '../lib/localDate'
 import type {
-  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought, MobileBind, MobileServerStatus, MobileToken, Excerpt, ExcerptAdded, ExcerptBookStats, ExcerptJob, ExcerptLibrary, NewExcerpt } from '../types'
+  AnchorSegment, AppInfo, AppSettings, BackupList, Book, BookType, ClientLogLevel, DailyTask, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, KnowledgeBlock, LineageGraph, LineageGraphData, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTopic, Replan, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, CodexBin, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, VerdictOutcome, VoiceModel, BookReadingTime, ReadingDay, ReadingMonth, ReadingTimeSummary, ReadingWeek, WereadBook, WereadLocateStatus, WereadMark, WereadNotes, WereadReadingDays, WereadStatus, WereadThought, MobileBind, MobileServerStatus, MobileToken, Excerpt, ExcerptAdded, ExcerptBookStats, ExcerptFocus, ExcerptJob, ExcerptLibrary, NewExcerpt } from '../types'
 import { BackendError } from './errors'
 import type { Backend, MenuAction } from './types'
 
@@ -225,15 +225,15 @@ export class MockBackend implements Backend {
       this.blocks.push({ id: this.nextBlockId++, bookId: id, moduleName: demo.title, seq: 1, title: demo.title, slug: `demo-block-${id}`, prereqIds: [], status: 'unlearned', skipped: false })
       this.excerptDemoText.add(id)
       if (demo.running) {
-        this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'reading', nextPiece: 5, totalPieces: 14, target: 50, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null })
+        this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'reading', nextPiece: 5, totalPieces: 14, target: 50, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null, focus: 'ideas' })
         this.excerptPending.set(id, demo.excerpts)
         continue
       }
       this.insertAiExcerpts(id, demo.excerpts)
-      this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'done', nextPiece: 4, totalPieces: 4, target: 50, added: demo.excerpts.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now })
+      this.excerptJobRows.set(id, { bookId: id, run: 1, stage: 'done', nextPiece: 4, totalPieces: 4, target: 50, added: demo.excerpts.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now, focus: 'ideas' })
     }
     this.insertAiExcerpts(1, MOCK_EXCERPTS_MICRO)
-    this.excerptJobRows.set(1, { bookId: 1, run: 1, stage: 'done', nextPiece: 6, totalPieces: 6, target: 12, added: MOCK_EXCERPTS_MICRO.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now })
+    this.excerptJobRows.set(1, { bookId: 1, run: 1, stage: 'done', nextPiece: 6, totalPieces: 6, target: 12, added: MOCK_EXCERPTS_MICRO.length, error: null, queuedAt: now, updatedAt: now, finishedAt: now, focus: 'ideas' })
     this.excerptAdd(1, { text: '经济学研究的是社会如何管理自己的稀缺资源。', spineHref: 'ch1.xhtml', cfi: null }).catch(() => {})
   }
 
@@ -1562,12 +1562,13 @@ export class MockBackend implements Backend {
     this.advanceExcerptJobs()
     return [...this.excerptJobRows.values()].sort((a, b) => a.bookId - b.bookId).map(j => ({ ...j }))
   }
-  async excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob> {
+  /** 与 core excerpt::enqueue 同语义;`focus`(BL-037)只在开新一轮时生效 */
+  async excerptGenerate(bookId: number, regenerate: boolean, focus: ExcerptFocus = 'ideas'): Promise<ExcerptJob> {
     if (!this.books.some(b => b.id === bookId)) throw notFound()
     if (!this.excerptHasText(bookId)) throw new BackendError({ code: 'invalid_request', message: '这本书还没抽取正文,先完成导入', retryable: false })
     const now = new Date().toISOString()
     const existing = this.excerptJobRows.get(bookId)
-    const fresh = (run: number): ExcerptJob => ({ bookId, run, stage: 'queued', nextPiece: 0, totalPieces: 0, target: 0, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null })
+    const fresh = (run: number): ExcerptJob => ({ bookId, run, stage: 'queued', nextPiece: 0, totalPieces: 0, target: 0, added: 0, error: null, queuedAt: now, updatedAt: now, finishedAt: null, focus })
     let job: ExcerptJob
     if (!existing) job = fresh(1)
     else if (existing.stage === 'queued' || existing.stage === 'reading' || existing.stage === 'selecting') {

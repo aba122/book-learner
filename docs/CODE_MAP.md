@@ -70,6 +70,7 @@ React/TS(web/src)  ──IPC(命令名 + camelCase JSON;二进制走原始体+�
 | 书摘整理失败 / 条数很少 | `excerpt_job.error`(给用户看)与 `error_detail`(原始错误);`ai_request` 表 `excerpt:<book>:r<run>:p<k>` / `:pick` 行;一片候选都对不上原文会纠错一次再跳过(看该片 `ai_request.status=failed` 的 error) | `core/src/excerpt.rs` `parse_piece/select`;prompt 在 `core/src/prompts.rs` |
 | 书摘作者分组不对 / 同一作者分成两组 | 前端归一 `features/excerpts/authors.ts` `authorInfo`(国别前缀/原名括注/著译/多作者);原始值是 `book.author`(OPF `dc:creator`,缺省「待识别」);可在书的「⋯ › 更正作者」改 | `authors.ts`;`library_set_author` → `models::set_author` |
 | 「在书中查看」没翻到原句 / 提示「没在这一章找到原句」 | 用户存入的有 `excerpt.cfi` 直接去;AI 的没有 cfi,按 `original_text` 在 `spine_href` 那章 `section.search`(全文 → 40/20 字前缀);译本排版带内联元素超过 5 个文本节点时会找不到;书没有知识块时按书打开 `/read/:bookId`(BL-036,之前打不开) | `web/src/features/reader/locateText.ts`;`EpubView` `reveal/flash`;`ReaderPage` `location.state.reveal` |
+| 书摘挑的句子不对路(文学书挑成了观点 / 社科书挑成了描写) | 这本书这一轮的整理方式 `excerpt_job.focus`(`ideas` 抓观点 / `writing` 学写法,BL-037);导入时在选择那一步定,书摘页「重新整理」对话框可改 | `core/src/prompts.rs` `excerpt_read_prompt`/`excerpt_pick_prompt`(按 focus 分两套);`core/src/excerpt.rs` `ExcerptFocus`/`enqueue`;前端 `features/excerpts/FocusPicker.tsx`、`ExcerptsPage.tsx` `OrganizeDialog` |
 | 统计数字不对 | 统计全部按 `date` 由前端本地日历日给出 | `core/src/stats.rs`;`web/src/lib/localDate.ts` |
 | 阅读时长没涨 / 涨得不对 | 只在阅读器页面可见且 90 s 内有指针/键盘/滚轮操作时计秒,60 s 落一笔、离开补零头(`reading_time` 表按笔存);周从周一起、本月从 1 日起;未来日期不进汇总 | `web/src/lib/useReadingClock.ts`;`core/src/reading_time.rs` |
 | 设置保存失败 | 五个键的校验;`codexBin`/`voiceModel` 不在 `AppSettings` 里 | `core/src/settings.rs`;壳层 `application::codex_bin_set` |

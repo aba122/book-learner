@@ -60,13 +60,18 @@ pub fn excerpt_jobs(
     state.with_connection(book_learner_core::excerpt::jobs)
 }
 
-/// 入队(不跑 AI;后台线程负责,命令层随后唤醒它)
+/// 入队(不跑 AI;后台线程负责,命令层随后唤醒它)。`focus`(BL-037)缺省为抓观点,只在开新一轮时生效
 pub fn excerpt_generate(
     state: &AppState,
     book_id: i64,
     regenerate: bool,
+    focus: Option<String>,
 ) -> Result<book_learner_core::excerpt::ExcerptJob, IpcError> {
-    state.with_connection(|c| book_learner_core::excerpt::enqueue(c, book_id, regenerate))
+    state.with_connection(|c| {
+        let focus =
+            book_learner_core::excerpt::ExcerptFocus::parse(focus.as_deref().unwrap_or("ideas"))?;
+        book_learner_core::excerpt::enqueue(c, book_id, regenerate, focus)
+    })
 }
 
 pub fn excerpt_add(
