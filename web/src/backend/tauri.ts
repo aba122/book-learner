@@ -4,7 +4,7 @@ import { CLIENT_ID_RE, newClientId } from '../lib/ids'
 import { localCalendarDate } from '../lib/localDate'
 import type {
   AnchorPrecision, AnchorSegment, AppInfo, AppSettings, AvgScores, BackupList, BlockStatus, Book, BookProgress, BookStatus, BookType, ClientLogLevel, CodexBin, DailyTask, DayEffort, EvalResult, EvaluationView, ExportPreview, ExportReport, ExtraKind, ExtraOutcome, FinalReport, GitRemote, ImportState, KnowledgeBlock, LineageEdge, LineageGraph, LineageGraphData, LineageNode, LineageNodeSource, MapEditOp, MapProgress, NewReaderMark, PomodoroPhase, PomodoroSnapshot, Profile, PushResult, ReaderMark, ReadingMessage, ReadingSendInput, ReadingSendResult, ReadingTimeSummary, ReadingTopic, ReaderMarkKind, Replan, ReplanStatus, Scores, SessionKind, SessionState, SessionView, SnapshotInfo, SpineChapter, Stats, StatsDetail, StreakDay, StudyPlan, TaskKind, Transcript, TurnResult, TurnView, Verdict, VerdictOutcome, VoiceModel, WeakTrendDay, WereadBook, WereadLocateStatus, WereadNotes, WereadReadingDays, WereadStatus, MobileBind, MobileServerStatus, MobileToken,
-  Excerpt, ExcerptAdded, ExcerptJob, ExcerptLibrary, NewExcerpt,
+  Excerpt, ExcerptAdded, ExcerptFocus, ExcerptJob, ExcerptLibrary, NewExcerpt,
 } from '../types'
 import { BackendError } from './errors'
 import type { Backend, BackendRuntime, MenuAction } from './types'
@@ -601,6 +601,7 @@ function decodeLineageNodeSource(value: unknown, path: string): LineageNodeSourc
 // ---- 书摘解码/出站校验(BL-034;camelCase 镜像 core::excerpt)----
 const EXCERPT_SOURCES = ['ai', 'user'] as const
 const EXCERPT_JOB_STAGES = ['queued', 'reading', 'selecting', 'done', 'failed'] as const
+const EXCERPT_FOCUSES = ['ideas', 'writing'] as const
 function decodeExcerpt(value: unknown, path: string): Excerpt {
   const wire = objectAt(value, path)
   return {
@@ -633,6 +634,7 @@ function decodeExcerptJob(value: unknown, path: string): ExcerptJob {
     queuedAt: stringAt(wire.queuedAt, `${path}.queuedAt`),
     updatedAt: stringAt(wire.updatedAt, `${path}.updatedAt`),
     finishedAt: nullableAt(wire.finishedAt, `${path}.finishedAt`, stringAt),
+    focus: enumAt(wire.focus, `${path}.focus`, EXCERPT_FOCUSES),
   }
 }
 function decodeExcerptLibrary(value: unknown, path: string): ExcerptLibrary {
@@ -1540,11 +1542,12 @@ export class TauriBackend implements Backend {
   excerptJobs(): Promise<ExcerptJob[]> {
     return this.gated('excerptJobs', () => this.decode('excerpt_jobs', {}, value => arrayAt(value, 'excerpt_jobs', decodeExcerptJob)))
   }
-  excerptGenerate(bookId: number, regenerate: boolean): Promise<ExcerptJob> {
+  excerptGenerate(bookId: number, regenerate: boolean, focus: ExcerptFocus = 'ideas'): Promise<ExcerptJob> {
     return this.gated('excerptGenerate', () => {
       outboundInteger(bookId, 'bookId')
       outboundBoolean(regenerate, 'regenerate')
-      return this.decode('excerpt_generate', { bookId, regenerate }, value => decodeExcerptJob(value, 'excerpt_generate'))
+      if (!(EXCERPT_FOCUSES as readonly string[]).includes(focus)) invalidShape('focus', 'excerpt focus', focus, 'invalid_request')
+      return this.decode('excerpt_generate', { bookId, regenerate, focus }, value => decodeExcerptJob(value, 'excerpt_generate'))
     })
   }
   excerptAdd(bookId: number, excerpt: NewExcerpt): Promise<ExcerptAdded> {

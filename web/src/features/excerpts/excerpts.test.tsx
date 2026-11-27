@@ -192,14 +192,16 @@ describe('书摘页(BL-034)', () => {
     const user = userEvent.setup()
     await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: null })
     const real = await mock.excerptLibrary()
-    const failedJob = { bookId: 1, run: 1, stage: 'failed' as const, nextPiece: 2, totalPieces: 6, target: 12, added: 0, error: 'AI 响应超时。点「重试」会从断点接着整理', queuedAt: 't', updatedAt: 't', finishedAt: null }
+    const failedJob = { bookId: 1, run: 1, stage: 'failed' as const, nextPiece: 2, totalPieces: 6, target: 12, added: 0, error: 'AI 响应超时。点「重试」会从断点接着整理', queuedAt: 't', updatedAt: 't', finishedAt: null, focus: 'ideas' as const }
     vi.spyOn(mock, 'excerptLibrary').mockResolvedValue({ ...real, books: real.books.map(b => (b.bookId === 1 ? { ...b, job: failedJob } : b)) })
     const generate = vi.spyOn(mock, 'excerptGenerate').mockResolvedValue({ ...failedJob, stage: 'queued', error: null })
     const view = renderPage()
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('整理没有完成:AI 响应超时')
     await user.click(within(alert).getByRole('button', { name: '重试' }))
-    expect(generate).toHaveBeenCalledWith(1, false)
+    // 重试是续跑:不弹整理对话框,方式沿用这一轮的(BL-037)
+    expect(generate).toHaveBeenCalledWith(1, false, undefined)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     // 重试后作业进行中:菜单里不再有「重新整理」
     await user.click(screen.getByRole('button', { name: '《微观经济学》的更多操作' }))
     expect(within(await screen.findByRole('menu')).queryByRole('menuitem', { name: '重新整理' })).not.toBeInTheDocument()
@@ -213,7 +215,49 @@ describe('书摘页(BL-034)', () => {
     const confirm = await screen.findByRole('dialog', { name: '重新整理《微观经济学》的书摘?' })
     expect(confirm).toHaveTextContent('删掉的也不会再出现')
     await user.click(within(confirm).getByRole('button', { name: '重新整理' }))
-    expect(generate).toHaveBeenLastCalledWith(1, true)
+    expect(generate).toHaveBeenLastCalledWith(1, true, 'ideas')
+  })
+
+  it('整理方式(BL-037):第一次整理先选方式,书名下显示这本书用的方式', async () => {
+    const user = userEvent.setup()
+    await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: null })
+    const generate = vi.spyOn(mock, 'excerptGenerate')
+    renderPage()
+    const regions = await screen.findAllByRole('region')
+    const micro = regions.find(r => r.getAttribute('aria-label') === '《微观经济学》的书摘')!
+    expect(micro).not.toHaveTextContent('学写法 ·')
+    await user.click(within(micro).getByRole('button', { name: '整理这本书' }))
+    const dialog = await screen.findByRole('dialog', { name: '整理《微观经济学》的书摘' })
+    expect(dialog).not.toHaveTextContent('删掉的也不会再出现')
+    const picker = within(dialog).getByRole('radiogroup', { name: '书摘整理方式' })
+    expect(within(picker).getByRole('radio', { name: '抓观点' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(within(picker).getByRole('radio', { name: '学写法' }))
+    expect(within(dialog).getByTestId('focus-hint')).toHaveTextContent('标签按手法分')
+    await user.click(within(dialog).getByRole('button', { name: '开始整理' }))
+    expect(generate).toHaveBeenLastCalledWith(1, false, 'writing')
+    await waitFor(() => expect(micro).toHaveTextContent('学写法 ·'))
+  })
+
+  it('整理方式(BL-037):重新整理默认选中上一轮的方式,可以换成另一种', async () => {
+    const user = userEvent.setup()
+    await mock.excerptAdd(1, { text: '需求定律说价格越高,需求量越少。', spineHref: 'ch1.xhtml', cfi: null })
+    const real = await mock.excerptLibrary()
+    const doneJob = { bookId: 1, run: 1, stage: 'done' as const, nextPiece: 6, totalPieces: 6, target: 12, added: 3, error: null, queuedAt: 't', updatedAt: 't', finishedAt: 't', focus: 'writing' as const }
+    vi.spyOn(mock, 'excerptLibrary').mockResolvedValue({ ...real, books: real.books.map(b => (b.bookId === 1 ? { ...b, aiCount: 3, job: doneJob } : b)) })
+    const generate = vi.spyOn(mock, 'excerptGenerate').mockResolvedValue({ ...doneJob, run: 2, stage: 'queued', added: 0, finishedAt: null, focus: 'ideas' })
+    renderPage()
+    const regions = await screen.findAllByRole('region')
+    const micro = regions.find(r => r.getAttribute('aria-label') === '《微观经济学》的书摘')!
+    expect(micro).toHaveTextContent('学写法 · AI 挑选 3')
+    await user.click(within(micro).getByRole('button', { name: '《微观经济学》的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '重新整理' }))
+    const dialog = await screen.findByRole('dialog', { name: '重新整理《微观经济学》的书摘?' })
+    expect(dialog).toHaveTextContent('删掉的也不会再出现')
+    expect(within(dialog).getByRole('radio', { name: '学写法' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(within(dialog).getByRole('radio', { name: '抓观点' }))
+    await user.click(within(dialog).getByRole('button', { name: '重新整理' }))
+    expect(generate).toHaveBeenLastCalledWith(1, true, 'ideas')
+    await waitFor(() => expect(micro).toHaveTextContent('抓观点 ·'))
   })
 
   it('更正作者:书换到新作者名下', async () => {

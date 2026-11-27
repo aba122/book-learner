@@ -1112,13 +1112,35 @@ describe('TauriBackend 手机访问(BL-032 M1)', () => {
   })
 })
 
+describe('TauriBackend 书摘整理方式(BL-037)', () => {
+  it('excerptGenerate 带 focus(缺省 ideas);作业解码出 focus;不认识的方式出站即拒;坏 focus → invalid_response', async () => {
+    const job = { bookId: 1, run: 2, stage: 'queued', nextPiece: 0, totalPieces: 0, target: 0, added: 0, error: null, queuedAt: 't', updatedAt: 't', finishedAt: null, focus: 'writing' }
+    const calls: { command: string; payload: unknown }[] = []
+    let reply: unknown = job
+    const invoke: InvokeFn = async <T>(command: string, payload?: unknown) => {
+      calls.push({ command, payload })
+      return reply as T
+    }
+    const backend = new TauriBackend(invoke, { convertFileSrc: p => `asset://${p}` })
+    expect((await backend.excerptGenerate(1, true, 'writing')).focus).toBe('writing')
+    expect(calls.at(-1)).toEqual({ command: 'excerpt_generate', payload: { bookId: 1, regenerate: true, focus: 'writing' } })
+    await backend.excerptGenerate(1, false)
+    expect(calls.at(-1)).toEqual({ command: 'excerpt_generate', payload: { bookId: 1, regenerate: false, focus: 'ideas' } })
+    const before = calls.length
+    await expect(backend.excerptGenerate(1, true, 'poetry' as never)).rejects.toMatchObject({ code: 'invalid_request' })
+    expect(calls.length).toBe(before)
+    reply = { ...job, focus: 'poetry' }
+    await expect(backend.excerptGenerate(1, true, 'ideas')).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+})
+
 describe('TauriBackend 书摘(BL-034)', () => {
   const excerpt = {
     id: 5, bookId: 1, source: 'ai', text: '其实地上本没有路。', originalText: '其实地上本没有路。', tag: '路',
     spineHref: 'Text/ch1.xhtml', chapterTitle: '故乡', chapterIdx: 3, cfi: null, edited: false,
     createdAt: '2026-11-25T00:00:00Z', updatedAt: '2026-11-25T00:00:00Z',
   }
-  const job = { bookId: 1, run: 1, stage: 'reading', nextPiece: 2, totalPieces: 5, target: 50, added: 0, error: null, queuedAt: 't', updatedAt: 't', finishedAt: null }
+  const job = { bookId: 1, run: 1, stage: 'reading', nextPiece: 2, totalPieces: 5, target: 50, added: 0, error: null, queuedAt: 't', updatedAt: 't', finishedAt: null, focus: 'writing' }
   it('八条命令按契约传键并解码;存入载荷出站校验(三键、无多余键);坏枚举 → invalid_response', async () => {
     const calls: { command: string; payload: unknown }[] = []
     const replies: Record<string, unknown> = {
@@ -1151,7 +1173,7 @@ describe('TauriBackend 书摘(BL-034)', () => {
     expect(calls.map(c => [c.command, c.payload])).toEqual([
       ['excerpt_library', {}],
       ['excerpt_jobs', {}],
-      ['excerpt_generate', { bookId: 1, regenerate: true }],
+      ['excerpt_generate', { bookId: 1, regenerate: true, focus: 'ideas' }],
       ['excerpt_add', { bookId: 1, excerpt: { text: '其实地上本没有路。', spineHref: 'Text/ch1.xhtml', cfi: 'epubcfi(/6/2!/4/2,/1:0,/1:5)' } }],
       ['excerpt_update', { id: 5, text: '没有路。' }],
       ['excerpt_update', { id: 5, text: null }],

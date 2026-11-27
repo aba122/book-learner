@@ -274,7 +274,7 @@ describe('书架页', () => {
     expect(await screen.findByText('正在生成知识地图…')).toBeInTheDocument()
     expect(generate).not.toHaveBeenCalled()
     resolveJob([])
-    await waitFor(() => expect(generate).toHaveBeenCalledWith(2, false))
+    await waitFor(() => expect(generate).toHaveBeenCalledWith(2, false, 'ideas'))
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/2'))
     await waitFor(() => expect(logged).toHaveBeenCalledWith('[excerpts] enqueue failed:', 'AI 暂时没有回应,请重试'))
   })
@@ -466,13 +466,40 @@ describe('知识地图可选(BL-036)', () => {
     await user.click(screen.getByRole('button', { name: '暂不生成' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入书籍' })).toBeNull())
     expect(runMapJob).not.toHaveBeenCalled()
-    expect(generate).toHaveBeenCalledWith(2, false)
+    expect(generate).toHaveBeenCalledWith(2, false, 'ideas')
     expect(await screen.findByText('已导入《龙与少年游》')).toBeInTheDocument()
     const card = await screen.findByRole('article', { name: '龙与少年游' })
     expect(within(card).getByText('未生成地图')).toBeInTheDocument()
     expect(within(card).queryByText('计划冻结 · 复习照常')).toBeNull()
     await user.click(within(card).getByRole('button', { name: '阅读' }))
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/read/2'))
+  })
+
+  it('书摘整理方式(BL-037):选择这一步可选「学写法」,暂不生成与生成地图两条路都按它入队', async () => {
+    const user = userEvent.setup()
+    const generate = vi.spyOn(backendModule.backend, 'excerptGenerate')
+    renderLibrary()
+    await user.click(await screen.findByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '在细雨中呼喊.epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '人文·社科' }))
+    expect(await screen.findByText('要生成知识地图吗?')).toBeInTheDocument()
+    const picker = screen.getByRole('radiogroup', { name: '书摘整理方式' })
+    expect(within(picker).getByRole('radio', { name: '抓观点' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(within(picker).getByRole('radio', { name: '学写法' }))
+    expect(screen.getByTestId('focus-hint')).toHaveTextContent('标签按手法分')
+    await user.click(screen.getByRole('button', { name: '暂不生成' }))
+    await waitFor(() => expect(generate).toHaveBeenCalledWith(2, false, 'writing'))
+
+    // 第二本:学写法 + 生成知识地图 → 地图好了才按学写法入队;向导重开时方式回到默认
+    await user.click(screen.getByRole('button', { name: '导入书籍' }))
+    await user.upload(screen.getByLabelText(/选择 EPUB 文件/), new File(['epub'], '倾城之恋.epub', { type: 'application/epub+zip' }))
+    await user.click(await screen.findByRole('button', { name: '人文·社科' }))
+    const again = await screen.findByRole('radiogroup', { name: '书摘整理方式' })
+    expect(within(again).getByRole('radio', { name: '抓观点' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(within(again).getByRole('radio', { name: '学写法' }))
+    await chooseGenerateMap(user)
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/map/3'))
+    expect(generate).toHaveBeenLastCalledWith(3, false, 'writing')
   })
 
   it('在「要生成知识地图吗?」这一步直接关掉,等同暂不生成', async () => {
@@ -487,7 +514,7 @@ describe('知识地图可选(BL-036)', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导入书籍' })).toBeNull())
     expect(runMapJob).not.toHaveBeenCalled()
-    expect(generate).toHaveBeenCalledWith(2, false)
+    expect(generate).toHaveBeenCalledWith(2, false, 'ideas')
     expect(await screen.findByRole('article', { name: '随手翻' })).toHaveTextContent('未生成地图')
   })
 
@@ -523,7 +550,7 @@ describe('知识地图可选(BL-036)', () => {
     expect(runMapJob.mock.calls[0][0]).toBe(bookId)
     expect(runMapJob.mock.calls[0][1]).toMatch(ID_RE)
     expect(storeSpine).not.toHaveBeenCalled()
-    expect(generate).toHaveBeenCalledWith(bookId, false)
+    expect(generate).toHaveBeenCalledWith(bookId, false, undefined)
   })
 
   it('章节没写入过的 staged 书补生成:先写入抽出的章节再跑地图;地图失败可重试,沿用同一作业 id', async () => {

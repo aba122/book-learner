@@ -9,7 +9,8 @@ import Icon from '../../components/icons/Icon'
 import ProgressBar from '../../components/ProgressBar'
 import { newClientId } from '../../lib/ids'
 import { useBackendOperation } from '../../lib/useBackendOperation'
-import type { BookType, SpineChapter } from '../../types'
+import type { BookType, ExcerptFocus, SpineChapter } from '../../types'
+import FocusPicker from '../excerpts/FocusPicker'
 import MapChoice from './MapChoice'
 import { enqueueExcerpts, extractChapters, generateMap } from './mapJob'
 
@@ -74,6 +75,8 @@ export default function ImportWizard({
   const [pdfName, setPdfName] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<ImportAttempt | null>(null)
+  /** 书摘按什么挑(BL-037):与地图一起在选择这一步定,两条路(生成 / 暂不生成)都用它入队 */
+  const [excerptFocus, setExcerptFocus] = useState<ExcerptFocus>('ideas')
   const fileInput = useRef<HTMLInputElement>(null)
 
   // 第一段:导入 → 抽取 spine → storeSpine;每步成果记进 attempt,失败重试只重跑未完成的步骤
@@ -95,7 +98,8 @@ export default function ImportWizard({
   })
   // 第二段(选了「生成知识地图」):地图作业(进度)→ 书摘入队 → 锚点回填 → 跳地图页
   const mapOp = useBackendOperation(
-    (captured: ImportAttempt) => generateMap(captured.bookId!, captured.jobId, () => captured.file.arrayBuffer(), setProgress),
+    (captured: ImportAttempt, focus: ExcerptFocus) =>
+      generateMap(captured.bookId!, captured.jobId, () => captured.file.arrayBuffer(), setProgress, focus),
     { onCommitted: async (_key, captured) => navigate(`/map/${captured.bookId}`) },
   )
   const importing = importOp.pending.has('import')
@@ -107,14 +111,16 @@ export default function ImportWizard({
     if (busy) return
     const leftWithoutMap = attempt?.stored && attempt.bookId !== undefined ? attempt.bookId : null
     const leftTitle = attempt?.title
+    const focus = excerptFocus
     importOp.clearError('import')
     mapOp.clearError('map')
     setFile(null)
     setPdfName(null)
     setProgress(null)
     setAttempt(null)
+    setExcerptFocus('ideas')
     if (leftWithoutMap !== null) {
-      enqueueExcerpts(leftWithoutMap)
+      enqueueExcerpts(leftWithoutMap, focus)
       onImportedWithoutMap?.(leftWithoutMap, leftTitle)
     }
     onClose()
@@ -127,7 +133,7 @@ export default function ImportWizard({
   }
   const runMap = (captured: ImportAttempt) => {
     mapOp.clearError('map')
-    void mapOp.run('map', captured)
+    void mapOp.run('map', captured, excerptFocus)
   }
 
   const chooseType = (type: BookType) => {
@@ -194,7 +200,13 @@ export default function ImportWizard({
       ) : stage === 'failed' && failure && attempt ? (
         <AsyncError error={failure} onRetry={() => (importFailure ? runImport(attempt) : runMap(attempt))} />
       ) : stage === 'choose' && attempt?.chapters ? (
-        <MapChoice chapters={attempt.chapters} />
+        <>
+          <MapChoice chapters={attempt.chapters} />
+          <div className="mt-5 border-t border-sep pt-4">
+            <p className="mb-2 text-callout font-medium text-label-1">书摘按什么挑</p>
+            <FocusPicker value={excerptFocus} onChange={setExcerptFocus} />
+          </div>
+        </>
       ) : stage === 'pick' ? (
         <>
           <label

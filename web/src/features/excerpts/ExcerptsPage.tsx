@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { backend } from '../../backend'
 import AsyncError from '../../components/AsyncError'
 import Button from '../../components/Button'
-import Confirm from '../../components/Confirm'
 import Dialog from '../../components/Dialog'
 import EmptyState from '../../components/EmptyState'
 import Icon from '../../components/icons/Icon'
@@ -21,9 +20,11 @@ import { readPref, writePref } from '../../lib/prefs'
 import { toast } from '../../lib/toastStore'
 import { StaleResult, useAsyncResource } from '../../lib/useAsyncResource'
 import { NO_HOVER_QUERY, useIsPhone, useMediaQuery } from '../../lib/useMedia'
-import type { Book, Excerpt, ExcerptJob, ExcerptLibrary } from '../../types'
+import type { Book, Excerpt, ExcerptFocus, ExcerptJob, ExcerptLibrary } from '../../types'
 import { authorInfo, groupByAuthor, isJobActive, matchesQuery, toneStyle, type AuthorGroup, type AuthorInfo, type BookEntry } from './authors'
 import ExcerptCard from './ExcerptCard'
+import FocusPicker from './FocusPicker'
+import { FOCUS_LABEL } from './focus'
 
 /** 作者栏「全部」 */
 const ALL = '*'
@@ -200,6 +201,45 @@ function AuthorDialog({ book, onClose, onSaved }: { book: Book; onClose: () => v
   )
 }
 
+/**
+ * 整理对话框(BL-037):第一次整理与重新整理都在这里选按什么挑(抓观点 / 学写法);
+ * 重新整理默认选中这本书上一轮的方式,改了就按新方式开一轮。
+ */
+function OrganizeDialog({
+  entry,
+  onClose,
+  onConfirm,
+}: {
+  entry: BookEntry
+  onClose: () => void
+  onConfirm: (focus: ExcerptFocus, rerun: boolean) => void
+}) {
+  const job = entry.stats?.job ?? null
+  const rerun = job !== null || (entry.stats?.aiCount ?? 0) > 0
+  const [focus, setFocus] = useState<ExcerptFocus>(job?.focus ?? 'ideas')
+  return (
+    <Dialog
+      open
+      title={rerun ? `重新整理《${entry.book.title}》的书摘?` : `整理《${entry.book.title}》的书摘`}
+      size="md"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={() => onConfirm(focus, rerun)}>{rerun ? '重新整理' : '开始整理'}</Button>
+        </>
+      }
+    >
+      <FocusPicker value={focus} onChange={setFocus} />
+      {rerun && (
+        <p className="mt-4 text-callout leading-relaxed text-label-3">
+          AI 整理且你没改过的卡片会换成新的一批;改过的、你自己存的、删掉的都不受影响,删掉的也不会再出现。整理在后台进行。
+        </p>
+      )}
+    </Dialog>
+  )
+}
+
 function BookSection({
   entry,
   group,
@@ -211,6 +251,7 @@ function BookSection({
   onEdit,
   onRemove,
   onGenerate,
+  onRetry,
   onRegenerate,
   onSetAuthor,
   onOpenReader,
@@ -224,7 +265,10 @@ function BookSection({
   onReveal: (e: Excerpt) => void
   onEdit: (e: Excerpt) => void
   onRemove: (e: Excerpt) => void
+  /** 第一次整理:打开整理对话框选方式(BL-037) */
   onGenerate: () => void
+  /** 失败后重试:续跑这一轮,方式不变 */
+  onRetry: () => void
   onRegenerate: () => void
   onSetAuthor: () => void
   onOpenReader: (() => void) | null
@@ -252,6 +296,7 @@ function BookSection({
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-serif text-title3 font-semibold text-label-1">《{book.title}》</h3>
           <p className="text-subhead text-label-3 tabular-nums">
+            {job ? `${FOCUS_LABEL[job.focus]} · ` : ''}
             {neverRun && mine === 0 ? '还没整理' : `AI 挑选 ${ai} · 我添加 ${mine}`}
           </p>
         </div>
@@ -263,10 +308,10 @@ function BookSection({
         />
         <Menu open={menuAnchor !== null} onClose={() => setMenuAnchor(null)} anchor={menuAnchor} items={items} aria-label={`《${book.title}》的书摘操作`} />
       </div>
-      <JobBanner entry={entry} position={position} onRetry={onGenerate} onRegenerate={onRegenerate} />
+      <JobBanner entry={entry} position={position} onRetry={onRetry} onRegenerate={onRegenerate} />
       {neverRun && stats?.hasText && !query && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-m border border-dashed border-sep px-4 py-3 text-callout text-label-2">
-          <span className="min-w-0 flex-1">AI 还没整理这本书。整理会挑出约 50 句值得反复读的句子和段落。</span>
+          <span className="min-w-0 flex-1">AI 还没整理这本书。可以选抓观点(结论和重要段落)或学写法(写得好的段落),挑出约 50 条。</span>
           <Button size="sm" onClick={onGenerate}>
             <Icon name="sparkles" size={13} />
             整理这本书
@@ -326,7 +371,8 @@ export default function ExcerptsPage() {
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Excerpt | null>(null)
   const [authorBook, setAuthorBook] = useState<Book | null>(null)
-  const [regenerating, setRegenerating] = useState<BookEntry | null>(null)
+  /** 整理对话框(BL-037):第一次整理或重新整理,在这里选方式 */
+  const [organizing, setOrganizing] = useState<BookEntry | null>(null)
   const [starting, setStarting] = useState(false)
 
   const groups = useMemo(() => (data ? groupByAuthor(data.books, data.library.books, data.library.excerpts) : []), [data])
@@ -382,9 +428,9 @@ export default function ExcerptsPage() {
   const patchJob = (job: ExcerptJob) =>
     setData(cur => (cur ? { ...cur, library: { ...cur.library, books: cur.library.books.map(b => (b.bookId === job.bookId ? { ...b, job } : b)) } } : cur))
 
-  const generate = async (bookId: number, regenerate: boolean) => {
+  const generate = async (bookId: number, regenerate: boolean, focus?: ExcerptFocus) => {
     try {
-      patchJob(await backend.excerptGenerate(bookId, regenerate))
+      patchJob(await backend.excerptGenerate(bookId, regenerate, focus))
     } catch (e) {
       toast({ message: '没能开始整理', description: errorText(e) })
     }
@@ -548,8 +594,9 @@ export default function ExcerptsPage() {
             onReveal={reveal}
             onEdit={setEditing}
             onRemove={remove}
-            onGenerate={() => void generate(entry.book.id, false)}
-            onRegenerate={() => setRegenerating(entry)}
+            onGenerate={() => setOrganizing(entry)}
+            onRetry={() => void generate(entry.book.id, false)}
+            onRegenerate={() => setOrganizing(entry)}
             onSetAuthor={() => setAuthorBook(entry.book)}
             onOpenReader={() => navigate(readerPath(entry.book.id))}
           />
@@ -660,18 +707,17 @@ export default function ExcerptsPage() {
       )}
       {editing && <EditDialog excerpt={editing} onClose={() => setEditing(null)} onSaved={saved} />}
       {authorBook && <AuthorDialog book={authorBook} onClose={() => setAuthorBook(null)} onSaved={authorSaved} />}
-      <Confirm
-        open={regenerating !== null}
-        title={`重新整理《${regenerating?.book.title ?? ''}》的书摘?`}
-        message="AI 整理且你没改过的卡片会换成新的一批;改过的、你自己存的、删掉的都不受影响,删掉的也不会再出现。整理在后台进行。"
-        confirmText="重新整理"
-        onConfirm={() => {
-          const entry = regenerating
-          setRegenerating(null)
-          if (entry) void generate(entry.book.id, true)
-        }}
-        onCancel={() => setRegenerating(null)}
-      />
+      {organizing && (
+        <OrganizeDialog
+          entry={organizing}
+          onClose={() => setOrganizing(null)}
+          onConfirm={(focus, rerun) => {
+            const bookId = organizing.book.id
+            setOrganizing(null)
+            void generate(bookId, rerun, focus)
+          }}
+        />
+      )}
     </div>
   )
 }

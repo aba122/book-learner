@@ -172,7 +172,7 @@ describe('Tauri wire contract fixture', () => {
       // BL-034:书摘卡片
       { method: 'excerptLibrary', command: 'excerpt_library', payloadKeys: [] },
       { method: 'excerptJobs', command: 'excerpt_jobs', payloadKeys: [] },
-      { method: 'excerptGenerate', command: 'excerpt_generate', payloadKeys: ['bookId', 'regenerate'] },
+      { method: 'excerptGenerate', command: 'excerpt_generate', payloadKeys: ['bookId', 'regenerate', 'focus'] },
       { method: 'excerptAdd', command: 'excerpt_add', payloadKeys: ['bookId', 'excerpt'] },
       { method: 'excerptUpdate', command: 'excerpt_update', payloadKeys: ['id', 'text'] },
       { method: 'excerptRemove', command: 'excerpt_remove', payloadKeys: ['id'] },
@@ -584,6 +584,17 @@ describe('MockBackend 书摘(BL-034,与 core::excerpt 同语义)', () => {
     expect(ids).toContain(keep.id)
     expect(ids).toContain(mine.id)
     expect(ids).not.toContain(lib.excerpts[1].id)
+  })
+  it('整理方式(BL-037):第一次整理与重新整理记下所选方式;不重整时沿用原方式', async () => {
+    const b = new MockBackend()
+    const { bookId } = await b.importEpub(new File(['x'], '小说.epub'), 'humanities')
+    await b.storeSpine(bookId, [{ idx: 0, href: 'c1.xhtml', title: '第一章', text: '雨一直下。'.repeat(40) }])
+    expect((await b.excerptGenerate(bookId, false, 'writing')).focus).toBe('writing')
+    await settle(b)
+    expect((await b.excerptGenerate(bookId, false, 'ideas')).focus).toBe('writing')
+    const again = await b.excerptGenerate(bookId, true, 'ideas')
+    expect(again).toMatchObject({ run: 2, focus: 'ideas', stage: 'queued' })
+    expect((await b.excerptGenerate(1, false)).focus).toBe('ideas')
   })
   it('没有正文的书不能整理', async () => {
     const b = new MockBackend()

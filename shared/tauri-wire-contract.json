@@ -679,7 +679,8 @@
       "command": "excerpt_generate",
       "payloadKeys": [
         "bookId",
-        "regenerate"
+        "regenerate",
+        "focus"
       ]
     },
     {
